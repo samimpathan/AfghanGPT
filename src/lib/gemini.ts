@@ -22,6 +22,18 @@ export type ChatMsg = {
  * gemini-3.8-flash and gemini-flash-latest (503 high demand).
  */
 const CHAT_MODELS = ["gemini-3-flash-preview", "gemini-flash-lite-latest"] as const;
+
+/** gemini-3-flash-preview is a thinking model: without a cap, a Pashto
+ * reply spends ~13s thinking and dies on Vercel Hobby's 10s limit.
+ * thinkingBudget 0 disables thinking (verified 2026-11-23: Pashto
+ * total 12.9s → 4.91s, first text 2.19s). The fallback model
+ * gemini-flash-lite-latest REJECTS thinkingConfig with HTTP 400, so
+ * it is only sent for the thinking model — never for the fallback. */
+function thinkingConfigFor(model: string) {
+  return model === "gemini-3-flash-preview"
+    ? { thinkingConfig: { thinkingBudget: 0 } }
+    : {};
+}
 const TTS_MODEL = "gemini-2.5-flash-preview-tts";
 
 function modelStreamUrl(model: string): string {
@@ -147,7 +159,11 @@ export async function* streamGemini(
         body: JSON.stringify({
           system_instruction: { parts: [{ text: system }] },
           contents: toGeminiContents(messages),
-          generationConfig: { temperature: 0.7, maxOutputTokens: maxTokens },
+          generationConfig: {
+            temperature: 0.7,
+            maxOutputTokens: maxTokens,
+            ...thinkingConfigFor(model),
+          },
         }),
         signal: controller.signal,
       });
@@ -240,7 +256,11 @@ export async function generateText(
           body: JSON.stringify({
             system_instruction: { parts: [{ text: system }] },
             contents: toGeminiContents(messages),
-            generationConfig: { temperature: 0.7, maxOutputTokens: maxTokens },
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: maxTokens,
+              ...thinkingConfigFor(model),
+            },
           }),
           signal: controller.signal,
         }

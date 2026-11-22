@@ -15,6 +15,10 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** Vercel Hobby kills serverless functions after 10s by default — a
+ * Pashto reply from gemini-3-flash-preview takes ~13s (thinking model),
+ * so the stream was cut mid-reply. Hobby allows up to 60s free. */
+export const maxDuration = 60;
 
 /** Photo questions need the online AI — the offline brain cannot see images. */
 const PHOTO_OFFLINE_NOTE =

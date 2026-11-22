@@ -1120,7 +1120,23 @@ export default function HomePage() {
         rec.start();
         setRecording(true);
       })
-      .catch(() => showNotice(t(lang, "micPermission")));
+      .catch((err: unknown) => {
+        // Only a real denial gets the permission note: getUserMedia
+        // rejects for other reasons too (no mic plugged in /
+        // NotFoundError, mic busy / NotReadableError, aborted), and
+        // telling the user to "allow microphone access" for those
+        // would be wrong. Denial = NotAllowedError (user / browser
+        // refused) or SecurityError (permission denied by policy).
+        const name = (err as { name?: string } | null)?.name ?? "";
+        showNotice(
+          t(
+            lang,
+            name === "NotAllowedError" || name === "SecurityError"
+              ? "micPermission"
+              : "micNotSupported"
+          )
+        );
+      });
   }, [listening, recording, lang, send]);
 
   /** Attach a photo: downscale it client-side, show a thumbnail. */
@@ -1216,7 +1232,20 @@ export default function HomePage() {
       setScreenShareOpen(true);
       stream.getVideoTracks()[0]?.addEventListener("ended", closeScreenShare);
     } catch {
-      showNotice(t(lang, "screenShareBlocked"));
+      // FAILURE 2 fix: on desktop the API EXISTS but the call can
+      // still be denied (user cancels / browser blocks it) — the old
+      // code only showed the blocked toast and left the user with no
+      // working path. Same photo fallback as the missing-API branch
+      // above: photograph the screen and the AI answers it as a
+      // photo question, so the button always leads somewhere.
+      showNotice(
+        tx(
+          "screenPhotoFallback",
+          "Screen capture isn't available on this phone — take a photo of your screen instead and the AI will describe it."
+        )
+      );
+      screenAutoSendRef.current = Date.now();
+      photoInputRef.current?.click();
     }
   };
 

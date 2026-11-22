@@ -10,11 +10,17 @@ export const dynamic = "force-dynamic";
  * opens a WebSocket to the Gemini Live API with it:
  *   wss://generativelanguage.googleapis.com/ws/
  *     google.ai.generativelanguage.v1beta.GenerativeService
- *     .BidiGenerateContentConstrained?access_token=<token>
+ *     .BidiGenerateContent?access_token=<token>
  *
- * Token creation uses the v1alpha authTokens endpoint (the
- * v1beta spelling auth_tokens is tried as a fallback). The token
- * is single-use, must be used within ~2 minutes, and expires
+ * Token creation uses the v1beta auth_tokens endpoint ONLY, with
+ * the fields at TOP LEVEL — no "config" wrapper:
+ *   { "uses": 1, "expireTime": "<ISO>", "newSessionExpireTime": "<ISO>" }
+ * Proven by live probe (2026-11-23): the top-level body returns
+ * HTTP 200 { "name": "auth_tokens/<hex>" }; the "config" wrapper
+ * returns HTTP 400 ("Unknown name \"config\" at 'auth_token'").
+ * The old v1alpha/authTokens endpoint returns HTTP 404 (retired)
+ * and is no longer tried.
+ * The token is single-use, must be used within ~2 minutes, and expires
  * after 30 minutes at most.
  *
  * Responses:
@@ -25,10 +31,8 @@ export const dynamic = "force-dynamic";
  *     pretend a live call works; it falls back to push-to-talk
  *     voice mode and says so honestly.
  */
-const TOKEN_ENDPOINTS = [
-  "https://generativelanguage.googleapis.com/v1alpha/authTokens",
-  "https://generativelanguage.googleapis.com/v1beta/auth_tokens",
-];
+const TOKEN_ENDPOINT =
+  "https://generativelanguage.googleapis.com/v1beta/auth_tokens";
 
 function expiryIso(minutesFromNow: number): string {
   return new Date(Date.now() + minutesFromNow * 60 * 1000).toISOString();
@@ -44,28 +48,26 @@ export async function POST() {
   }
 
   // Single-use token, 2 minutes to start the session, 30 min max life.
+  // Fields at TOP LEVEL (no "config" wrapper) — proven by live probe.
   const body = JSON.stringify({
-    config: {
-      uses: 1,
-      expireTime: expiryIso(30),
-      newSessionExpireTime: expiryIso(2),
-    },
+    uses: 1,
+    expireTime: expiryIso(30),
+    newSessionExpireTime: expiryIso(2),
   });
 
-  for (const url of TOKEN_ENDPOINTS) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
-    try {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey,
-        },
-        body,
-        signal: controller.signal,
-      });
-      if (!res.ok) continue;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  try {
+    const res = await fetch(TOKEN_ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-goog-api-key": apiKey,
+      },
+      body,
+      signal: controller.signal,
+    });
+    if (res.ok) {
       const json = (await res.json()) as {
         token?: string;
         name?: string;
@@ -74,18 +76,19 @@ export async function POST() {
       // some SDK shapes expose the resource name instead, which
       // the client SDK accepts as the token ("auth_tokens/...").
       const token = json.token || json.name;
-      if (!token) continue;
-      return new Response(JSON.stringify({ token }), {
-        headers: {
-          "Content-Type": "application/json; charset=utf-8",
-          "Cache-Control": "no-store",
-        },
-      });
-    } catch {
-      continue;
-    } finally {
-      clearTimeout(timeout);
+      if (token) {
+        return new Response(JSON.stringify({ token }), {
+          headers: {
+            "Content-Type": "application/json; charset=utf-8",
+            "Cache-Control": "no-store",
+          },
+        });
+      }
     }
+  } catch {
+    // Fall through to the 502 below.
+  } finally {
+    clearTimeout(timeout);
   }
 
   console.error("Live ephemeral token unavailable for this key");

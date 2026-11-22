@@ -24,7 +24,7 @@ import {
  *   2. The client opens a WebSocket to the Gemini Live API with it:
  *      wss://generativelanguage.googleapis.com/ws/
  *      google.ai.generativelanguage.v1beta.GenerativeService
- *      .BidiGenerateContentConstrained?access_token=<token>
+ *      .BidiGenerateContent?access_token=<token>
  *   3. Mic audio streams as 16kHz PCM; the AI's 24kHz PCM audio
  *      plays back. Camera / screen-share frames go as Live video
  *      input (JPEG, ~1 fps) so the AI can see the screen and
@@ -330,7 +330,7 @@ export default function LiveCall({
       const { token } = (await tokenRes.json()) as { token?: string };
       if (!token) return false;
       const wsUrl =
-        "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token=" +
+        "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?access_token=" +
         encodeURIComponent(token);
       return await new Promise<boolean>((resolve) => {
         let settled = false;
@@ -444,10 +444,14 @@ export default function LiveCall({
       if (ok) {
         try {
           await startMic();
-        } catch {
+        } catch (err) {
           // Live connected but the mic is dead (denied / no mic).
           // A "live" call that cannot hear the user would be fake —
           // close the session and fall back to push-to-talk honestly.
+          // Only a real denial gets the permission note — no mic
+          // found / mic busy is not a permission problem.
+          const name = (err as { name?: string } | null)?.name ?? "";
+          const denied = name === "NotAllowedError" || name === "SecurityError";
           try {
             wsRef.current?.close();
           } catch {
@@ -455,7 +459,7 @@ export default function LiveCall({
           }
           wsRef.current = null;
           setPhase("fallback");
-          setErrorNote(t(lang, "micPermission"));
+          setErrorNote(t(lang, denied ? "micPermission" : "micNotSupported"));
         }
         return;
       }
@@ -540,7 +544,13 @@ export default function LiveCall({
       // The user can stop sharing from the browser UI too.
       stream.getVideoTracks()[0]?.addEventListener("ended", stopVideo);
     } catch {
-      onNote?.(t(lang, "screenShareBlocked"));
+      // FAILURE 2 fix: the API exists but the call was denied (user
+      // cancels / browser blocks it) — the old code only showed the
+      // blocked toast and left the user with no working path. Same
+      // photo fallback as the missing-API branch above, so the
+      // button always leads to a working path.
+      onNote?.(t(lang, "liveScreenUnsupported"));
+      liveFileInputRef.current?.click();
     }
   };
 
@@ -645,8 +655,18 @@ export default function LiveCall({
       };
       rec.start();
       setFallbackListening(true);
-    } catch {
-      onNote?.(t(lang, "micPermission"));
+    } catch (err) {
+      // Only a real denial gets the permission note — no mic found
+      // / mic busy / aborted is not a permission problem.
+      const name = (err as { name?: string } | null)?.name ?? "";
+      onNote?.(
+        t(
+          lang,
+          name === "NotAllowedError" || name === "SecurityError"
+            ? "micPermission"
+            : "micNotSupported"
+        )
+      );
     }
   };
 
