@@ -125,9 +125,11 @@ function modeTokens(mode: GeminiMode): number {
 export async function* streamGemini(
   messages: ChatMsg[],
   apiKey: string,
-  mode: GeminiMode = "auto"
+  mode: GeminiMode = "auto",
+  systemOverride?: string
 ): AsyncGenerator<string> {
-  const system = SYSTEM_PROMPT + modePrompt(mode);
+  const system =
+    (systemOverride ? `${systemOverride}\n` : "") + SYSTEM_PROMPT + modePrompt(mode);
   const maxTokens = modeTokens(mode);
   let lastError: Error | null = null;
 
@@ -207,6 +209,64 @@ export async function* streamGemini(
     }
   }
 
+  throw lastError ?? new Error("Gemini request failed");
+}
+
+/** Non-streaming text reply (for the studios asking for strict JSON
+ * specs, summaries, etc.). Same model fallback chain as streamGemini;
+ * systemOverride is prepended to the system prompt when given. */
+export async function generateText(
+  messages: ChatMsg[],
+  apiKey: string,
+  mode: GeminiMode = "auto",
+  systemOverride?: string
+): Promise<string> {
+  const system =
+    (systemOverride ? `${systemOverride}\n` : "") + SYSTEM_PROMPT + modePrompt(mode);
+  const maxTokens = modeTokens(mode);
+  let lastError: Error | null = null;
+  for (const model of CHAT_MODELS) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+    try {
+      const res = await fetch(
+        `${modelUrl(model, "generateContent")}?key=${encodeURIComponent(apiKey)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: system }] },
+            contents: toGeminiContents(messages),
+            generationConfig: { temperature: 0.7, maxOutputTokens: maxTokens },
+          }),
+          signal: controller.signal,
+        }
+      );
+      if (!res.ok) {
+        const status = res.status;
+        lastError = new Error(`Gemini error ${status} (${model})`);
+        if (status === 400 || status === 401 || status === 403) break;
+        continue;
+      }
+      const json = (await res.json()) as {
+        candidates?: { content?: { parts?: { text?: string }[] } }[];
+      };
+      const text = json?.candidates?.[0]?.content?.parts
+        ?.map((p) => p.text ?? "")
+        .join("")
+        .trim();
+      if (text) return text;
+      lastError = new Error(`Gemini returned an empty response (${model})`);
+    } catch (e) {
+      lastError = new Error(
+        e instanceof Error && e.name === "AbortError"
+          ? `Gemini request timed out (${model})`
+          : `Could not reach Gemini (${model})`
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
   throw lastError ?? new Error("Gemini request failed");
 }
 

@@ -36,7 +36,7 @@ export default function Providers({ children }: { children: ReactNode }) {
     try {
       const savedLang = localStorage.getItem("samim-ai-lang") as Lang | null;
       const savedTheme = localStorage.getItem("samim-ai-theme") as Theme | null;
-      if (savedLang && ["ps", "en", "fa"].includes(savedLang)) setLang(savedLang);
+      if (savedLang && ["ps", "en", "fa", "ar"].includes(savedLang)) setLang(savedLang);
       if (savedTheme && ["light", "dark"].includes(savedTheme)) setTheme(savedTheme);
     } catch {
       // ignore

@@ -9,6 +9,8 @@ import { t } from "@/lib/i18n";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { isAdminEmail, ADMIN_EMAIL } from "@/lib/admin";
 import { listChats, listMessages } from "@/lib/chats";
+import { store } from "@/lib/store";
+import { providerInfos } from "@/lib/providers";
 
 type Status = {
   supabaseConfigured: boolean;
@@ -25,6 +27,41 @@ export default function AdminPage() {
   const [totalChats, setTotalChats] = useState<number | null>(null);
   const [totalMessages, setTotalMessages] = useState<number | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
+  // Merged studios (local, this device only).
+  const [studioCounts, setStudioCounts] = useState({ chats: 0, projects: 0, images: 0, workflows: 0, runs: 0 });
+  const [logs, setLogs] = useState<{ ts: number; where: string; message: string }[]>([]);
+  const [features, setFeatures] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    // Guests read from memory only; logged-in admins see saved counts.
+    store.refreshAuthMode().then(() => {
+      try {
+        const s = store.settings();
+        setFeatures(s.features ?? {});
+        setStudioCounts({
+          chats: store.chats().length,
+          projects: store.projects().length,
+          images: store.images().length,
+          workflows: store.workflows().length,
+          runs: store.runs().length,
+        });
+        setLogs(store.logs());
+      } catch {
+        // ignore — admin still shows the server status above
+      }
+    });
+  }, []);
+
+  const toggleFeature = (key: string) => {
+    try {
+      const s = store.settings();
+      const next = { ...(s.features ?? {}), [key]: (s.features?.[key] ?? true) === false };
+      store.saveSettings({ ...s, features: next });
+      setFeatures(next);
+    } catch {
+      // ignore
+    }
+  };
 
   useEffect(() => {
     if (!supabase) {
@@ -158,6 +195,93 @@ export default function AdminPage() {
             <p className="mt-2 text-xs text-slate-500">
               {t(lang, "adminNote")}
             </p>
+          </div>
+
+          <div>
+            <h2 className="text-sm font-bold">{t(lang, "studioCounts")}</h2>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-center">
+              {[
+                { label: t(lang, "totalChats"), value: studioCounts.chats },
+                { label: t(lang, "totalProjects"), value: studioCounts.projects },
+                { label: t(lang, "totalImages"), value: studioCounts.images },
+                { label: t(lang, "totalWorkflows"), value: studioCounts.workflows },
+              ].map((c) => (
+                <div key={c.label} className="rounded-2xl bg-slate-100 px-3 py-3 dark:bg-slate-800">
+                  <p className="text-xl font-bold">{c.value}</p>
+                  <p className="text-xs text-slate-500">{c.label}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-slate-500">
+              {t(lang, "studioFeatures")} • {studioCounts.runs} runs
+            </p>
+          </div>
+
+          <div>
+            <h2 className="text-sm font-bold">{t(lang, "providers")}</h2>
+            <div className="mt-2 flex flex-col gap-2 text-sm">
+              {providerInfos({
+                geminiConfigured: geminiOnline,
+                openaiKey: !!store.settings().openaiKey.trim(),
+                anthropicKey: !!store.settings().anthropicKey.trim(),
+                deepseekKey: !!store.settings().deepseekKey.trim(),
+                grokKey: !!store.settings().grokKey.trim(),
+                qwenKey: !!store.settings().qwenKey.trim(),
+                openRouterKey: !!store.settings().openRouterKey.trim(),
+                huggingFaceKey: !!store.settings().hfKey.trim(),
+              }).map((p) => (
+                <div key={p.id} className="flex items-center justify-between gap-4">
+                  <span>
+                    {p.name}
+                    <span className="block text-xs text-slate-500">{p.models.join(", ")}</span>
+                  </span>
+                  <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-800">
+                    {p.status === "ready" ? t(lang, "configured") : t(lang, "providerNeedsKey")}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-slate-500">{t(lang, "limits")}: Gemini free tier — limited requests/day &amp; per minute. Rate limit on /api/chat: 30/min per IP.</p>
+          </div>
+
+          <div>
+            <h2 className="text-sm font-bold">{t(lang, "studioFeatures")}</h2>
+            <div className="mt-2 flex flex-col gap-2 text-sm">
+              {Object.keys(features).map((f) => (
+                <label key={f} className="flex items-center justify-between gap-4">
+                  <span className="capitalize">{f}</span>
+                  <input
+                    type="checkbox"
+                    checked={features[f] !== false}
+                    onChange={() => toggleFeature(f)}
+                    className="h-5 w-5 accent-[#2457FF]"
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <h2 className="text-sm font-bold">{t(lang, "errorLog")}</h2>
+            {logs.length === 0 ? (
+              <p className="mt-2 text-sm text-slate-500">{t(lang, "empty")}</p>
+            ) : (
+              <ul className="mt-2 space-y-1 text-sm">
+                {logs.slice(0, 30).map((l, i) => (
+                  <li key={i} className="rounded-lg bg-slate-100 px-2 py-1.5 dark:bg-slate-800">
+                    <span className="text-xs text-slate-500">
+                      {new Date(l.ts).toLocaleString()} — {l.where}
+                    </span>
+                    <span className="block break-words">{l.message}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          <div>
+            <h2 className="text-sm font-bold">{t(lang, "users")}</h2>
+            <p className="mt-2 text-sm text-slate-500">{t(lang, "usersNote")}</p>
           </div>
 
           <div className="flex flex-col gap-2">

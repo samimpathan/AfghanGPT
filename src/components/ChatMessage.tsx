@@ -18,7 +18,9 @@ export type UiMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
-  mode?: "gemini" | "offline" | "refused" | "busy" | "image" | "file";
+  mode?: "gemini" | "offline" | "refused" | "busy" | "image" | "file" | "provider";
+  /** Which provider answered (when mode is "provider"). */
+  provider?: string;
   /** Attached photo / generated image as a data URL. */
   image?: string;
   /** A real generated file (v3.2): downloaded from a data URL. */
@@ -436,8 +438,7 @@ export default function ChatMessage({
             />
           )}
           <div
-            className="break-words rounded-[28px] px-[18px] py-3 text-[17px] leading-6 text-[#111111]"
-            style={{ background: "#A8B6CC" }}
+            className="break-words rounded-[28px] bg-[#ECECEC] px-[18px] py-3 text-[17px] leading-6 text-slate-900 dark:bg-[#2F2F2F] dark:text-[#EAF2FF]"
             dir="auto"
           >
             <p
@@ -484,12 +485,18 @@ export default function ChatMessage({
     );
   }
 
-  // Assistant: PLAIN TEXT (no bubble, Gemini/ChatGPT style) with the
+  // Assistant: PLAIN TEXT (no bubble, Gemini/ChatGPT style) with a
+  // small circular avatar at the start (ChatGPT-style) and the
   // action row underneath: like/dislike, regenerate, share, copy,
   // ••• (Branch / Export / Report), speaker.
   return (
-    <div className="flex min-w-0">
-      <div className="mr-auto min-w-0 w-full max-w-[92%] break-words md:max-w-[95%]">
+    <div className="flex min-w-0 items-start gap-3">
+      <img
+        src="/avatar.jpg"
+        alt=""
+        className="mt-1 h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-slate-200 dark:ring-[#263550]"
+      />
+      <div className="min-w-0 flex-1 break-words">
         {msg.image && (
           <img
             src={msg.image}
@@ -691,6 +698,11 @@ export default function ChatMessage({
           {msg.mode === "gemini" && (
             <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200">
               {t(lang, "onlineMode")}
+            </span>
+          )}
+          {msg.mode === "provider" && (
+            <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs text-violet-800 dark:bg-violet-900 dark:text-violet-200">
+              {msg.provider ?? "AI"}
             </span>
           )}
         </div>

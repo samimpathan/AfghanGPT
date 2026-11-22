@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
-import { streamGemini, generateImage, type ChatMsg, type GeminiMode } from "@/lib/gemini";
+import { streamGemini, generateText, generateImage, type ChatMsg, type GeminiMode } from "@/lib/gemini";
 import { getOfflineAnswer, isPashto } from "@/lib/offlineBrain";
 import { isAdultRequest, ADULT_REFUSAL_PS } from "@/lib/safety";
+import { rateLimited, clientIp } from "@/lib/ratelimit";
 import {
   generateFile,
   validateSpec,
@@ -237,7 +238,14 @@ function busyMessageFor(text: string): string {
 }
 
 export async function POST(req: NextRequest) {
-  let body: { messages?: ChatMsg[]; mode?: string };
+  // Basic abuse brake: 30 chat requests per minute per IP.
+  if (rateLimited(clientIp(req), 30, 60_000)) {
+    return new Response(JSON.stringify({ error: "rate-limited" }), {
+      status: 429,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  let body: { messages?: ChatMsg[]; mode?: string; system?: string; format?: string };
   try {
     body = await req.json();
   } catch {
@@ -266,6 +274,32 @@ export async function POST(req: NextRequest) {
   // A photo question with no key: say so honestly, do not guess about it.
   if (lastImage && !apiKey) {
     return textStream(PHOTO_OFFLINE_NOTE, "offline");
+  }
+
+  // Studios: non-streaming JSON mode (strict JSON specs, summaries).
+  // Runs BEFORE file/image detection so a studio prompt asking for a
+  // presentation or a JSON spec is never hijacked into a file reply.
+  // Normal chat (no format) is completely unaffected by this branch.
+  const system = typeof body.system === "string" ? body.system.slice(0, 4000) : "";
+  const chatMode: GeminiMode =
+    body.mode === "fast" || body.mode === "smart" ? body.mode : "auto";
+  if (body.format === "json") {
+    if (!apiKey) {
+      return textStream(getOfflineAnswer(lastText), "offline");
+    }
+    try {
+      const text = await generateText(messages, apiKey, chatMode, system);
+      return new Response(JSON.stringify({ text }), {
+        headers: {
+          "Content-Type": "application/json; charset=utf-8",
+          "X-SamimAI-Mode": "gemini",
+          "Cache-Control": "no-store",
+        },
+      });
+    } catch (e) {
+      console.error("Gemini failed:", e instanceof Error ? e.message : "unknown");
+      return textStream(busyMessageFor(lastText), "busy");
+    }
   }
 
   // Real file creation (docx/xlsx/pptx/pdf/txt/md/csv/json/html/zip).
@@ -312,12 +346,11 @@ export async function POST(req: NextRequest) {
   // silently falling back to the offline brain and lying that the owner
   // must add a key — the key IS added. A failure mid-stream (after chunks
   // were already sent) just closes the stream; the partial reply stays.
-  const chatMode: GeminiMode =
-    body.mode === "fast" || body.mode === "smart" ? body.mode : "auto";
+  // (chatMode and system were defined above, before the JSON branch.)
   let gen: AsyncGenerator<string>;
   let first: IteratorResult<string>;
   try {
-    gen = streamGemini(messages, apiKey, chatMode);
+    gen = streamGemini(messages, apiKey, chatMode, system);
     first = await gen.next();
   } catch (e) {
     // Server log only: status/message, never the key.

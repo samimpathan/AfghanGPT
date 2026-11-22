@@ -5,11 +5,24 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  /* Studio surfaces (used by the merged studio pages + ui primitives). */
+  --card: #ffffff;
+  --card-border: #e2e8f0;
+  --muted: #5b6b8c;
+  --brand: #7c3aed;
+  --brand2: #2457ff;
+  --accent: #00d4ff;
 }
 
 .dark {
   --background: #0a0a0a;
   --foreground: #ededed;
+  --card: #111b30;
+  --card-border: #263550;
+  --muted: #aab7d0;
+  --brand: #8b5cf6;
+  --brand2: #3b82f6;
+  --accent: #00d4ff;
 }
 
 body {
@@ -189,6 +202,20 @@ body {
   padding-inline-start: 0.8rem;
   margin: 0.5rem 0;
   color: #64748b;
+}
+
+/* Studio gradient text + card glow (merged studio pages). */
+.studio-gradient {
+  background: linear-gradient(135deg, #8b5cf6, #2457ff 55%, #00d4ff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.studio-card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 1rem;
 }
 
 @layer utilities {

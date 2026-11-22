@@ -9,6 +9,10 @@ import { useUi } from "@/components/Providers";
 import { t, LANGS } from "@/lib/i18n";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { isAdminEmail } from "@/lib/admin";
+import { store } from "@/lib/store";
+import { providerInfos, type ProviderId } from "@/lib/providers";
+import { downloadFileSpec } from "@/lib/client";
+import type { FileSpec } from "@/lib/filegen";
 import {
   listChats,
   createChat,
@@ -39,23 +43,43 @@ type LocalChat = {
 
 type ModelMode = "auto" | "fast" | "smart";
 
-const GUEST_KEY = "samim-ai-guest-chats";
-const GUEST_ACTIVE_KEY = "samim-ai-guest-active";
 const MODEL_KEY = "samim-ai-model";
-const PINS_KEY = "samim-ai-pinned-chats";
 const SAVED_IMAGES_KEY = "samim-ai-saved-images";
-const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
+const META_KEY = "samim-ai-chat-meta";
 
-function loadGuestChats(): LocalChat[] {
+/** GUEST PRIVACY (2026-11-22): guest chats are IN-MEMORY ONLY.
+ * There is deliberately NO guest-chat storage key anymore — no
+ * localStorage, no sessionStorage, no IndexedDB, no Supabase.
+ * A guest chat starts empty on every mount and dies on refresh,
+ * page close, or sign-out. Logged-in chats live in Supabase. */
+
+/** Chat folders + archive live in localStorage, keyed by chat id.
+ * Deliberately NOT a database column: studio-001.sql is additive
+ * new tables only, and folders are per-device organisation. */
+type ChatMeta = { folder?: string; archived?: boolean };
+
+function loadChatMeta(): Record<string, ChatMeta> {
   try {
-    const raw = localStorage.getItem(GUEST_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as LocalChat[];
-    return Array.isArray(parsed) ? parsed : [];
+    const raw = localStorage.getItem(META_KEY);
+    const parsed = raw ? (JSON.parse(raw) as Record<string, ChatMeta>) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
   } catch {
-    return [];
+    return {};
   }
 }
+
+/** The 8 merged studios (from the Samim AI studios). */
+const STUDIOS = [
+  { href: "/studio/write", key: "writing", icon: "✍", feature: "writing" },
+  { href: "/studio/code", key: "coding", icon: "</>", feature: "coding" },
+  { href: "/studio/builder", key: "builder", icon: "🧩", feature: "builder" },
+  { href: "/studio/image", key: "image", icon: "🖼", feature: "image" },
+  { href: "/studio/slides", key: "slides", icon: "📊", feature: "slides" },
+  { href: "/studio/docs", key: "docs", icon: "📄", feature: "docs" },
+  { href: "/research", key: "research", icon: "🔍", feature: "research" },
+  { href: "/studio/workflows", key: "workflows", icon: "⚙", feature: "workflows" },
+] as const;
+const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 
 /** Logged-in user's display name: full_name saved at register, else the email prefix. */
 function displayNameOf(user: {
@@ -69,26 +93,9 @@ function displayNameOf(user: {
   return prefix || null;
 }
 
-function loadGuestActiveId(chats: LocalChat[]): string | null {
-  try {
-    const saved = localStorage.getItem(GUEST_ACTIVE_KEY);
-    if (saved && chats.some((c) => c.id === saved)) return saved;
-  } catch {
-    // ignore
-  }
-  return chats[0]?.id ?? null;
-}
-
-function loadPins(): string[] {
-  try {
-    const raw = localStorage.getItem(PINS_KEY);
-    const parsed = raw ? (JSON.parse(raw) as string[]) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
+/** Pins are IN-MEMORY ONLY (guest-privacy rule): a pinned guest
+ * chat must not survive a refresh, so pins are never written to
+ * any storage — they live in state for this session only. */
 function loadSavedImages(): string[] {
   try {
     const raw = localStorage.getItem(SAVED_IMAGES_KEY);
@@ -165,8 +172,20 @@ export default function HomePage() {
   const [thinkHarder, setThinkHarder] = useState(false);
   const [liveCallOpen, setLiveCallOpen] = useState(false);
   const [screenShareOpen, setScreenShareOpen] = useState(false);
+  // Merged studios + master-prompt features (v3.3).
+  const [provider, setProvider] = useState<ProviderId>("gemini");
+  const [serverGemini, setServerGemini] = useState(true);
+  const [tempMode, setTempMode] = useState(false);
+  const [chatMeta, setChatMeta] = useState<Record<string, ChatMeta>>({});
+  const [drawerCollapsed, setDrawerCollapsed] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [studioFeatures, setStudioFeatures] = useState<Record<string, boolean>>({});
+  // Temporary chats are never saved anywhere — not Supabase, not
+  // localStorage. Their ids live only in this ref for this session.
+  const tempIdsRef = useRef<Set<string>>(new Set());
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
@@ -176,10 +195,6 @@ export default function HomePage() {
   const recorderChunksRef = useRef<Blob[]>([]);
   const screenStreamRef = useRef<MediaStream | null>(null);
   const screenVideoRef = useRef<HTMLVideoElement | null>(null);
-  // True once the initial load (guest storage or Supabase) has run.
-  // The persist effect must NOT write before this, or it would overwrite
-  // the saved guest chats with [] on first paint.
-  const loadedRef = useRef(false);
   const chatsRef = useRef<LocalChat[]>([]);
   chatsRef.current = chats;
 
@@ -208,48 +223,51 @@ export default function HomePage() {
     try {
       const saved = localStorage.getItem(MODEL_KEY) as ModelMode | null;
       if (saved === "fast" || saved === "smart" || saved === "auto") setModelMode(saved);
+      const settings = store.settings();
+      if (settings.provider) setProvider(settings.provider);
     } catch {
       // ignore
     }
-    setPins(loadPins());
+    // Pins are in-memory only — never loaded from storage.
+    setChatMeta(loadChatMeta());
+    // Honest provider status: Gemini is ready only when the server says so.
+    fetch("/api/status")
+      .then((r) => r.json() as Promise<{ geminiConfigured?: boolean }>)
+      .then((j) => setServerGemini(!!j.geminiConfigured))
+      .catch(() => setServerGemini(false));
   }, []);
+
+  // Persist chat folders + archive flags — LOGGED-IN ONLY.
+  // Guests get in-session folders only; nothing is written, so a
+  // guest's folders die with the session like their chats.
+  useEffect(() => {
+    if (!userId) return;
+    try {
+      localStorage.setItem(META_KEY, JSON.stringify(chatMeta));
+    } catch {
+      // ignore
+    }
+  }, [chatMeta, userId]);
 
   // Refresh the saved-images gallery whenever the drawer opens.
   useEffect(() => {
-    if (sidebarOpen) setSavedImages(loadSavedImages());
+    if (sidebarOpen) {
+      setSavedImages(loadSavedImages());
+      try {
+        setStudioFeatures(store.settings().features ?? {});
+      } catch {
+        // ignore
+      }
+    }
   }, [sidebarOpen]);
-
-  // Persist guest chats locally — ONLY after the initial load has run.
-  // Before this fix this effect ran on mount with chats=[] and overwrote
-  // the saved chats with [] before the load effect could read them,
-  // so every guest chat vanished on reload.
-  useEffect(() => {
-    if (!loadedRef.current || userId) return; // logged-in chats live in Supabase
-    try {
-      localStorage.setItem(GUEST_KEY, JSON.stringify(chats));
-    } catch {
-      // ignore
-    }
-  }, [chats, userId]);
-
-  // Remember which guest chat was open, so re-entering restores it.
-  useEffect(() => {
-    if (!loadedRef.current || userId) return;
-    try {
-      if (activeId) localStorage.setItem(GUEST_ACTIVE_KEY, activeId);
-      else localStorage.removeItem(GUEST_ACTIVE_KEY);
-    } catch {
-      // ignore
-    }
-  }, [activeId, userId]);
 
   // Auth session + load history.
   useEffect(() => {
+    // Guests start EMPTY every time — in-memory only, nothing to load.
     const loadGuest = () => {
-      const guest = loadGuestChats();
-      setChats(guest);
-      setActiveId(loadGuestActiveId(guest));
-      loadedRef.current = true;
+      setChats([]);
+      setActiveId(null);
+      store.setMemoryOnly(true);
     };
     if (!supabase) {
       loadGuest();
@@ -261,6 +279,7 @@ export default function HomePage() {
         loadGuest();
         return;
       }
+      store.setMemoryOnly(false);
       setUserEmail(session.user.email ?? null);
       setUserId(session.user.id);
       setUserName(displayNameOf(session.user));
@@ -273,23 +292,25 @@ export default function HomePage() {
       }));
       setChats(loaded);
       if (loaded.length > 0) setActiveId(loaded[0].id);
-      loadedRef.current = true;
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_e, session) => {
       if (session?.user) {
+        store.setMemoryOnly(false);
         setUserEmail(session.user.email ?? null);
         setUserId(session.user.id);
         setUserName(displayNameOf(session.user));
       } else {
-        // Signed out — go back to the saved guest chats.
+        // Signed out — the guest session starts empty. Nothing from
+        // the signed-in session (or any earlier guest session) is kept.
+        store.setMemoryOnly(true);
         setUserEmail(null);
         setUserId(null);
         setUserName(null);
-        if (loadedRef.current) {
-          const guest = loadGuestChats();
-          setChats(guest);
-          setActiveId(loadGuestActiveId(guest));
-        }
+        setChats([]);
+        setActiveId(null);
+        setPins([]);
+        setChatMeta({});
+        tempIdsRef.current.clear();
       }
     });
     return () => listener.subscription.unsubscribe();
@@ -300,13 +321,24 @@ export default function HomePage() {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length, lastMessageContent]);
 
+  // Auto-growing composer (ChatGPT-style): the textarea grows with
+  // the text up to 4 lines (~120px), then scrolls internally. The
+  // bar grows upward; the chat area above shrinks to make room.
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = Math.min(el.scrollHeight, 120) + "px";
+  }, [input]);
+
   const newChat = useCallback(() => {
     const c: LocalChat = { id: uid(), title: t(lang, "newChat"), messages: [] };
+    if (tempMode) tempIdsRef.current.add(c.id);
     setChats((prev) => [c, ...prev]);
     setActiveId(c.id);
     setSidebarOpen(false);
     setMoreOpen(false);
-  }, [lang]);
+  }, [lang, tempMode]);
 
   const selectChat = useCallback(async (id: string) => {
     setActiveId(id);
@@ -336,16 +368,41 @@ export default function HomePage() {
     }
   };
 
+  /** Provider options for the ••• menu (statuses are honest: a
+   * provider is "ready" only when its key is actually configured). */
+  const providerOptions = (() => {
+    try {
+      const s = store.settings();
+      return providerInfos({
+        geminiConfigured: serverGemini,
+        openaiKey: !!s.openaiKey.trim(),
+        anthropicKey: !!s.anthropicKey.trim(),
+        deepseekKey: !!s.deepseekKey.trim(),
+        grokKey: !!s.grokKey.trim(),
+        qwenKey: !!s.qwenKey.trim(),
+        openRouterKey: !!s.openRouterKey.trim(),
+        huggingFaceKey: !!s.hfKey.trim(),
+      });
+    } catch {
+      return [];
+    }
+  })();
+
+  const pickProvider = (id: ProviderId) => {
+    setProvider(id);
+    try {
+      const s = store.settings();
+      store.saveSettings({ ...s, provider: id });
+    } catch {
+      // ignore
+    }
+  };
+
+  // Pins are in-memory only — never written to any storage.
   const togglePin = useCallback((id: string) => {
-    setPins((prev) => {
-      const next = prev.includes(id) ? prev.filter((p) => p !== id) : [id, ...prev];
-      try {
-        localStorage.setItem(PINS_KEY, JSON.stringify(next));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
+    setPins((prev) =>
+      prev.includes(id) ? prev.filter((p) => p !== id) : [id, ...prev]
+    );
   }, []);
 
   const send = useCallback(
@@ -360,6 +417,9 @@ export default function HomePage() {
         setActiveId(chat.id);
       }
       const chatId = chat.id;
+
+      // Temporary chat mode: this chat is never saved anywhere.
+      if (tempMode) tempIdsRef.current.add(chatId);
 
       let history: { role: "user" | "assistant"; content: string; image?: string }[];
       if (regenerate) {
@@ -395,8 +455,9 @@ export default function HomePage() {
       }
 
       // Ensure a Supabase chat row exists for logged-in users.
+      // Temporary chats never get a database row.
       let dbId = chat.dbId;
-      if (userId && supabase && !dbId) {
+      if (userId && supabase && !dbId && !tempIdsRef.current.has(chatId)) {
         const row = await createChat(userId, chatTitleFrom(clean));
         if (row) {
           dbId = row.id;
@@ -431,11 +492,88 @@ export default function HomePage() {
       const mode: ModelMode = thinkHarder ? "smart" : modelMode;
       let full = "";
       let replyMode: UiMessage["mode"] = "offline";
+      let replyProvider: string | undefined;
+      // Conversation memory: the user's own facts, only when enabled
+      // in Settings. Sent as a system prompt; never stored server-side.
+      let memorySystem = "";
       try {
+        const s = store.settings();
+        if (s.memoryEnabled && s.memoryFacts.length > 0) {
+          memorySystem =
+            "Remember these facts about the user (from their Memory setting):\n" +
+            s.memoryFacts.map((f) => `- ${f}`).join("\n");
+        }
+      } catch {
+        // ignore
+      }
+      // Optional provider (Settings → Providers): when the user picked
+      // a provider other than Gemini and supplied its key, try it first.
+      // On any failure we fall back to Gemini below and say so.
+      let providerDone = false;
+      try {
+        const s = store.settings();
+        const chosen = s.provider ?? "gemini";
+        if (chosen !== "gemini") {
+          const infos = providerInfos({
+            geminiConfigured: serverGemini,
+            openaiKey: !!s.openaiKey.trim(),
+            anthropicKey: !!s.anthropicKey.trim(),
+            deepseekKey: !!s.deepseekKey.trim(),
+            grokKey: !!s.grokKey.trim(),
+            qwenKey: !!s.qwenKey.trim(),
+            openRouterKey: !!s.openRouterKey.trim(),
+            huggingFaceKey: !!s.hfKey.trim(),
+          });
+          const info = infos.find((p) => p.id === chosen);
+          const key = info?.keyField ? s[info.keyField] : "";
+          if (info && key) {
+            const pres = await fetch("/api/providers", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                provider: chosen,
+                key,
+                messages: history,
+                model: info.defaultModel,
+                system: memorySystem,
+              }),
+              signal: controller.signal,
+            });
+            if (!pres.ok) throw new Error("provider failed");
+            const pdata = (await pres.json()) as { text?: string };
+            full = pdata.text ?? "";
+            if (!full.trim()) throw new Error("provider empty");
+            replyMode = "provider";
+            replyProvider = info.name;
+            providerDone = true;
+            setChats((prev) =>
+              prev.map((c) =>
+                c.id === chatId
+                  ? {
+                      ...c,
+                      messages: c.messages.map((m) =>
+                        m.id === assistantId
+                          ? { ...m, content: full, mode: replyMode, provider: replyProvider }
+                          : m
+                      ),
+                    }
+                  : c
+              )
+            );
+          }
+        }
+      } catch (e) {
+        if (!(e instanceof Error && e.name === "AbortError")) {
+          showNotice(t(lang, "providerFallback"));
+        }
+        providerDone = false;
+      }
+      try {
+        if (!providerDone) {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: history, mode }),
+          body: JSON.stringify({ messages: history, mode, system: memorySystem }),
           signal: controller.signal,
         });
         const headerMode = res.headers.get("X-SamimAI-Mode");
@@ -513,6 +651,7 @@ export default function HomePage() {
             );
           }
         }
+        } // end if (!providerDone) — provider replies skip the Gemini fetch
       } catch (e) {
         if (e instanceof Error && e.name === "AbortError") {
           // Stopped by the user — keep the partial reply.
@@ -549,7 +688,7 @@ export default function HomePage() {
         await saveMessage(dbId, "assistant", full);
       }
     },
-    [activeId, streaming, userId, lang, pendingImage, modelMode, thinkHarder]
+    [activeId, streaming, userId, lang, pendingImage, modelMode, thinkHarder, serverGemini, tempMode]
   );
 
   const stop = () => abortRef.current?.abort();
@@ -616,11 +755,13 @@ export default function HomePage() {
       if (idx < 0) return;
       const branched: UiMessage[] = chat.messages.slice(0, idx + 1).map((m) => ({ ...m, id: uid() }));
       const newC: LocalChat = { id: uid(), title: chat.title, messages: branched };
+      if (tempIdsRef.current.has(chat.id)) tempIdsRef.current.add(newC.id);
       setChats((prev) => [newC, ...prev]);
       setActiveId(newC.id);
       showNotice(t(lang, "chatBranched"));
       // Logged-in: also save the branched chat to Supabase (best effort).
-      if (userId && supabase) {
+      // Temporary chats never get a database row.
+      if (userId && supabase && !tempIdsRef.current.has(newC.id)) {
         const row = await createChat(userId, chat.title);
         if (row) {
           setChats((prev) =>
@@ -651,6 +792,114 @@ export default function HomePage() {
     URL.revokeObjectURL(url);
     showNotice(t(lang, "chatExported"));
   }, [activeId, lang]);
+
+  /** Export the active chat as a real PDF file (via /api/files). */
+  const exportChatPdf = useCallback(async () => {
+    const chat = chatsRef.current.find((c) => c.id === activeId) ?? null;
+    if (!chat) return;
+    const lines: string[] = [chat.title, ""];
+    for (const m of chat.messages) {
+      lines.push(`${m.role === "user" ? "You" : "Samim AI"}: ${m.content}`);
+    }
+    const spec: FileSpec = {
+      type: "pdf",
+      filename: `${chat.title.replace(/[\\/:*?"<>|]/g, "").slice(0, 60) || "samim-ai-chat"}.pdf`,
+      pdf: { title: chat.title, lines },
+    };
+    try {
+      await downloadFileSpec(spec);
+      showNotice(t(lang, "chatExported"));
+    } catch {
+      showNotice(t(lang, "errorGeneric"));
+    }
+  }, [activeId, lang]);
+
+  /** Export the active chat as a real Word document (via /api/files). */
+  const exportChatDocx = useCallback(async () => {
+    const chat = chatsRef.current.find((c) => c.id === activeId) ?? null;
+    if (!chat) return;
+    const spec: FileSpec = {
+      type: "docx",
+      filename: `${chat.title.replace(/[\\/:*?"<>|]/g, "").slice(0, 60) || "samim-ai-chat"}.docx`,
+      docx: {
+        title: chat.title,
+        sections: [
+          {
+            heading: chat.title,
+            paragraphs: chat.messages.map(
+              (m) => `${m.role === "user" ? "You" : "Samim AI"}: ${m.content}`
+            ),
+          },
+        ],
+      },
+    };
+    try {
+      await downloadFileSpec(spec);
+      showNotice(t(lang, "chatExported"));
+    } catch {
+      showNotice(t(lang, "errorGeneric"));
+    }
+  }, [activeId, lang]);
+
+  /** Share via a public read-only link — ONLY after the user confirms.
+   * The chat is saved to the shared_chats table (needs studio-001.sql
+   * run + a login). If that is unavailable, the chat is downloaded as
+   * .md instead and the user is told so — never a fake link. */
+  const shareLink = useCallback(async () => {
+    const chat = chatsRef.current.find((c) => c.id === activeId) ?? null;
+    if (!chat || chat.messages.length === 0) return;
+    if (!window.confirm(t(lang, "shareConfirm"))) return;
+    if (supabase && userId) {
+      const { data, error } = await supabase
+        .from("shared_chats")
+        .insert({
+          owner_id: userId,
+          title: chat.title,
+          messages: chat.messages.map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+        })
+        .select("id")
+        .single();
+      if (!error && data) {
+        const url = `${window.location.origin}/share/${(data as { id: string }).id}`;
+        try {
+          await navigator.clipboard.writeText(url);
+          showNotice(t(lang, "shareLinkCopied"));
+        } catch {
+          showNotice(url);
+        }
+        return;
+      }
+    }
+    // Sharing is not set up (no login / migration not run yet).
+    exportChat();
+    showNotice(t(lang, "shareUnavailable"));
+  }, [activeId, lang, userId, exportChat]);
+
+  /** Chat folders + archive (per device, localStorage only). */
+  const setFolder = useCallback((id: string, folder: string) => {
+    setChatMeta((prev) => {
+      const next = { ...prev };
+      const cur = next[id] ?? {};
+      if (!folder && !cur.archived) {
+        delete next[id];
+      } else if (!folder) {
+        next[id] = { archived: cur.archived };
+      } else {
+        next[id] = { ...cur, folder };
+      }
+      return next;
+    });
+  }, []);
+
+  const toggleArchive = useCallback((id: string) => {
+    setChatMeta((prev) => {
+      const cur = prev[id] ?? {};
+      return { ...prev, [id]: { ...cur, archived: !cur.archived } };
+    });
+  }, []);
 
   /** Share the active conversation (Web Share API, clipboard fallback). */
   const shareChat = useCallback(async () => {
@@ -896,15 +1145,28 @@ export default function HomePage() {
     setChats((prev) => prev.filter((c) => c.id !== id));
     if (activeId === id) setActiveId(null);
     setPins((prev) => prev.filter((p) => p !== id));
+    setChatMeta((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    tempIdsRef.current.delete(id);
     setMoreOpen(false);
     if (chat?.dbId) await deleteChatDb(chat.dbId);
   };
 
+  const isArchived = (id: string) => !!chatMeta[id]?.archived;
+  const folderOf = (id: string) => chatMeta[id]?.folder ?? "";
   const filtered = chats.filter((c) =>
     c.title.toLowerCase().includes(search.toLowerCase())
   );
-  const pinnedChats = filtered.filter((c) => pins.includes(c.id));
-  const otherChats = filtered.filter((c) => !pins.includes(c.id));
+  const visibleChats = filtered.filter((c) => !isArchived(c.id));
+  const archivedChats = filtered.filter((c) => isArchived(c.id));
+  const pinnedChats = visibleChats.filter((c) => pins.includes(c.id));
+  const otherChats = visibleChats.filter((c) => !pins.includes(c.id));
+  const folders = Array.from(new Set(otherChats.map((c) => folderOf(c.id)).filter(Boolean))).sort();
+  const unfiledChats = otherChats.filter((c) => !folderOf(c.id));
+  const visibleStudios = STUDIOS.filter((s) => studioFeatures[s.feature] !== false);
 
   const modelLabel =
     modelMode === "fast" ? t(lang, "modelFast") : modelMode === "smart" ? t(lang, "modelSmart") : t(lang, "modelAuto");
@@ -947,7 +1209,7 @@ export default function HomePage() {
           {c.title}
         </button>
       )}
-      <div className="mt-1 flex gap-2 text-xs text-slate-500">
+      <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
         <button type="button" onClick={() => togglePin(c.id)}>
           {pins.includes(c.id) ? t(lang, "unpinChat") : t(lang, "pinChat")}
         </button>
@@ -960,6 +1222,31 @@ export default function HomePage() {
         >
           {t(lang, "rename")}
         </button>
+        <button type="button" onClick={() => toggleArchive(c.id)}>
+          {isArchived(c.id) ? t(lang, "restore") : t(lang, "archive")}
+        </button>
+        <select
+          value={folderOf(c.id)}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "__new__") {
+              const name = window.prompt(t(lang, "newFolder"), "");
+              if (name?.trim()) setFolder(c.id, name.trim().slice(0, 40));
+            } else {
+              setFolder(c.id, v);
+            }
+          }}
+          className="max-w-[110px] truncate rounded border border-slate-300 bg-transparent px-1 py-0.5 text-xs dark:border-slate-700"
+          aria-label={t(lang, "moveToFolder")}
+        >
+          <option value="">{t(lang, "noFolder")}</option>
+          {folders.map((f) => (
+            <option key={f} value={f}>
+              {f}
+            </option>
+          ))}
+          <option value="__new__">+ {t(lang, "newFolder")}</option>
+        </select>
         <button type="button" onClick={() => doDelete(c.id)} className="text-red-500">
           {t(lang, "delete")}
         </button>
@@ -978,7 +1265,50 @@ export default function HomePage() {
             onClick={() => setSidebarOpen(false)}
             className="absolute inset-0 bg-black/35"
           />
-          <aside className="absolute inset-y-0 left-0 flex w-72 flex-col overflow-y-auto bg-white shadow-xl dark:bg-[#0D1426]">
+          <aside
+            className={`absolute inset-y-0 left-0 flex flex-col overflow-y-auto bg-white shadow-xl dark:bg-[#0D1426] ${
+              drawerCollapsed ? "w-16" : "w-72"
+            }`}
+          >
+            {drawerCollapsed ? (
+              <div className="flex flex-col items-center gap-2 py-3">
+                <button
+                  type="button"
+                  onClick={() => setDrawerCollapsed(false)}
+                  className="rounded-full px-2 py-1 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"
+                  aria-label={t(lang, "expand")}
+                >
+                  »
+                </button>
+                <button
+                  type="button"
+                  onClick={newChat}
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-[#2457FF] text-lg font-bold text-white"
+                  aria-label={t(lang, "newChat")}
+                >
+                  +
+                </button>
+                {visibleStudios.map((s) => (
+                  <Link
+                    key={s.href}
+                    href={s.href}
+                    onClick={() => setSidebarOpen(false)}
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                    aria-label={t(lang, s.key)}
+                  >
+                    {s.icon}
+                  </Link>
+                ))}
+                <Link
+                  href="/settings"
+                  className="flex h-10 w-10 items-center justify-center rounded-full text-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                  aria-label={t(lang, "settings")}
+                >
+                  ⚙
+                </Link>
+              </div>
+            ) : (
+              <>
             <div className="flex items-center gap-2 p-3">
               {/* AVATAR FIX (v3.2): a plain <a href="/about"> — not a
                   framework Link — so the tap works on any phone. The
@@ -1011,6 +1341,14 @@ export default function HomePage() {
               </div>
               <button
                 type="button"
+                onClick={() => setDrawerCollapsed(true)}
+                className="rounded-full px-2 py-1 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"
+                aria-label={t(lang, "collapse")}
+              >
+                «
+              </button>
+              <button
+                type="button"
                 onClick={() => setSidebarOpen(false)}
                 className="rounded-full px-2 py-1 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"
                 aria-label="Close menu"
@@ -1033,6 +1371,32 @@ export default function HomePage() {
                 className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800"
               />
             </div>
+            {/* Studios (merged from the Samim AI studios) */}
+            <div className="px-3 pb-1 pt-2">
+              <p className="px-1 pb-1 text-xs font-bold text-slate-500">
+                🎨 {t(lang, "studios")}
+              </p>
+              <div className="flex flex-col gap-0.5">
+                {visibleStudios.map((s) => (
+                  <Link
+                    key={s.href}
+                    href={s.href}
+                    onClick={() => setSidebarOpen(false)}
+                    className="rounded-lg px-2 py-1.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                  >
+                    {s.icon} {t(lang, s.key)}
+                  </Link>
+                ))}
+              </div>
+            </div>
+            {!userEmail && (
+              <p className="mx-3 mb-1 rounded-xl bg-amber-500/15 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                {t(lang, "guestNotice")}{" "}
+                <Link href="/login" className="font-bold underline">
+                  {t(lang, "login")}
+                </Link>
+              </p>
+            )}
             <div className="chat-scroll mt-2 flex-1 overflow-y-auto px-2 pb-2">
               {savedImages.length > 0 && (
                 <div className="mb-2">
@@ -1070,7 +1434,33 @@ export default function HomePage() {
                   {t(lang, "noChats")}
                 </p>
               )}
-              {otherChats.map(chatItem)}
+              {folders.map((f) => (
+                <div key={f} className="mb-1">
+                  <p className="px-2 pb-1 pt-1 text-xs font-bold text-slate-500">
+                    📁 {f}
+                  </p>
+                  {otherChats.filter((c) => folderOf(c.id) === f).map(chatItem)}
+                </div>
+              ))}
+              {unfiledChats.map(chatItem)}
+              {folders.length > 0 && (
+                <p className="px-2 pb-1 text-[11px] text-slate-400">
+                  {t(lang, "foldersLocalNote")}
+                </p>
+              )}
+              {archivedChats.length > 0 && (
+                <div className="mb-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowArchived((v) => !v)}
+                    className="w-full px-2 pb-1 pt-1 text-start text-xs font-bold text-slate-500"
+                  >
+                    🗄 {t(lang, "archived")} ({archivedChats.length}){" "}
+                    {showArchived ? "▾" : "▸"}
+                  </button>
+                  {showArchived && archivedChats.map(chatItem)}
+                </div>
+              )}
             </div>
             <div className="border-t border-slate-200 p-3 dark:border-slate-800">
               {userEmail ? (
@@ -1106,6 +1496,8 @@ export default function HomePage() {
               </div>
               <p className="mt-2 text-xs text-slate-400">{t(lang, "notMuse")}</p>
             </div>
+              </>
+            )}
           </aside>
         </div>
       )}
@@ -1271,6 +1663,77 @@ export default function HomePage() {
                 🗑 {t(lang, "delete")}
               </button>
               <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
+              <p className="px-2 pb-1 pt-1 text-xs text-slate-500">🎨 {t(lang, "studios")}</p>
+              {visibleStudios.map((s) => (
+                <Link
+                  key={s.href}
+                  href={s.href}
+                  onClick={() => setMoreOpen(false)}
+                  className="block rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  {s.icon} {t(lang, s.key)}
+                </Link>
+              ))}
+              <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
+              <p className="px-2 pb-1 pt-1 text-xs text-slate-500">{t(lang, "provider")}</p>
+              <select
+                value={provider}
+                onChange={(e) => pickProvider(e.target.value as ProviderId)}
+                className="mx-2 mb-1 w-[calc(100%-16px)] rounded-xl border border-slate-300 bg-transparent px-2 py-2 text-sm dark:border-slate-700"
+                aria-label={t(lang, "provider")}
+              >
+                {providerOptions.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} —{" "}
+                    {p.status === "ready" ? t(lang, "online") : t(lang, "providerNeedsKey")}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => {
+                  setTempMode((v) => !v);
+                  setMoreOpen(false);
+                }}
+                className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                🔒 {t(lang, "tempChat")}
+                {tempMode ? " ✓" : ""}
+              </button>
+              <button
+                type="button"
+                disabled={!activeId}
+                onClick={() => {
+                  void exportChatPdf();
+                  setMoreOpen(false);
+                }}
+                className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
+              >
+                📄 {t(lang, "exportPdf")}
+              </button>
+              <button
+                type="button"
+                disabled={!activeId}
+                onClick={() => {
+                  void exportChatDocx();
+                  setMoreOpen(false);
+                }}
+                className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
+              >
+                📝 {t(lang, "exportDocx")}
+              </button>
+              <button
+                type="button"
+                disabled={!activeId}
+                onClick={() => {
+                  void shareLink();
+                  setMoreOpen(false);
+                }}
+                className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
+              >
+                🔗 {t(lang, "shareLink")}
+              </button>
+              <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
               <p className="px-2 pb-1 pt-1 text-xs text-slate-500">{t(lang, "language")}</p>
               <div className="flex gap-1 px-1 pb-2">
                 {LANGS.map((l) => (
@@ -1356,6 +1819,11 @@ export default function HomePage() {
           </Link>
         </div>
       )}
+      {tempMode && (
+        <div className="break-words bg-slate-200 px-3 py-2 text-center text-[11px] leading-relaxed text-slate-900 sm:text-xs dark:bg-slate-100 dark:text-slate-900">
+          🔒 {t(lang, "tempChatNote")}
+        </div>
+      )}
 
       {/* ===== Chat area ===== */}
       <div className="chat-scroll min-w-0 w-full flex-1 overflow-x-hidden overflow-y-auto px-[18px] py-4">
@@ -1406,9 +1874,33 @@ export default function HomePage() {
                 </button>
               ))}
             </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {visibleStudios.map((s) => (
+                <Link
+                  key={s.href}
+                  href={s.href}
+                  className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-bold hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
+                >
+                  {s.icon} {t(lang, s.key)}
+                </Link>
+              ))}
+            </div>
+            {!userEmail && (
+              <p className="mt-4 rounded-xl bg-amber-500/15 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
+                {t(lang, "guestNotice")}{" "}
+                <Link href="/login" className="font-bold underline">
+                  {t(lang, "login")}
+                </Link>
+              </p>
+            )}
+            {tempMode && (
+              <p className="mt-2 rounded-xl bg-slate-900 px-3 py-2 text-xs text-white dark:bg-slate-100 dark:text-slate-900">
+                🔒 {t(lang, "tempChatNote")}
+              </p>
+            )}
           </div>
         ) : (
-          <div className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-4">
+          <div className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-5">
             {messages.map((m, i) => (
               <ChatMessage
                 key={m.id}
@@ -1479,7 +1971,7 @@ export default function HomePage() {
             send(input);
             setInput("");
           }}
-          className="mx-auto flex w-full min-w-0 max-w-3xl items-center gap-2 sm:gap-2.5"
+          className="mx-auto flex w-full min-w-0 max-w-3xl items-end gap-2 sm:gap-2.5"
         >
           <input
             ref={fileInputRef}
@@ -1514,26 +2006,39 @@ export default function HomePage() {
               e.target.value = "";
             }}
           />
-          <div className="relative flex min-h-12 min-w-0 flex-1 items-center rounded-[32px] bg-[#F0F0F0] px-2 sm:min-h-14 sm:px-3 dark:bg-[#111B30]">
+          <div className="relative flex min-w-0 flex-1 items-end rounded-3xl bg-[#F0F0F0] px-2 py-1.5 sm:px-3 dark:bg-[#111B30]">
             <button
               type="button"
               onClick={() => setPlusOpen((v) => !v)}
-              className="shrink-0 px-1 text-2xl leading-none text-[#111111] sm:text-[26px] dark:text-[#EAF2FF]"
+              className="mb-1.5 shrink-0 px-1 text-2xl leading-none text-[#111111] sm:text-[26px] dark:text-[#EAF2FF]"
               aria-label="+"
             >
               ＋
             </button>
-            <input
+            {/* Auto-growing composer: 1 line min, 4 lines max (~120px),
+              then scrolls internally. Enter sends, Shift+Enter = newline. */}
+            <textarea
+              ref={composerRef}
               dir="auto"
+              rows={1}
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  if (input.trim() || pendingImage) {
+                    send(input);
+                    setInput("");
+                  }
+                }
+              }}
               placeholder={t(lang, "askPlaceholder")}
-              className="bidi-plaintext min-w-0 flex-1 bg-transparent px-2 py-1 text-base text-[#111111] outline-none placeholder:text-[#9A9A9A] sm:text-[17px] dark:text-[#EAF2FF]"
+              className="bidi-plaintext max-h-[120px] min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-2 text-base leading-6 text-[#111111] outline-none placeholder:text-[#9A9A9A] sm:text-[17px] dark:text-[#EAF2FF]"
             />
             <button
               type="button"
               onClick={() => setLiveCallOpen(true)}
-              className="shrink-0 rounded-full px-1 text-xl leading-none sm:text-[22px]"
+              className="mb-1.5 shrink-0 rounded-full px-1 text-xl leading-none sm:text-[22px]"
               aria-label={t(lang, "liveCall")}
             >
               🌊
@@ -1541,13 +2046,32 @@ export default function HomePage() {
             <button
               type="button"
               onClick={startListening}
-              className={`shrink-0 rounded-full px-1 text-xl leading-none sm:text-[22px] ${
+              className={`mb-1.5 shrink-0 rounded-full px-1 text-xl leading-none sm:text-[22px] ${
                 listening || recording ? "mic-listening text-red-500" : ""
               }`}
               aria-label="Microphone"
             >
               🎙
             </button>
+            {streaming ? (
+              <button
+                type="button"
+                onClick={stop}
+                className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white transition-transform active:scale-95 dark:bg-white dark:text-black"
+                aria-label={t(lang, "stop")}
+              >
+                <span className="text-base leading-none">■</span>
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={!input.trim() && !pendingImage}
+                className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white transition-transform disabled:bg-[#B9B9B9] active:scale-95 dark:bg-white dark:text-black dark:disabled:bg-[#334155]"
+                aria-label={t(lang, "send")}
+              >
+                <span className="text-xl leading-none">↑</span>
+              </button>
+            )}
             {/* ===== + menu ===== */}
             {plusOpen && (
               <>
@@ -1630,25 +2154,6 @@ export default function HomePage() {
               </>
             )}
           </div>
-          {streaming ? (
-            <button
-              type="button"
-              onClick={stop}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white transition-transform active:scale-95 sm:h-12 sm:w-12 dark:bg-white dark:text-black"
-              aria-label={t(lang, "stop")}
-            >
-              <span className="text-base leading-none sm:text-lg">■</span>
-            </button>
-          ) : (
-            <button
-              type="submit"
-              disabled={!input.trim() && !pendingImage}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white transition-transform disabled:bg-[#B9B9B9] active:scale-95 sm:h-12 sm:w-12 dark:bg-white dark:text-black dark:disabled:bg-[#334155]"
-              aria-label={t(lang, "send")}
-            >
-              <span className="text-xl leading-none sm:text-2xl">↑</span>
-            </button>
-          )}
         </form>
         <p className="mt-2 text-center text-[11px] text-slate-400">
           Samim AI • {t(lang, "notMuse")}

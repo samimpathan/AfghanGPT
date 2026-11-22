@@ -45,10 +45,11 @@ export type FileSpec = {
   };
   /** xlsx: { sheets: [{ name, rows: [][] }] } */
   xlsx?: { sheets?: { name?: string; rows?: (string | number)[][] }[] };
-  /** pptx: { title, slides: [{ title, bullets[], notes? }] } */
+  /** pptx: { title, slides: [{ title, bullets[], notes? }], theme?: { bg, accent, text } } */
   pptx?: {
     title?: string;
     slides?: { title?: string; bullets?: string[]; notes?: string }[];
+    theme?: { bg?: string; accent?: string; text?: string };
   };
   /** pdf: { title, lines[] } */
   pdf?: { title?: string; lines?: string[] };
@@ -227,16 +228,22 @@ async function buildPptx(spec: FileSpec): Promise<Buffer> {
   pptx.title = asStr(spec.pptx?.title, 200) || "Samim AI Presentation";
   pptx.defineLayout({ name: "WIDE", width: 13.33, height: 7.5 });
   pptx.layout = "WIDE";
+  // Theme (from the Presentation Maker): defaults match Samim AI's
+  // dark palette, so files made without a theme look exactly as before.
+  const bg = (spec.pptx?.theme?.bg ?? "#0D1426").replace(/^#/, "");
+  const accent = (spec.pptx?.theme?.accent ?? "#2457FF").replace(/^#/, "");
+  const text = (spec.pptx?.theme?.text ?? "#EAF2FF").replace(/^#/, "");
   for (const s of (spec.pptx?.slides ?? []).slice(0, MAX_SLIDES)) {
     const slide = pptx.addSlide();
-    slide.background = { color: "0D1426" };
+    slide.background = { color: bg };
+    slide.addShape("rect", { x: 0, y: 0, w: 13.33, h: 0.12, fill: { color: accent } });
     if (s.title) {
       slide.addText(asStr(s.title, 200), {
         x: 0.6, y: 0.4, w: 12.1, h: 0.9,
-        fontSize: 32, bold: true, color: "EAF2FF",
+        fontSize: 32, bold: true, color: text,
       });
     }
-    const bullets = (s.bullets ?? []).map((b) => ({ text: asStr(b, 500), options: { breakLine: true, fontSize: 18, color: "EAF2FF" } }));
+    const bullets = (s.bullets ?? []).map((b) => ({ text: asStr(b, 500), options: { breakLine: true, fontSize: 18, color: text } }));
     if (bullets.length > 0) {
       slide.addText(bullets, { x: 0.6, y: 1.5, w: 12.1, h: 5.4, valign: "top" });
     }
