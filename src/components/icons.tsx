@@ -100,10 +100,15 @@ const PATHS: Record<IconName, JSX.Element> = {
       <path d="M20 10v4" />
     </>
   ),
+  // ROUND 5: was the Feather "edit-3" pencil-on-a-baseline — a bare
+  // diagonal pencil, nearly identical to "pencil", with NO square.
+  // ChatGPT's new-chat glyph is a SQUARE with a pencil crossing its
+  // top-right corner, so the square (rounded rect) is drawn first
+  // and the pencil sits diagonally inside it, tip at bottom-left.
   compose: (
     <>
-      <path d="M12 20h9" />
-      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+      <rect x="3" y="3" width="18" height="18" rx="2.5" />
+      <path d="M18 3.5a2.12 2.12 0 0 1 3 3L11 16.5l-3.5 1 1-3.5Z" />
     </>
   ),
   pencil: <path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />,

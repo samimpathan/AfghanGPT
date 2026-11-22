@@ -50,6 +50,22 @@ const LIVE_SYSTEM = `You are "د عبدالصمیم مرستیال" (Samim AI), 
 type Phase = "connecting" | "live" | "fallback" | "error";
 type TranscriptLine = { role: "user" | "assistant"; text: string };
 
+/** TTS voice language for the Live session (Google docs:
+ * "Configure language and voice" — cloud.google.com/vertex-ai/
+ * generative-ai/docs/live-api/configure-language-voice).
+ * The native-audio model (first in LIVE_MODELS) switches languages
+ * naturally and follows the system instruction; languageCode only
+ * steers the TTS voice on the non-native model. Only codes Google
+ * lists for these 2.5 models are sent: Pashto (ps) and Persian
+ * (fa) are listed ONLY for gemini-3.8-live, so sending ps-AF /
+ * fa-IR here could fail setup — for ps/fa the system instruction
+ * + automatic input detection (languageCodes: [] below) carry the
+ * language instead. */
+const LIVE_VOICE_LANG: Partial<Record<Lang, string>> = {
+  en: "en-US",
+  ar: "ar-EG",
+};
+
 function b64FromInt16(samples: Int16Array): string {
   const bytes = new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength);
   let binary = "";
@@ -104,6 +120,8 @@ export default function LiveCall({
   const playCtxRef = useRef<AudioContext | null>(null);
   const nextPlayTimeRef = useRef(0);
   const speakTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Delayed "describe the screen" prompt after sharing starts. */
+  const describeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoStreamRef = useRef<MediaStream | null>(null);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const frameTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -121,6 +139,40 @@ export default function LiveCall({
     setTranscript(transcriptRef.current);
   }, []);
 
+  /** t() returns the key itself when the coordinator has not added
+   * it to i18n.ts yet — fall back to English so the user (and the
+   * AI, for prompts) never sees a raw key. */
+  const tx = (key: string, fallback: string): string => {
+    const v = t(lang, key);
+    return v === key ? fallback : v;
+  };
+
+  /** Ask the Live model (by voice) to describe what it sees. A
+   * video frame alone does not make the model speak — it answers
+   * when spoken to, or when a text turn arrives. Sent as a
+   * clientContent turn (the Live API's text input), in the UI
+   * language. No-op when no Live session is open. */
+  const askLiveToDescribe = useCallback(() => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    const prompt = tx(
+      "liveDescribeImage",
+      "Please describe what you see and help me with it, and answer by voice."
+    );
+    try {
+      ws.send(
+        JSON.stringify({
+          clientContent: {
+            turns: [{ role: "user", parts: [{ text: prompt }] }],
+            turnComplete: true,
+          },
+        })
+      );
+    } catch {
+      // one lost prompt must not break the call
+    }
+  }, [lang]);
+
   const stopAllTracks = useCallback(() => {
     micStreamRef.current?.getTracks().forEach((tr) => tr.stop());
     micStreamRef.current = null;
@@ -128,6 +180,8 @@ export default function LiveCall({
     videoStreamRef.current = null;
     if (frameTimerRef.current) clearInterval(frameTimerRef.current);
     frameTimerRef.current = null;
+    if (describeTimerRef.current) clearTimeout(describeTimerRef.current);
+    describeTimerRef.current = null;
     void audioCtxRef.current?.close().catch(() => {});
     audioCtxRef.current = null;
     void playCtxRef.current?.close().catch(() => {});
@@ -136,7 +190,13 @@ export default function LiveCall({
     stopSpeaking();
     geminiAudioRef.current?.stop();
     geminiAudioRef.current = null;
-    fallbackRecRef.current?.stop();
+    // stop() on an already-inactive MediaRecorder throws
+    // InvalidStateError — the call is ending either way.
+    try {
+      fallbackRecRef.current?.stop();
+    } catch {
+      // already stopped — ignore
+    }
     fallbackRecRef.current = null;
   }, []);
 
@@ -299,10 +359,22 @@ export default function LiveCall({
                   responseModalities: ["AUDIO"],
                   speechConfig: {
                     voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } },
+                    // Voice language, only for codes Google lists for
+                    // these 2.5 models (see LIVE_VOICE_LANG above).
+                    // Pashto/Dari omit it — the system instruction
+                    // + automatic detection carry the language.
+                    ...(LIVE_VOICE_LANG[lang]
+                      ? { languageCode: LIVE_VOICE_LANG[lang] }
+                      : {}),
                   },
                 },
                 systemInstruction: { parts: [{ text: LIVE_SYSTEM }] },
-                inputAudioTranscription: {},
+                // languageCodes: [] = automatic language detection
+                // (Google default, made explicit): the model detects
+                // the spoken language across utterances, including
+                // code-switching, and the system instruction tells
+                // it to answer in that language.
+                inputAudioTranscription: { languageCodes: [] },
                 outputAudioTranscription: {},
               },
             })
@@ -373,6 +445,16 @@ export default function LiveCall({
         try {
           await startMic();
         } catch {
+          // Live connected but the mic is dead (denied / no mic).
+          // A "live" call that cannot hear the user would be fake —
+          // close the session and fall back to push-to-talk honestly.
+          try {
+            wsRef.current?.close();
+          } catch {
+            // ignore
+          }
+          wsRef.current = null;
+          setPhase("fallback");
           setErrorNote(t(lang, "micPermission"));
         }
         return;
@@ -396,6 +478,8 @@ export default function LiveCall({
     videoStreamRef.current = null;
     if (frameTimerRef.current) clearInterval(frameTimerRef.current);
     frameTimerRef.current = null;
+    if (describeTimerRef.current) clearTimeout(describeTimerRef.current);
+    describeTimerRef.current = null;
     setCameraOn(false);
     setScreenOn(false);
   }, []);
@@ -413,7 +497,10 @@ export default function LiveCall({
       setScreenOn(false);
       startVideoFrames();
     } catch {
-      onNote?.(t(lang, "micPermission"));
+      // Camera denial is not a microphone problem — say so.
+      onNote?.(
+        tx("cameraPermission", "Please allow camera access and try again.")
+      );
     }
   };
 
@@ -422,9 +509,21 @@ export default function LiveCall({
       stopVideo();
       return;
     }
-    // Honest check first: getDisplayMedia is not in every browser.
+    // No Live session (push-to-talk fallback): frames have nowhere
+    // to go, so a "sharing" badge would lie. Use the photo path —
+    // the user photographs their screen and the AI answers by
+    // voice through the fallback flow (onLiveFilePicked below).
+    if (phase !== "live") {
+      liveFileInputRef.current?.click();
+      return;
+    }
+    // Honest check first: getDisplayMedia is not in every browser
+    // (Chrome on Android does not support it at all). The button
+    // must never be dead — open the photo picker instead, so the
+    // user photographs their screen and the Live AI sees it.
     if (!navigator.mediaDevices?.getDisplayMedia) {
       onNote?.(t(lang, "liveScreenUnsupported"));
+      liveFileInputRef.current?.click();
       return;
     }
     try {
@@ -434,6 +533,10 @@ export default function LiveCall({
       setScreenOn(true);
       setCameraOn(false);
       startVideoFrames();
+      // Frames alone do not make the model speak — after a frame
+      // or two has arrived, ask it by voice to describe the screen.
+      if (describeTimerRef.current) clearTimeout(describeTimerRef.current);
+      describeTimerRef.current = setTimeout(askLiveToDescribe, 1200);
       // The user can stop sharing from the browser UI too.
       stream.getVideoTracks()[0]?.addEventListener("ended", stopVideo);
     } catch {
@@ -448,6 +551,50 @@ export default function LiveCall({
   }, [cameraOn, screenOn]);
 
   /* ---------- push-to-talk fallback (record -> transcribe -> voice reply) ---------- */
+
+  /** Ask /api/chat for a reply and read it aloud in the reply's own
+   * language (device voice first, Gemini TTS second). Shared by the
+   * push-to-talk voice flow and the photo-question flow, so both
+   * answer by voice. `messages` is the full history to send —
+   * callers must NOT append the last user turn again after already
+   * adding it to the transcript (the old inline code did exactly
+   * that and sent the last user message twice). */
+  const answerFallbackByVoice = useCallback(
+    async (
+      messages: { role: "user" | "assistant"; content: string; image?: string }[]
+    ) => {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages, mode: "auto" }),
+      });
+      if (!res.ok || !res.body) throw new Error("chat failed");
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let full = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        full += decoder.decode(value, { stream: true });
+      }
+      if (!full.trim()) return;
+      addLine("assistant", full);
+      const replyLang = detectTextLang(full);
+      setSpeaking(true);
+      if (hasSpeechVoice(replyLang)) {
+        const ok = speakText(full, replyLang, () => setSpeaking(false));
+        if (ok) return;
+      }
+      const played = await playGeminiSpeech(full, replyLang, () => setSpeaking(false));
+      if (played) {
+        geminiAudioRef.current = played;
+        return;
+      }
+      setSpeaking(false);
+      onNote?.(t(lang, "voiceTtsUnavailable"));
+    },
+    [addLine, lang, onNote]
+  );
 
   const fallbackToggleMic = async () => {
     if (fallbackBusy) return;
@@ -481,38 +628,11 @@ export default function LiveCall({
           }
           addLine("user", text);
           // Answer by voice: text chat, then read the reply aloud.
-          const res = await fetch("/api/chat", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              messages: [...transcriptRef.current.map((l) => ({ role: l.role, content: l.text })), { role: "user", content: text }],
-              mode: "auto",
-            }),
-          });
-          if (!res.ok || !res.body) throw new Error("chat failed");
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let full = "";
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            full += decoder.decode(value, { stream: true });
-          }
-          if (!full.trim()) return;
-          addLine("assistant", full);
-          const replyLang = detectTextLang(full);
-          setSpeaking(true);
-          if (hasSpeechVoice(replyLang)) {
-            const ok = speakText(full, replyLang, () => setSpeaking(false));
-            if (ok) return;
-          }
-          const played = await playGeminiSpeech(full, replyLang, () => setSpeaking(false));
-          if (played) {
-            geminiAudioRef.current = played;
-            return;
-          }
-          setSpeaking(false);
-          onNote?.(t(lang, "voiceTtsUnavailable"));
+          // transcriptRef already holds the new user line — send it
+          // as-is, do not append the text a second time.
+          await answerFallbackByVoice(
+            transcriptRef.current.map((l) => ({ role: l.role, content: l.text }))
+          );
         } catch (e) {
           if (e instanceof Error && (e as Error & { code?: string }).code === "no-key") {
             onNote?.(t(lang, "voiceNeedsOnline"));
@@ -539,9 +659,10 @@ export default function LiveCall({
   };
 
   /** Send one picked image to the Live session as video input, so
-   * the AI can see and answer about it. Honest guard: when no Live
-   * session is open there is nowhere to send it, so say so instead
-   * of pretending it was sent. */
+   * the AI can see and answer about it. Frames alone do not make
+   * the model speak, so it is also asked by voice to describe what
+   * it sees. Honest guard: when no Live session is open there is
+   * nowhere to send it — the caller routes to the fallback flow. */
   const sendLiveImage = async (file: File) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) {
@@ -564,9 +685,58 @@ export default function LiveCall({
         })
       );
       onNote?.(t(lang, "liveImageSent"));
+      askLiveToDescribe();
     } catch {
       onNote?.(t(lang, "errorGeneric"));
     }
+  };
+
+  /** Fallback phase has no Live session: answer a picked photo the
+   * same way push-to-talk answers voice — /api/chat (which sees
+   * images) + read the reply aloud. This is the working screen
+   * alternative on phones: photograph the screen, the AI describes
+   * it by voice. */
+  const sendFallbackImage = async (file: File) => {
+    if (fallbackBusy) return;
+    setFallbackBusy(true);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("read"));
+        reader.readAsDataURL(file);
+      });
+      const prompt = tx(
+        "liveDescribeImage",
+        "Please describe what you see and help me with it, and answer by voice."
+      );
+      const messages = [
+        ...transcriptRef.current.map((l) => ({ role: l.role, content: l.text })),
+        { role: "user" as const, content: prompt, image: dataUrl },
+      ];
+      addLine("user", prompt);
+      await answerFallbackByVoice(messages);
+    } catch (e) {
+      if (e instanceof Error && (e as Error & { code?: string }).code === "no-key") {
+        onNote?.(t(lang, "voiceNeedsOnline"));
+      } else {
+        onNote?.(t(lang, "errorGeneric"));
+      }
+    } finally {
+      setFallbackBusy(false);
+    }
+  };
+
+  /** The + sheet's Files button (and the screen-share fallback):
+   * Live session open -> send the image to Live; otherwise answer
+   * it through the fallback voice flow. Never a dead button. */
+  const onLiveFilePicked = async (file: File | undefined) => {
+    if (!file) return;
+    if (phase === "live") {
+      await sendLiveImage(file);
+      return;
+    }
+    await sendFallbackImage(file);
   };
 
   return (
@@ -608,14 +778,20 @@ export default function LiveCall({
             speaking ? "voice-orb-speaking" : ""
           }`}
         >
-          <Image
-            src="/avatar.jpg"
-            alt="Samim AI"
-            width={128}
-            height={128}
-            className="rounded-full object-cover ring-4 ring-white/60"
-            priority
-          />
+          {/* Face-zoom frame (see globals.css .ai-avatar-frame):
+              /avatar.jpg is a 3:4 full-body portrait, so a plain
+              128px object-cover circle left the face a speck inside
+              the 288px orb. The frame clips a 2.3x zoom on the face. */}
+          <span className="ai-avatar-frame h-32 w-32 ring-4 ring-white/60">
+            <Image
+              src="/avatar.jpg"
+              alt="Samim AI"
+              width={128}
+              height={128}
+              className="ai-avatar-img"
+              priority
+            />
+          </span>
         </div>
         <p className="mt-5 text-lg font-bold">{t(lang, "appName")}</p>
         <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
@@ -694,16 +870,18 @@ export default function LiveCall({
 
       {/* Bottom sheet (Gemini-style): Screen share / Photos / Files.
           Screen share + Photos toggle the live camera/screen feeds;
-          Files sends one picked image to the Live session. */}
+          "Images" sends one picked image to the Live session (the
+          input only accepts images, so it is labelled Images, not
+          Files, which would promise any file type). */}
       <input
         ref={liveFileInputRef}
         type="file"
         accept="image/*"
         className="hidden"
-        aria-label={t(lang, "files")}
+        aria-label={t(lang, "images")}
         onChange={(e) => {
           const f = e.target.files?.[0];
-          if (f) void sendLiveImage(f);
+          if (f) void onLiveFilePicked(f);
           e.target.value = "";
         }}
       />
@@ -741,8 +919,8 @@ export default function LiveCall({
               onClick={() => liveFileInputRef.current?.click()}
               className="flex flex-col items-center justify-center gap-2 rounded-3xl bg-slate-100 px-2 py-6 text-sm font-medium text-slate-900 transition active:scale-95 dark:bg-slate-800 dark:text-white"
             >
-              <Icon name="paperclip" size={32} />
-              {t(lang, "files")}
+              <Icon name="image" size={32} />
+              {t(lang, "images")}
             </button>
             </div>
           </div>

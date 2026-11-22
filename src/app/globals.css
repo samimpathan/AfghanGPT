@@ -76,6 +76,12 @@ html,
 body {
   overflow-x: hidden;
   overflow-x: clip;
+  /* ROUND 5 — mobile keyboard: the document itself must never
+     scroll or rubber-band while typing, or the header (which used
+     to be sticky inside the dvh-tall shell) scrolls away with the
+     page. Only .chat-scroll scrolls; the header + composer are
+     shrink-0 and .chat-scroll is min-h-0 (see page.tsx). */
+  overscroll-behavior-y: none;
 }
 
 /* Bidi: each paragraph picks its own direction from its first strong
@@ -148,6 +154,32 @@ body {
 }
 .live-avatar-calm {
   transform: scale(1);
+}
+
+/* AI avatar face crop (ROUND 5) — /avatar.jpg is Samim's real 3:4
+   full-body portrait (1536×2048; face centre ≈ 50% / 41% of the
+   frame, face width ≈ 29% of the width). A plain object-cover
+   circle shows the whole body, so at 32–40px the face is a ~8px
+   speck — that is why the avatar "was still not made". The frame
+   clips a ~2.3× zoom centred on the face, so the head fills the
+   circle the way Muse's avatar does. The photo file is untouched.
+   The frame MUST wrap the img (overflow hidden) — a scaled img
+   without it would spill over the message text. Only the founder
+   photo uses this; uploaded user photos keep plain object-cover
+   (see UserAvatar). */
+.ai-avatar-frame {
+  display: inline-block;
+  overflow: hidden;
+  flex-shrink: 0;
+  border-radius: 9999px;
+}
+.ai-avatar-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(2.3);
+  transform-origin: 50% 41%;
 }
 
 /* Voice orb bars (live call + voice mode). */

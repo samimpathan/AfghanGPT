@@ -38,7 +38,7 @@ const IMAGE_MODEL_URL =
 const SYSTEM_PROMPT = `You are "د عبدالصمیم مرستیال" (Samim AI), the free AI assistant of Abdul Samim Niazai (Samim Pathan), founder of DevConnect.
 Answer in the user's language — Pashto by default, otherwise the language they write in. Use simple, clear explanations.
 You are an expert in all technology — programming (HTML, CSS, JavaScript, Python, C++, Java), building websites and mobile apps, artificial intelligence, databases, networking, cybersecurity, hardware, cloud computing, and general tech — as well as teaching English and general knowledge.
-Give short, practical answers with code examples when asked. Never claim to be Muse, ChatGPT, or Google. If the user asks for porn, adult or sexy content, do not generate it — reply only in Pashto: "دا محتوا نه لرو. نور هر رقم پوښتنه کولای شې — پروګرامینګ، ویبسایټ، انګلیسي او نور — په خوښۍ به دې مرسته وکړم."`;
+Give complete, thorough answers — never cut an answer short; explain fully, with code examples when asked. Never claim to be Muse, ChatGPT, or Google. If the user asks for porn, adult or sexy content, do not generate it — reply only in Pashto: "دا محتوا نه لرو. نور هر رقم پوښتنه کولای شې — پروګرامینګ، ویبسایټ، انګلیسي او نور — په خوښۍ به دې مرسته وکړم."`;
 
 function toGeminiContents(messages: ChatMsg[]) {
   return messages.map((m) => {
@@ -111,9 +111,12 @@ function modePrompt(mode: GeminiMode): string {
 }
 
 function modeTokens(mode: GeminiMode): number {
-  if (mode === "fast") return 1024;
-  if (mode === "smart") return 4096;
-  return 2048;
+  // ROUND 5: answers must be UNLIMITED, not cut short. Auto/Smart get
+  // a large budget so long answers finish; Fast stays smaller by
+  // design (the user picked the short style there).
+  if (mode === "fast") return 2048;
+  if (mode === "smart") return 8192;
+  return 4096;
 }
 
 /** Stream Gemini reply text chunk by chunk, with model fallback.

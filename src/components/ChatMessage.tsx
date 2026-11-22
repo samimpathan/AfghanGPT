@@ -521,11 +521,13 @@ export default function ChatMessage({
   // ••• (Branch / Export / Report), speaker.
   return (
     <div className="msg-in flex min-w-0 items-start gap-3">
-      <img
-        src="/avatar.jpg"
-        alt=""
-        className="mt-1 h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-black/5 dark:ring-[#263550]"
-      />
+      {/* AI avatar through the face-zoom frame (ROUND 5, see
+          globals.css .ai-avatar-frame): /avatar.jpg is a 3:4
+          full-body portrait, so a plain object-cover circle left
+          the face a ~8px speck at 32px. */}
+      <span className="ai-avatar-frame mt-1 h-8 w-8 ring-1 ring-black/5 dark:ring-[#263550]">
+        <img src="/avatar.jpg" alt="" className="ai-avatar-img" />
+      </span>
       <div className="min-w-0 flex-1 break-words">
         {msg.image && (
           <img

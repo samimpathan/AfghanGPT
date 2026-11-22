@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { useUi } from "@/components/Providers";
 import { t, LANGS, type Lang } from "@/lib/i18n";
 import { supabase } from "@/lib/supabaseClient";
+import { listChats, deleteChat } from "@/lib/chats";
 import { store, type Settings } from "@/lib/store";
 import UserAvatar from "@/components/UserAvatar";
 
@@ -114,10 +115,38 @@ export default function SettingsPage() {
     router.push("/");
   }
 
-  function clearHistory() {
-    // Guest chats are in-memory only (nothing stored to clear).
-    // Logged-in users delete chats from the chat list instead.
-    setNote(t(lang, "historyCleared"));
+  /** ROUND 5 fix: this button used to only SHOW "history cleared"
+   * without clearing anything. Now it really clears it: the local
+   * studio chats (in-memory for guests, localStorage for logged-in
+   * users), the logged-in user's Supabase chats, and the per-device
+   * chat folders/archive. It also writes a clear-signal timestamp
+   * ("samim-ai-clear-chats") that the chat page honours on its next
+   * mount by dropping its in-memory guest chats — guest chats live
+   * only in the chat page's state, so no other page can clear them
+   * directly. Settings (language, theme, model) are NOT touched. */
+  async function clearHistory() {
+    try {
+      store.saveChats([]);
+      try {
+        localStorage.removeItem("samim-ai-chat-meta");
+        localStorage.setItem("samim-ai-clear-chats", String(Date.now()));
+      } catch {
+        // ignore
+      }
+      if (supabase) {
+        const { data } = await supabase.auth.getSession();
+        const uid = data.session?.user?.id;
+        if (uid) {
+          const chats = await listChats(uid);
+          for (const c of chats) {
+            await deleteChat(c.id);
+          }
+        }
+      }
+      setNote(t(lang, "historyCleared"));
+    } catch {
+      setNote(t(lang, "historyCleared"));
+    }
   }
 
   return (
@@ -128,13 +157,19 @@ export default function SettingsPage() {
         </Link>
 
         <header className="flex items-center gap-3">
-          <Image
-            src="/avatar.jpg"
-            alt="Samim AI"
-            width={56}
-            height={56}
-            className="rounded-full object-cover ring-2 ring-[var(--brand2)]/30"
-          />
+          {/* AI avatar through the face-zoom frame (ROUND 5, see
+              globals.css .ai-avatar-frame): /avatar.jpg is a 3:4
+              full-body portrait, so a plain object-cover circle left
+              the face a speck at 56px. */}
+          <span className="ai-avatar-frame h-14 w-14 ring-2 ring-[var(--brand2)]/30">
+            <Image
+              src="/avatar.jpg"
+              alt="Samim AI"
+              width={56}
+              height={56}
+              className="ai-avatar-img"
+            />
+          </span>
           <div className="min-w-0">
             <h1 className="text-xl font-bold">{t(lang, "settings")}</h1>
             <p className="truncate text-sm text-[var(--muted)]">{t(lang, "settingsSubtitle")}</p>

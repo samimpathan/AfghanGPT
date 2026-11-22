@@ -16,13 +16,19 @@ export default function AboutPage() {
         </Link>
 
         <div className="mt-6 rounded-3xl border border-[var(--card-border)] bg-[var(--card)] p-6 text-center shadow-sm sm:p-8">
-          <Image
-            src="/avatar.jpg"
-            alt="Abdul Samim Niazai"
-            width={128}
-            height={128}
-            className="mx-auto rounded-full object-cover ring-4 ring-[var(--brand2)]/20"
-          />
+          {/* Founder photo in the same zoomed circular frame used
+              everywhere else: public/avatar.jpg is a 3:4 full-body
+              portrait, so plain object-cover shows the whole body
+              and the face is a speck — the frame zooms to the face. */}
+          <span className="ai-avatar-frame mx-auto block h-32 w-32 ring-4 ring-[var(--brand2)]/20">
+            <Image
+              src="/avatar.jpg"
+              alt="Abdul Samim Niazai"
+              width={128}
+              height={128}
+              className="ai-avatar-img"
+            />
+          </span>
           <h1 className="mt-5 text-2xl font-bold text-[var(--brand2)]">
             {t(lang, "appName")}
           </h1>

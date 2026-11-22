@@ -140,11 +140,13 @@ function downscaleImage(file: File): Promise<string> {
 function TypingDots() {
   return (
     <div className="msg-in flex min-w-0 items-start gap-3">
-      <img
-        src="/avatar.jpg"
-        alt=""
-        className="mt-1 h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-black/5 dark:ring-[#263550]"
-      />
+      {/* AI avatar through the face-zoom frame (ROUND 5, see
+          globals.css .ai-avatar-frame): /avatar.jpg is a 3:4
+          full-body portrait, so a plain object-cover circle left
+          the face a ~8px speck at 32px. */}
+      <span className="ai-avatar-frame mt-1 h-8 w-8 ring-1 ring-black/5 dark:ring-[#263550]">
+        <img src="/avatar.jpg" alt="" className="ai-avatar-img" />
+      </span>
       <div className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5 px-1 py-2">
           <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[#555555] dark:bg-slate-300" />
@@ -311,6 +313,35 @@ export default function HomePage() {
     return () => {
       window.removeEventListener("focus", refreshProfile);
       document.removeEventListener("visibilitychange", refreshProfile);
+    };
+  }, []);
+
+  // Settings → Clear history writes a "samim-ai-clear-chats"
+  // timestamp; honour it on mount and whenever the page regains
+  // focus, so a clear made in Settings also drops the in-memory
+  // guest chats here (only this page can clear them — they live
+  // only in its state). The flag is consumed once.
+  useEffect(() => {
+    const honourClear = () => {
+      try {
+        const flag = localStorage.getItem("samim-ai-clear-chats");
+        if (!flag) return;
+        localStorage.removeItem("samim-ai-clear-chats");
+        setChats([]);
+        setActiveId(null);
+        setPins([]);
+        setChatMeta({});
+        tempIdsRef.current.clear();
+      } catch {
+        // ignore
+      }
+    };
+    honourClear();
+    window.addEventListener("focus", honourClear);
+    document.addEventListener("visibilitychange", honourClear);
+    return () => {
+      window.removeEventListener("focus", honourClear);
+      document.removeEventListener("visibilitychange", honourClear);
     };
   }, []);
 
@@ -902,12 +933,18 @@ export default function HomePage() {
     }
   }, [activeId, lang]);
 
-  /** Voice input — v3.2 fix.
+  /** Voice input — v3.2 fix, ROUND 5 auto-send (ChatGPT-style).
    * English: the Web Speech API fast path (Chrome supports en-US).
    * Pashto/Dari: Chrome has no SpeechRecognition for ps-AF/fa-IR, so
    * record with MediaRecorder and transcribe with Gemini
-   * (/api/transcribe); the transcript lands in the input box for the
-   * user to check and send. Offline (no key) -> honest note. */
+   * (/api/transcribe). ROUND 5: the transcript no longer just lands
+   * in the composer — when speech ends (tap-to-stop, or ~2s of
+   * silence via the AnalyserNode watch below, or the browser's own
+   * end-of-speech on the English path) the text is AUTO-SENT through
+   * the normal send() flow, exactly as if the user typed it and
+   * pressed send, and the answer streams back. The reply's speaker
+   * button (ChatMessage) still reads it aloud in the reply's
+   * language. Offline (no key) -> honest note. */
   const startListening = useCallback(() => {
     if (listening || recording) {
       recogRef.current?.stop();
@@ -921,6 +958,9 @@ export default function HomePage() {
         return;
       }
       recogRef.current = rec;
+      // Final results accumulate here; onend auto-sends them.
+      let enTranscript = "";
+      let recFailed = false;
       rec.onresult = (e) => {
         const transcript = Array.from(e.results)
           .filter((r) => r.isFinal)
@@ -928,11 +968,12 @@ export default function HomePage() {
           .join(" ")
           .trim();
         if (transcript) {
-          setInput((prev) => (prev ? prev + " " + transcript : transcript));
+          enTranscript = enTranscript ? enTranscript + " " + transcript : transcript;
         }
       };
       rec.onerror = (e) => {
         setListening(false);
+        recFailed = true;
         if (e.error === "not-allowed" || e.error === "service-not-allowed") {
           showNotice(t(lang, "micPermission"));
         } else if (e.error === "no-speech") {
@@ -941,7 +982,23 @@ export default function HomePage() {
           showNotice(t(lang, "micNotSupported"));
         }
       };
-      rec.onend = () => setListening(false);
+      // SpeechRecognition with continuous=false ends by itself after
+      // a pause (silence auto-stop); tapping the mic calls stop()
+      // above, which also lands here. Either way: auto-send.
+      rec.onend = () => {
+        setListening(false);
+        if (recFailed) return;
+        const said = enTranscript.trim();
+        if (!said) {
+          showNotice(t(lang, "micNoSpeech"));
+          return;
+        }
+        const typed = composerRef.current?.value.trim() ?? "";
+        const combined = typed ? typed + " " + said : said;
+        setInput("");
+        speakVoiceReplyRef.current = true;
+        void send(combined);
+      };
       try {
         rec.start();
         setListening(true);
@@ -961,10 +1018,76 @@ export default function HomePage() {
         const rec = new MediaRecorder(stream);
         recorderRef.current = rec;
         recorderChunksRef.current = [];
+        // Silence auto-stop (ChatGPT-style): an AnalyserNode watches
+        // the mic level; ~2s of continuous quiet (after the first
+        // second, so a slow start does not cut the recording) stops
+        // the recorder, and the transcript auto-sends. 60s hard cap.
+        // Everything lives in this closure and is torn down in
+        // onstop, so tap-to-stop cleans it up too.
+        let silenceTimer: ReturnType<typeof setInterval> | null = null;
+        let silenceCtx: AudioContext | null = null;
+        const stopSilenceWatch = () => {
+          if (silenceTimer) {
+            clearInterval(silenceTimer);
+            silenceTimer = null;
+          }
+          if (silenceCtx) {
+            void silenceCtx.close().catch(() => {});
+            silenceCtx = null;
+          }
+        };
+        try {
+          silenceCtx = new AudioContext();
+          const source = silenceCtx.createMediaStreamSource(stream);
+          const analyser = silenceCtx.createAnalyser();
+          analyser.fftSize = 2048;
+          // Zero-gain tap to the destination: some browsers only
+          // feed an AnalyserNode that is connected through; the
+          // gain of 0 keeps the mic silent (no feedback).
+          const mute = silenceCtx.createGain();
+          mute.gain.value = 0;
+          source.connect(analyser);
+          analyser.connect(mute);
+          mute.connect(silenceCtx.destination);
+          void silenceCtx.resume().catch(() => {});
+          const buf = new Uint8Array(analyser.fftSize);
+          const startedAt = Date.now();
+          let quietMs = 0;
+          silenceTimer = setInterval(() => {
+            if (!analyser) return;
+            analyser.getByteTimeDomainData(buf);
+            let sum = 0;
+            for (let i = 0; i < buf.length; i++) {
+              const v = (buf[i] - 128) / 128;
+              sum += v * v;
+            }
+            const rms = Math.sqrt(sum / buf.length);
+            if (Date.now() - startedAt < 1000) return;
+            if (rms < 0.015) {
+              quietMs += 200;
+              if (quietMs >= 2000 && recorderRef.current?.state === "recording") {
+                recorderRef.current.stop();
+              }
+            } else {
+              quietMs = 0;
+            }
+            if (
+              Date.now() - startedAt > 60000 &&
+              recorderRef.current?.state === "recording"
+            ) {
+              recorderRef.current.stop();
+            }
+          }, 200);
+        } catch {
+          // Silence detection is a convenience only — recording
+          // and tap-to-stop still work without it.
+          stopSilenceWatch();
+        }
         rec.ondataavailable = (e) => {
           if (e.data.size > 0) recorderChunksRef.current.push(e.data);
         };
         rec.onstop = async () => {
+          stopSilenceWatch();
           stream.getTracks().forEach((tr) => tr.stop());
           setRecording(false);
           const blob = new Blob(recorderChunksRef.current, {
@@ -977,8 +1100,15 @@ export default function HomePage() {
           showNotice(t(lang, "voiceTranscribing"));
           try {
             const text = await transcribeRecording(blob);
-            if (text) setInput((prev) => (prev ? prev + " " + text : text));
-            else showNotice(t(lang, "micNoSpeech"));
+            if (text) {
+              // Auto-send through the normal flow (any text already
+              // typed in the composer goes first, then the speech).
+              const typed = composerRef.current?.value.trim() ?? "";
+              const combined = typed ? typed + " " + text : text;
+              setInput("");
+              speakVoiceReplyRef.current = true;
+              void send(combined);
+            } else showNotice(t(lang, "micNoSpeech"));
           } catch (e) {
             if (e instanceof Error && (e as Error & { code?: string }).code === "no-key") {
               showNotice(t(lang, "voiceNeedsOnline"));
@@ -991,7 +1121,7 @@ export default function HomePage() {
         setRecording(true);
       })
       .catch(() => showNotice(t(lang, "micPermission")));
-  }, [listening, recording, lang]);
+  }, [listening, recording, lang, send]);
 
   /** Attach a photo: downscale it client-side, show a thumbnail. */
   const onPhotoPicked = async (file: File | undefined) => {
@@ -1030,11 +1160,56 @@ export default function HomePage() {
     showNotice(t(lang, "fileNotSupported"));
   };
 
+  /** t() returns the key itself when the coordinator has not added
+   * it to i18n.ts yet — fall back to English so the user (and the
+   * AI, for prompts) never sees a raw key. */
+  const tx = (key: string, fallback: string): string => {
+    const v = t(lang, key);
+    return v === key ? fallback : v;
+  };
+
+  /** Screen-share auto-send (ROUND 5): a timestamp (0 = none) set
+   * when a screen frame / screenshot is on its way to the AI.
+   * send() reads pendingImage from its own closure, so the send
+   * must happen in the effect below, after the re-render that
+   * carries the new pendingImage — not synchronously here. The
+   * 120s window also bounds the phone fallback: if the user
+   * cancels the photo picker, a much later unrelated photo is
+   * never auto-sent as a screen question. */
+  const screenAutoSendRef = useRef(0);
+  /** Set when a screen auto-send starts: its reply is read aloud
+   * in the reply's own language once streaming ends (below). */
+  const speakScreenReplyRef = useRef(false);
+  /** Same for a voice auto-send (mic): like ChatGPT's voice mode,
+   * the reply to something spoken is read aloud once it finishes
+   * streaming. Typed sends never auto-speak. */
+  const speakVoiceReplyRef = useRef(false);
+
   /** Screen share (outside a call): capture the screen, show a
-   * preview, and let the user send ONE still frame to the AI as a
-   * photo question. No live call is pretended — there is no peer. */
+   * preview, and send ONE still frame to the AI as a photo question
+   * — the button promises "Send frame to AI", so it must actually
+   * SEND (before ROUND 5 it only attached the frame to the composer
+   * and silently waited for the user to type + send, which is why
+   * the user reported it "does not work"). The reply is read aloud
+   * by voice. No live call is pretended — there is no peer. */
   const openScreenShare = async () => {
     setAttachOpen(false);
+    // Phones first: getDisplayMedia does not exist in most Android
+    // phone browsers (Chrome Android has no screen capture at all).
+    // The button must never be dead — open the photo picker so the
+    // user photographs their screen (or picks a screenshot) and it
+    // is sent as a photo question instead.
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      showNotice(
+        tx(
+          "screenPhotoFallback",
+          "Screen capture isn't available on this phone — take a photo of your screen instead and the AI will describe it."
+        )
+      );
+      screenAutoSendRef.current = Date.now();
+      photoInputRef.current?.click();
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
       screenStreamRef.current = stream;
@@ -1067,9 +1242,12 @@ export default function HomePage() {
       return;
     }
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    // Flag the frame for the auto-send effect below, then close.
+    // No "sent" notice here — the message appearing in the chat
+    // (and the spoken reply) is the confirmation.
+    screenAutoSendRef.current = Date.now();
     setPendingImage({ dataUrl: canvas.toDataURL("image/jpeg", 0.8) });
     closeScreenShare();
-    showNotice(t(lang, "screenShareSend"));
   };
 
   // Attach the screen-share stream to the preview element.
@@ -1077,6 +1255,61 @@ export default function HomePage() {
     const el = screenVideoRef.current;
     if (el && screenStreamRef.current) el.srcObject = screenStreamRef.current;
   }, [screenShareOpen]);
+
+  /** Screen-share auto-send: when a flagged frame / screenshot
+   * lands in pendingImage, send it at once as a photo question
+   * through the normal send() flow (which carries pendingImage).
+   * If a message is already streaming, wait — streaming is a dep,
+   * so this re-runs when it ends. */
+  useEffect(() => {
+    if (!screenAutoSendRef.current) return;
+    if (Date.now() - screenAutoSendRef.current > 120000) {
+      screenAutoSendRef.current = 0;
+      return;
+    }
+    if (!pendingImage) return;
+    if (streaming) return;
+    screenAutoSendRef.current = 0;
+    speakScreenReplyRef.current = true;
+    void send(
+      tx(
+        "screenShareAsk",
+        "Please describe what you see on my screen and answer by voice."
+      )
+    );
+  }, [pendingImage, send, streaming, lang]);
+
+  /** Screen-share / voice voice reply: once the auto-sent screen
+   * question or voice message finishes streaming, read the reply
+   * aloud in the reply's own language — device voice first, Gemini
+   * TTS second (the same path as the per-message speaker button in
+   * ChatMessage), so the answer is spoken like Gemini's. A failed
+   * reply is never read aloud. Dynamic import: the import block at
+   * the top of this file is another agent's region; lib/voice is
+   * already loaded. */
+  useEffect(() => {
+    if (streaming || (!speakScreenReplyRef.current && !speakVoiceReplyRef.current)) return;
+    speakScreenReplyRef.current = false;
+    speakVoiceReplyRef.current = false;
+    const chat = chatsRef.current.find((c) => c.id === activeId) ?? null;
+    const last = [...(chat?.messages ?? [])]
+      .reverse()
+      .find((m) => m.role === "assistant" && m.content.trim());
+    if (!last || last.content.trim() === t(lang, "errorGeneric")) return;
+    void (async () => {
+      try {
+        const { speakText, playGeminiSpeech, hasSpeechVoice, detectTextLang } =
+          await import("@/lib/voice");
+        const replyLang = detectTextLang(last.content);
+        if (hasSpeechVoice(replyLang)) {
+          if (speakText(last.content, replyLang, () => {})) return;
+        }
+        await playGeminiSpeech(last.content, replyLang, () => {});
+      } catch {
+        // A silent reply is still a reply — the text is in the chat.
+      }
+    })();
+  }, [streaming, activeId, lang]);
 
   /** A live call's transcript joins the current chat when it ends. */
   const onLiveCallClose = useCallback(
@@ -1233,8 +1466,15 @@ export default function HomePage() {
     </div>
   );
 
+  // ROUND 5 — the shell is a fixed-height flex column (h-dvh):
+  // header + composer are shrink-0, only .chat-scroll scrolls
+  // (min-h-0) — so when the mobile keyboard shrinks dvh, the
+  // message list absorbs ALL the shrinkage and nothing else
+  // moves, squashes, or scrolls away. overflow-hidden (not just
+  // overflow-x) so the document itself can never scroll while
+  // typing; the drawer/modals are `fixed`, so they are unaffected.
   return (
-    <div className="flex h-dvh w-full flex-col overflow-x-hidden bg-white text-slate-900 dark:bg-[#080D1B] dark:text-[#EAF2FF]">
+    <div className="flex h-dvh w-full flex-col overflow-hidden bg-white text-slate-900 dark:bg-[#080D1B] dark:text-[#EAF2FF]">
       {/* ===== Drawer (ChatGPT style, RTL-aware) ===== */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-40">
@@ -1265,7 +1505,7 @@ export default function HomePage() {
                   className="flex h-10 w-10 items-center justify-center rounded-full bg-[#2457FF] text-lg font-bold text-white"
                   aria-label={t(lang, "newChat")}
                 >
-                  <Icon name="plus" size={20} />
+                  <Icon name="compose" size={20} />
                 </button>
                 {visibleStudios.map((s) => (
                   <Link
@@ -1389,11 +1629,16 @@ export default function HomePage() {
               </p>
             )}
             <div className="drawer-scroll chat-scroll mt-2 flex-1 overflow-y-auto px-2 pb-2">
-              {savedImages.length > 0 && (
-                <div ref={libraryRef} className="mb-2">
-                  <p className="px-2 pb-1 pt-1 text-xs font-bold text-slate-500">
-                    {t(lang, "images")}
-                  </p>
+              {/* Images gallery — ALWAYS rendered (with an empty-state
+                  line) so the Images/Library nav buttons always have
+                  somewhere to scroll to; before ROUND 5 the section
+                  only existed when an image was saved, so both
+                  buttons did nothing visible on an empty library. */}
+              <div ref={libraryRef} className="mb-2">
+                <p className="px-2 pb-1 pt-1 text-xs font-bold text-slate-500">
+                  {t(lang, "images")}
+                </p>
+                {savedImages.length > 0 ? (
                   <div className="grid grid-cols-3 gap-1 px-1">
                     {savedImages.slice(0, 9).map((src, i) => (
                       <button
@@ -1410,8 +1655,10 @@ export default function HomePage() {
                       </button>
                     ))}
                   </div>
-                </div>
-              )}
+                ) : (
+                  <p className="px-2 pb-1 text-xs text-slate-500">{t(lang, "noSavedImages")}</p>
+                )}
+              </div>
               {/* Pinned — the heading is ALWAYS visible (ChatGPT-style);
                   an empty-state line shows when nothing is pinned. */}
               <div className="mb-1">
@@ -1489,7 +1736,7 @@ export default function HomePage() {
                   onClick={newChat}
                   className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-[#2457FF] px-4 text-sm font-bold text-white transition hover:bg-blue-700 active:scale-95"
                 >
-                  <Icon name="compose" size={18} className="shrink-0" /> {t(lang, "chat")}
+                  <Icon name="compose" size={20} className="shrink-0" /> {t(lang, "chat")}
                 </button>
                 {userEmail ? (
                   <a
@@ -1542,7 +1789,14 @@ export default function HomePage() {
       )}
 
       {/* ===== Header: hamburger | model picker | avatar + new chat + ••• ===== */}
-      <header className="sticky top-0 z-30 min-w-0 border-b border-[var(--border-subtle)] bg-white px-3 py-2.5 dark:bg-[#080D1B] sm:px-5">
+      {/* ROUND 5: NOT sticky anymore. A sticky header can only stick
+          inside its h-dvh-tall parent, so when Android Chrome scrolls
+          the page to lift the focused textarea above the keyboard,
+          the header scrolled away with the page. As a plain shrink-0
+          flex child of the non-scrolling dvh shell it cannot move or
+          squash. `relative` (not static) keeps the ••• dropdown
+          anchored to the header (absolute end-4 top-full). */}
+      <header className="relative z-30 min-w-0 shrink-0 border-b border-[var(--border-subtle)] bg-white px-3 py-2.5 dark:bg-[#080D1B] sm:px-5">
         <div dir="ltr" className="flex items-center justify-between gap-2">
           <button
             type="button"
@@ -1681,13 +1935,16 @@ export default function HomePage() {
                 </div>
               </>
             )}
-            {/* Pencil + ••• in ONE rounded pill (photo 1) — the divider
-                separates the two actions inside the shared container. */}
+            {/* Square-with-pencil new-chat + ••• in ONE rounded pill —
+                the divider separates the two actions inside the
+                shared container. ROUND 5 glyph (see icons.tsx),
+                same 20px size and neutral colour as the ••• icon,
+                in the same 44px button. */}
             <div className="flex shrink-0 items-center rounded-full border border-[var(--card-border)] bg-[var(--card)]">
               <button
                 type="button"
                 onClick={newChat}
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition duration-150 hover:bg-[var(--surface)] active:scale-95"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[#222222] transition duration-150 hover:bg-[var(--surface)] active:scale-95 dark:text-[#EAF2FF]"
                 aria-label={t(lang, "newChat")}
               >
                 <Icon name="compose" size={20} />
@@ -1898,22 +2155,30 @@ export default function HomePage() {
       )}
 
       {/* ===== Chat area ===== */}
-      <div className="chat-scroll min-w-0 w-full flex-1 overflow-x-hidden overflow-y-auto px-5 py-4">
+      {/* ROUND 5: min-h-0 is what lets this list shrink when the
+          mobile keyboard shrinks h-dvh — without it, flex min-height
+          :auto (content height) refuses to shrink and the header /
+          composer get squeezed or pushed off instead. */}
+      <div className="chat-scroll min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-5 py-4">
         {messages.length === 0 ? (
           <div className="mx-auto w-full min-w-0 max-w-2xl pb-6 text-center">
             {/* Empty state keeps the video identity: centred avatar + name pill.
-                The avatar is a plain <a> so the tap always works. */}
+                The avatar is a plain <a> so the tap always works.
+                ROUND 5: the photo is a full-body portrait — the
+                .ai-avatar-frame/.ai-avatar-img zoom to the face
+                (see globals.css); the <a> itself is the frame. */}
             <a
               href="/about"
               aria-label={t(lang, "about")}
-              className="pointer-events-auto relative z-10 inline-block cursor-pointer rounded-full transition-transform active:scale-95"
+              className="ai-avatar-frame pointer-events-auto relative z-10 mx-auto block h-16 w-16 cursor-pointer ring-2 ring-white/80 transition-transform active:scale-95 dark:ring-[#263550]"
             >
               <Image
                 src="/avatar.jpg"
                 alt="Samim AI"
                 width={64}
                 height={64}
-                className="mx-auto rounded-full object-cover ring-2 ring-white/80 dark:ring-[#263550]"
+                priority
+                className="ai-avatar-img"
               />
             </a>
             <div className="mt-3 inline-block max-w-full rounded-2xl bg-[var(--card)] px-3.5 py-1.5 shadow-sm ring-1 ring-black/5 dark:ring-[#263550]">
@@ -2026,7 +2291,9 @@ export default function HomePage() {
       </div>
 
       {/* ===== Bottom input ===== */}
-      <div className="min-w-0 w-full px-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] pt-1 sm:px-3.5">
+      {/* ROUND 5: shrink-0 — the composer must never squash when the
+          mobile keyboard shrinks h-dvh; only .chat-scroll shrinks. */}
+      <div className="min-w-0 w-full shrink-0 px-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] pt-1 sm:px-3.5">
         {notice && (
           <p className="mx-auto mb-2 max-w-3xl rounded-full bg-slate-900 px-4 py-2 text-center text-xs text-white dark:bg-slate-100 dark:text-slate-900">
             {notice}
@@ -2132,28 +2399,38 @@ export default function HomePage() {
               className="composer-textarea bidi-plaintext max-h-[112px] min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-2 text-base leading-6 text-[#111111] outline-none placeholder:text-[#9A9A9A] sm:text-[17px] dark:text-[#EAF2FF]"
             />
             {/* Order inside the pill: + … mic … gold wave … ↑ send.
-                The send button appears ONLY once there is text (or a
-                photo) to send — with an empty pill the photos show
-                just mic + wave, no send arrow. While streaming the
-                black square stops the reply. */}
-            <button
-              type="button"
-              onClick={startListening}
-              className={`mb-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
-                listening || recording ? "mic-listening text-red-500" : ""
-              }`}
-              aria-label="Microphone"
-            >
-              <Icon name="mic" size={22} />
-            </button>
-            <button
-              type="button"
-              onClick={() => setLiveCallOpen(true)}
-              className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#FACC15] text-black shadow-sm transition hover:bg-[#EAB308] active:scale-95"
-              aria-label={t(lang, "liveCall")}
-            >
-              <Icon name="waveform" size={20} />
-            </button>
+                ROUND 5 (ChatGPT behaviour): as soon as there is text
+                (or a photo) the mic AND the gold live-call wave
+                disappear and ONLY ↑ shows — while streaming, the
+                black square stops the reply instead. With an empty
+                pill the mic + wave show and there is no send arrow.
+                One exception: while listening/recording the mic
+                STAYS (it is the only way to stop it — tapping it
+                calls startListening, which toggles off), even if
+                dictated text has already landed in the box; the
+                wave still hides while recording/listening. */}
+            {(!input.trim() && !pendingImage) || listening || recording ? (
+              <button
+                type="button"
+                onClick={startListening}
+                className={`mb-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+                  listening || recording ? "mic-listening text-red-500" : ""
+                }`}
+                aria-label="Microphone"
+              >
+                <Icon name="mic" size={22} />
+              </button>
+            ) : null}
+            {!input.trim() && !pendingImage && !listening && !recording ? (
+              <button
+                type="button"
+                onClick={() => setLiveCallOpen(true)}
+                className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#FACC15] text-black shadow-sm transition hover:bg-[#EAB308] active:scale-95"
+                aria-label={t(lang, "liveCall")}
+              >
+                <Icon name="waveform" size={20} />
+              </button>
+            ) : null}
             {streaming ? (
               <button
                 type="button"

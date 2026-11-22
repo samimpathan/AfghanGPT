@@ -27,12 +27,104 @@ export function isPashto(text: string): boolean {
   return /[\u0600-\u06FF\u0750-\u077F]/.test(text);
 }
 
+/** ROUND 5 — safe mental maths, no eval(): a tiny recursive-descent
+ * parser for + - * / % ^ ( ) and decimals. Returns null unless the
+ * whole cleaned question is just an arithmetic expression, so
+ * "What is 15 + 27?" is answered offline instead of web-searched. */
+function evalArithmetic(expr: string): number | null {
+  let i = 0;
+  const s = expr.replace(/\s+/g, "");
+  const peek = () => s[i];
+  function parsePrimary(): number | null {
+    if (peek() === "(") {
+      i++;
+      const v = parseAddSub();
+      if (v === null || peek() !== ")") return null;
+      i++;
+      return v;
+    }
+    if (peek() === "-") {
+      i++;
+      const v = parsePrimary();
+      return v === null ? null : -v;
+    }
+    const m = /^\d+(?:\.\d+)?/.exec(s.slice(i));
+    if (!m) return null;
+    i += m[0].length;
+    return parseFloat(m[0]);
+  }
+  function parsePow(): number | null {
+    let v = parsePrimary();
+    if (v === null) return null;
+    while (peek() === "^") {
+      i++;
+      const rhs = parsePrimary();
+      if (rhs === null) return null;
+      v = Math.pow(v, rhs);
+    }
+    return v;
+  }
+  function parseMulDiv(): number | null {
+    let v = parsePow();
+    if (v === null) return null;
+    while (peek() === "*" || peek() === "/" || peek() === "%") {
+      const op = s[i++];
+      const rhs = parsePow();
+      if (rhs === null) return null;
+      if (op === "*") v = v * rhs;
+      else if (op === "/") {
+        if (rhs === 0) return null;
+        v = v / rhs;
+      } else v = v % rhs;
+    }
+    return v;
+  }
+  function parseAddSub(): number | null {
+    let v = parseMulDiv();
+    if (v === null) return null;
+    while (peek() === "+" || peek() === "-") {
+      const op = s[i++];
+      const rhs = parseMulDiv();
+      if (rhs === null) return null;
+      v = op === "+" ? v + rhs : v - rhs;
+    }
+    return v;
+  }
+  const v = parseAddSub();
+  if (v === null || i !== s.length || !Number.isFinite(v)) return null;
+  return v;
+}
+
+/** Maths question? "What is 15 + 27?", "12 * 8", "2^10", "100 / 4". */
+function tryMathAnswer(rawInput: string): string | null {
+  let q = rawInput.trim();
+  // Strip question words (both languages) and a trailing "?"/"=".
+  q = q
+    .replace(/^(what is|what's|calculate|compute|solve|find|حساب|محاسبه|څومره کېږي|څومره|حاصل|مساوي)\s+/i, "")
+    .replace(/[؟?=\s]+$/g, "")
+    .replace(/x/gi, "*")
+    .replace(/÷/g, "/")
+    .trim();
+  if (!/^[\d\s+\-*/%^().]+$/.test(q)) return null;
+  if (!/\d/.test(q) || !/[+\-*/%^]/.test(q)) return null;
+  const value = evalArithmetic(q);
+  if (value === null) return null;
+  const shown = q.replace(/\s+/g, " ").trim();
+  const answer = Number.isInteger(value) ? String(value) : String(Math.round(value * 1000000) / 1000000);
+  const english = !isPashto(rawInput) && /[a-zA-Z]/.test(rawInput);
+  return english
+    ? `${shown} = ${answer}`
+    : `${shown} = ${answer}`;
+}
+
 /** Topic answer only: returns the offline brain's reply when the
  * message matches one of its built-in topics (greetings, who-are-you,
  * small talk, founder, coding topics, time/date, jokes, …), or null
  * when it has nothing specific — the caller then decides whether a
  * web search is appropriate. Never returns the honest fallback. */
 export function getOfflineTopicAnswer(rawInput: string): string | null {
+  const math = tryMathAnswer(rawInput);
+  if (math !== null) return math;
   const text = normalize(rawInput);
   const lower = text.toLowerCase();
   const english = !isPashto(rawInput) && /[a-zA-Z]/.test(rawInput);
@@ -75,20 +167,26 @@ export function getOfflineTopicAnswer(rawInput: string): string | null {
   }
 
   // --- Greetings ---
-  if (
-    has(
-      text,
-      "سلام",
-      "سلامونه",
-      "سهار مو پخیر",
-      "سهار مو بخیر",
-      "ښه شپه",
-      "مازدیګر مو پخیر",
-      "hello",
-      "hi",
-      "salam"
-    )
-  ) {
+  // ROUND 5 fix: "hi" was matched as a SUBSTRING, so any English
+  // question containing "hi" ("which", "this", "think"…) got a
+  // greeting instead of a real answer. English greetings now need a
+  // whole word at the start, and a greeting PLUS a real question
+  // ("Hi, what is the capital of France?") is answered as a question,
+  // not as small talk — the web search must still run for it.
+  const greetWord = /^(hello|hi|salam)\b/.test(lower) || /^(سلام|سلامونه)/.test(text);
+  const wordCount = text.split(" ").filter(Boolean).length;
+  const hasQuestionWord = /\b(what|who|where|when|why|how|which)\b/.test(lower) || has(text, "څه", "څوک", "چیرته", "چېرته", "کله", "ولې", "څنګه", "کوم", "څومره");
+  const greetingOnly = greetWord && (wordCount <= 5 || !hasQuestionWord);
+  const pashtoGreeting = has(
+    text,
+    "سلام",
+    "سلامونه",
+    "سهار مو پخیر",
+    "سهار مو بخیر",
+    "ښه شپه",
+    "مازدیګر مو پخیر"
+  );
+  if (greetingOnly || (pashtoGreeting && wordCount <= 5)) {
     return english
       ? "Hello! How are you?\n\nWhat can I do for you today?"
       : "سلام! څنګه یې؟\n\nنن څه درته وکړم؟";
@@ -165,7 +263,14 @@ export function getOfflineTopicAnswer(rawInput: string): string | null {
   }
 
   // --- Python loop ---
-  if (has(lower, "python")) {
+  // ROUND 5: only answer with the loop example when the user asks
+  // for Python code/a loop/an example — "What is Python?" or
+  // "Python history" must go to the web, not get a loop snippet.
+  if (
+    has(lower, "python") &&
+    (has(lower, "loop", "example", "code", "print", "for ", "function", "list", "dict", "while", "range") ||
+      lower.trim() === "python")
+  ) {
     return (
       (english
         ? "A loop in Python repeats work.\n\n```python\nfor i in range(5):\n    print(i)\n```\n\nThis prints 0, 1, 2, 3, 4. `range(5)` gives the numbers 0 to 4."
@@ -201,12 +306,54 @@ export function getOfflineTopicAnswer(rawInput: string): string | null {
   }
 
   // --- English lessons ---
-  if (has(lower, "english") || has(text, "انګلیسی", "انګلیسی")) {
+  // ROUND 5: only a lesson request ("learn English", "teach me
+  // English") gets the lesson. "What is X in English?" is a
+  // translation question — it must go to the web/AI, not the lesson.
+  const englishLesson =
+    (has(lower, "english") &&
+      !/in english|to english|english word|english meaning|english for|translate.*english|english translation/.test(
+        lower
+      )) ||
+    (has(text, "انګلیسی") && !has(text, "په انګلیسی", "انګلیسی ته", "انګلیسی کې"));
+  if (englishLesson) {
     return (
       (english
         ? "Here is a small English lesson — greetings:\n\n- Hello = سلام\n- Good morning = سهار مو پخیر\n- Thank you = مننه\n- Goodbye = خدای پامان\n\nTry a sentence and I will correct it for you."
         : "دلته یو کوچنی انګلیسی درس دی — سلامونه:\n\n- Hello = سلام\n- Good morning = سهار مو پخیر\n- Thank you = مننه\n- Goodbye = خدای پامان\n\nیوه جمله ولیکه، زه به یې سم کړم.")
     );
+  }
+
+  // --- What is AI / a computer / the internet / SQL / React ---
+  // ROUND 5: short honest explainers for the most-asked general
+  // questions, so they are answered even with no web result.
+  if (
+    /\bwhat is ai\b/.test(lower) ||
+    has(lower, "artificial intelligence") ||
+    has(text, "مصنوعي ځیرکتیا", "مصنوعي ذکاوت")
+  ) {
+    return english
+      ? "AI (Artificial Intelligence) means teaching a computer to learn and decide like a person — for example understanding language, recognising pictures, or answering questions.\n\nSamim AI is one example: you ask a question, and it answers from what it learned."
+      : "AI (مصنوعي ځیرکتیا) یعنې کمپیوټر ته زده کول چې د انسان په څېر زده کړي او پرېکړه وکړي — لکه د ژبې پوهېدل، د انځور پېژندل، یا پوښتنو ته ځواب ورکول.\n\nSamim AI یو بېلګه ده: ته پوښتنه کوې، او دا له خپلو زده‌کړو څخه ځواب درکوي.";
+  }
+  if (/\bwhat is (a )?computer\b/.test(lower) || has(text, "کمپیوټر څه دی", "کمپیوټر څه شی دی")) {
+    return english
+      ? "A computer is an electronic machine that takes information (input), processes it, and gives a result (output).\n\nIts main parts are: the processor (CPU — the brain), memory (RAM), storage (hard disk / SSD), and the screen and keyboard."
+      : "کمپیوټر یو برېښنايي ماشین دی چې معلومات اخلي (input)، پروسس کوي یې، او پایله ورکوي (output).\n\nاصلي برخې یې دا دي: پروسسر (CPU — مغز)، حافظه (RAM)، ذخیره (هارډ ډیسک / SSD)، سکرین او کیبورډ.";
+  }
+  if (/\bwhat is (the )?internet\b/.test(lower) || has(text, "انټرنیټ څه دی", "انټرنیټ څه شی دی")) {
+    return english
+      ? "The internet is a worldwide network of connected computers. It lets people send messages, open websites, watch videos and use apps like Samim AI from anywhere in the world."
+      : "انټرنیټ د نړۍ د تړلو کمپیوټرونو شبکه ده. خلک کولای شي پیغامونه ولېږي، ویبسایټونه پرانیزي، ویډیوګانې وګوري او له هر ځای څخه Samim AI په څېر اپونه وکاروي.";
+  }
+  if (has(lower, "sql") && (has(lower, "what", "learn", "example", "query", "database") || lower.trim() === "sql")) {
+    return english
+      ? "SQL is the language for working with databases.\n\n```sql\nSELECT name, age FROM users WHERE age > 18;\n```\n\nThis takes the name and age of every user older than 18 from the `users` table."
+      : "SQL د ډیټابیس سره د کار کولو ژبه ده.\n\n```sql\nSELECT name, age FROM users WHERE age > 18;\n```\n\nدا د `users` جدول څخه د هر هغه کارونکي نوم او عمر اخلي چې عمر یې له 18 څخه زیات وي.";
+  }
+  if (has(lower, "react") || has(lower, "next.js", "nextjs")) {
+    return english
+      ? "React is a JavaScript library for building user interfaces — a page is made of small reusable pieces called components.\n\n```jsx\nfunction Hello() {\n  return <h1>Hello World!</h1>;\n}\n```\n\nNext.js is a React framework that adds routing, server rendering and easy deployment (for example on Vercel)."
+      : "React د کارونکي انټرفیس جوړولو لپاره د JavaScript یو کتابتون دی — پاڼه له کوچنیو برخو څخه جوړېږي چې components ورته وایي.\n\n```jsx\nfunction Hello() {\n  return <h1>Hello World!</h1>;\n}\n```\n\nNext.js د React یو چوکاټ دی چې روټینګ، سرور رینډرینګ او اسانه خپرول (لکه په Vercel) زیاتوي.";
   }
 
   // --- Time / date ---
@@ -225,7 +372,14 @@ export function getOfflineTopicAnswer(rawInput: string): string | null {
   }
 
   // --- What can you do / help ---
-  if (has(text, "څه کولای شې", "څه کولی شې", "مرسته", "مرستې ته اړتیا لرم", "help") || has(lower, "what can you do")) {
+  // ROUND 5: "help" must be the point of the message ("help", "help
+  // me"), not a word inside a real question ("help me solve 12*8"
+  // is a maths question, not a capabilities question).
+  if (
+    has(text, "څه کولای شې", "څه کولی شې", "مرسته", "مرستې ته اړتیا لرم") ||
+    has(lower, "what can you do") ||
+    (/\bhelp\b/.test(lower) && wordCount <= 4)
+  ) {
     return english
       ? "I am your assistant! I can:\n\n- Chat in Pashto, English and Dari\n- Help with any kind of technology: programming (HTML, CSS, JavaScript, Python, C++, Java), mobile apps, AI, databases, networking, cybersecurity, hardware and cloud\n- Explain how to build a website or an app\n- Teach English\n- Tell the time and date, and jokes 😊"
       : "زه ستا مرستیال یم! زه دا کولی شم:\n\n- په پښتو، انګلیسی او دری خبرې وکړم\n- په هر ډول ټکنالوژۍ کې مرسته وکړم: پروګرامینګ (HTML، CSS، JavaScript، Python، C++، Java)، موبایل اپ، AI، ډیټابیس، شبکې، سایبر امنیت، هارډویر او کلاوډ\n- د ویبسایټ یا اپ جوړول تشریح کړم\n- انګلیسی وښیم\n- وخت او نېټه ووایم، او ټوکې وکړم 😊";

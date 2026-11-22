@@ -60,12 +60,20 @@ function stripHtml(s: string): string {
 
 /** Best-effort language detection for a question. Pashto-specific
  * letters win; other Arabic-script text defaults to Pashto (the
- * app's main audience) unless it clearly looks like Dari or Arabic. */
+ * app's main audience) unless it clearly looks like Dari or Arabic.
+ * ROUND 5: \b does NOT work on Arabic-script words in JS (\b only
+ * knows ASCII word characters), so the old /\b(ما|هل|…)\b/ tests
+ * NEVER matched — every Arabic question fell through to Pashto and
+ * got no answer. Word-list membership is used instead. "ما" is left
+ * out of the Arabic list: it is also a Pashto word ("I"), while
+ * "هي"/"هو"/"هذا"/"هذه"/"الذي" are distinctly Arabic. */
 export function detectLang(text: string): FreeWebLang {
   if (/[ځڅډړږښګڼېۍ]/.test(text)) return "ps";
   if (/[\u0600-\u06FF\u0750-\u077F]/.test(text)) {
-    if (/\b(است|این|چه|کجا|چطور|می‌شود|میشود|های|بود|خواهد)\b/.test(text)) return "fa";
-    if (/\b(ما|هل|أين|هذا|هذه|كيف|ماذا|الذي|التي|كان|يكون)\b/.test(text)) return "ar";
+    const words = text.split(/\s+/).map((w) => w.replace(/[؟?!.،,؛:()«»"']/g, ""));
+    const hasWord = (...ws: string[]) => ws.some((w) => words.includes(w));
+    if (hasWord("است", "این", "چه", "کجا", "چرا", "چگونه", "چطور", "میشود", "می‌شود", "های", "بود", "خواهد")) return "fa";
+    if (hasWord("هل", "أين", "اين", "هذا", "هذه", "كيف", "ماذا", "الذي", "التي", "كان", "يكون", "هي", "هو")) return "ar";
     return "ps";
   }
   return "en";
@@ -153,7 +161,10 @@ function cleanFactText(fact: string, lang: FreeWebLang): string {
   s = s.replace(/\s+([,.،۔؟!;:])/g, "$1");
   s = s.replace(/\(\s*\)/g, ""); // empty parens left by a removed fragment
   s = s.replace(/\s+/g, " ").trim();
-  s = truncateAtSentence(s, 600);
+  // ROUND 5: answers must be FULL, not cut at ~600 chars. A Wikipedia
+  // summary is 2–3 paragraphs — keep up to 2500 chars, still ending
+  // at a complete sentence.
+  s = truncateAtSentence(s, 2500);
   // End at a real sentence boundary: some sources (DuckDuckGo
   // abstracts) end a complete sentence without a final full stop.
   if (s && !SENTENCE_END.test(s[s.length - 1])) {
@@ -172,14 +183,34 @@ function deriveTopic(question: string): string {
     .replace(/[؟?!.،,]+$/g, "")
     .replace(/\s+/g, " ")
     .trim();
+  // ROUND 5: a leading greeting ("Hi, what is…?") is not part of the
+  // topic — it used to poison the topic AND the key phrase, so "Hi,
+  // what is the capital of France?" was answered with the "Capital"
+  // magazine instead of Paris.
+  q = q.replace(/^(hi|hello|salam|سلام)[,!\s]+/i, "");
+  // "Which country is Paris in?" / "What country is Paris in?" — the
+  // topic is the place itself (Paris); its summary states the country.
+  const whichPlace = /^(?:which|what) (?:country|city) (?:is|was) (.+?)(?: in| located in)?$/i.exec(q);
+  if (whichPlace) return whichPlace[1].trim();
+  // Pashto: "پاریس د کوم هیواد پلازمېنه ده؟" — the topic is the place
+  // itself (Paris). Dari: "پاریس پایتخت کدام کشور است؟" — same.
+  // Both spellings of the Yeh are accepted (پلازمېنه/پلازمینه).
+  const psWhichPlace = /^(.+?) د کوم (ه[یې]واد|ښار) /.exec(q);
+  if (psWhichPlace) return psWhichPlace[1].trim();
+  const faWhichPlace = /^(.+?) پایتخت کدام کشور/.exec(q);
+  if (faWhichPlace) return faWhichPlace[1].trim();
   q = q.replace(/\s+(څه دی|څه ده|څه دي|چیست|کیست|ما هو|ما هي|what is it|is it)\s*$/i, "");
   const patterns: RegExp[] = [
-    /^(what is|what are|what was|who is|who was|where is|where are|when is|when was|define|tell me about|explain|meaning of|the capital of|capital of)\s+/i,
+    /^(what is|what are|what was|what did|what do|what does|who is|who was|who did|who wrote|who invented|who discovered|who founded|who created|who painted|who composed|where is|where are|where was|where did|when is|when was|when did|when do|when does|why is|why was|why did|why do|how is|how was|how did|how do|how does|how many|how much|define|tell me about|explain|meaning of|the capital of|capital of)\s+/i,
     /^(څه دی|څه ده|څه دي|څوک دی|څوک ده|څوک دي|چیرته دی|چیرته ده|کله دی|پایتخت|پلازمېنه)\s+/,
     /^(چیست|کیست|کجاست|پایتخت|تعریف)\s+/,
     /^(ما هو|ما هي|من هو|من هي|أين|عاصمة)\s+/,
   ];
   for (const p of patterns) q = q.replace(p, "");
+  // ROUND 5: drop a leftover leading "the" ("Who invented the
+  // telephone?" reduced to "the telephone" — there is no article
+  // called "The Telephone", so the summary lookup always missed).
+  q = q.replace(/^the\s+/i, "");
   const words = q.split(" ").filter(Boolean).slice(0, 6);
   return words.join(" ").trim();
 }
@@ -193,21 +224,42 @@ function deriveTopic(question: string): string {
 const STOPWORDS = new Set([
   "the", "a", "an", "of", "and", "or", "for", "in", "on", "at", "to",
   "is", "are", "was", "were", "what", "who", "where", "when", "which", "how",
+  // ROUND 5: "کوم" (which) and "څومره" (how many) are question words,
+  // not content words — "پاریس د کوم هیواد پلازمېنه ده؟" is about
+  // Paris, and the Paris snippet never says "کوم".
+  "کوم", "څومره",
   "د", "په", "کې", "او", "له", "څخه", "ده", "دی", "دي", "که", "چی", "چه",
   "این", "است", "را", "به", "در", "از", "ما", "هو", "هي", "من", "في", "إلى", "عن", "على",
 ]);
 
-function topicWords(topic: string): string[] {
+// ROUND 5: question verbs are not content words for MATCHING — "who
+// wrote Hamlet" is about Hamlet, and the Hamlet summary says "by
+// William Shakespeare" without ever using the word "wrote". But they
+// ARE kept for the Wikipedia SEARCH text: searching "invented
+// telephone" finds "Invention of the telephone" / Bell, while
+// searching just "telephone" returns only the device description.
+const VERB_WORDS = new Set([
+  "wrote", "written", "invented", "discovered", "founded", "created", "painted", "composed",
+]);
+
+function topicWords(topic: string, keepVerbs = false): string[] {
+  // ROUND 5: Arabic punctuation (؟ ، ۔ ؛) sits INSIDE \u0600-\u06FF,
+  // so the edge-strip regex below treats it as a letter — "ده؟" used
+  // to survive as a content word, poisoning both the search text
+  // ("فرانسې پلازمېنه ده؟") and the relevance match. Strip it first.
   return topic
     .split(" ")
-    .map((w) => w.replace(/^[^a-zA-Z0-9\u0600-\u06FF\u0750-\u077F]+|[^a-zA-Z0-9\u0600-\u06FF\u0750-\u077F]+$/g, ""))
-    .filter((w) => w.length > 2 && !STOPWORDS.has(w.toLowerCase()));
-}
-
-function snippetMatches(snippet: string, title: string, words: string[]): boolean {
-  if (words.length === 0) return snippet.length > 20;
-  const hay = `${title} ${snippet}`.toLowerCase();
-  return words.every((w) => hay.includes(w.toLowerCase()));
+    .map((w) =>
+      w
+        .replace(/[؟،۔؛«»"'“”]/g, "")
+        .replace(/^[^a-zA-Z0-9\u0600-\u06FF\u0750-\u077F]+|[^a-zA-Z0-9\u0600-\u06FF\u0750-\u077F]+$/g, "")
+    )
+    .filter(
+      (w) =>
+        w.length > 2 &&
+        !STOPWORDS.has(w.toLowerCase()) &&
+        (keepVerbs || !VERB_WORDS.has(w.toLowerCase()))
+    );
 }
 
 /** The question's key phrase ("capital of France", "wrote Hamlet",
@@ -223,9 +275,11 @@ function derivePhrase(question: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase();
+  // ROUND 5: strip a leading greeting (see deriveTopic).
+  q = q.replace(/^(hi|hello|salam|سلام)[,!\s]+/i, "");
   q = q.replace(/\s+(څه دی|څه ده|څه دي|چیست|کیست|ما هو|ما هي|what is it|is it)\s*$/i, "");
   const patterns: RegExp[] = [
-    /^(what is|what are|what was|who is|who was|where is|where are|when is|when was|define|tell me about|explain|meaning of)\s+/i,
+    /^(what is|what are|what was|what did|what do|what does|who is|who was|who did|who wrote|who invented|who discovered|who founded|who created|who painted|who composed|where is|where are|where was|where did|when is|when was|when did|when do|when does|why is|why was|why did|why do|how is|how was|how did|how do|how does|how many|how much|define|tell me about|explain|meaning of)\s+/i,
     /^(څه دی|څه ده|څه دي|څوک دی|څوک ده|څوک دي|چیرته دی|چیرته ده|کله دی)\s+/,
     /^(چیست|کیست|کجاست|تعریف)\s+/,
     /^(ما هو|ما هي|من هو|من هي|أين)\s+/,
@@ -235,8 +289,21 @@ function derivePhrase(question: string): string {
   return q.trim();
 }
 
+/** ROUND 5 — Pashto Yeh folding for MATCHING only (never for fetch
+ * URLs or article titles, where the exact spelling matters):
+ * Pashto writes the same word with ی (U+06CC) or ې (U+06D0) —
+ * "پاریس" vs "پاريس", "پلازمېنه" vs "پلازمینه", "هیواد" vs "هيواد"
+ * — and different Wikipedia articles use different spellings, so a
+ * plain substring match misses ("پاریس د کوم هیواد پلازمېنه ده؟"
+ * once answered with Cambodia, whose snippet happened to spell the
+ * words the question's way). Fold both to ی, plus Arabic-keyboard
+ * ي/ك to ی/ک, before comparing. */
+function foldPashto(s: string): string {
+  return s.replace(/[ېۍ]/g, "ی").replace(/ي/g, "ی").replace(/ك/g, "ک");
+}
+
 function phraseIn(text: string, phrase: string): boolean {
-  return phrase.length > 0 && text.toLowerCase().includes(phrase);
+  return phrase.length > 0 && foldPashto(text.toLowerCase()).includes(foldPashto(phrase));
 }
 
 /** How many of the question's content words a candidate must contain
@@ -253,8 +320,10 @@ function requiredMatchCount(wordCount: number): number {
  * the question's content words to be about the same topic. */
 function matchesTopic(text: string, title: string, words: string[]): boolean {
   if (words.length === 0) return text.length > 20;
-  const hay = `${title} ${text}`.toLowerCase();
-  const found = words.filter((w) => hay.includes(w.toLowerCase())).length;
+  // ROUND 5: fold Pashto Yeh variants (see foldPashto) so "پاریس"
+  // matches "پاريس" in an article that spells it the other way.
+  const hay = foldPashto(`${title} ${text}`.toLowerCase());
+  const found = words.filter((w) => hay.includes(foldPashto(w.toLowerCase()))).length;
   return found >= requiredMatchCount(words.length);
 }
 
@@ -381,21 +450,33 @@ async function wikipedia(
   const topic = deriveTopic(question);
   const wikiLang = WIKI_LANG[lang];
   const sourceName = SOURCE_NAME[lang].wiki;
-  if (topic.length >= 2) {
+  // ROUND 5: a "who" question is about a PERSON, not the topic's
+  // definition — the "Penicillin" summary describes the drug and
+  // never names Fleming, while a search for "discovered penicillin"
+  // finds "Discovery of penicillin", whose summary names him. So
+  // who-questions skip the direct summary and go straight to the
+  // verb-aware search below.
+  const isWhoQuestion = /^\s*(hi|hello|salam)?,?\s*who\b/i.test(question);
+  if (!isWhoQuestion && topic.length >= 2) {
     const title = encodeURIComponent(topic.replace(/\s+/g, "_"));
     const summary = (await fetchJson(
       `https://${wikiLang}.wikipedia.org/api/rest_v1/page/summary/${title}`
     )) as { extract?: string; type?: string } | null;
-    // ROUND 4: a summary only counts when it is about the question
-    // itself — its extract must contain ALL of the question's
-    // content words ("capital" AND "France"), and a disambiguation
-    // page never counts. Otherwise fall through to search.
+    // ROUND 5: a summary only counts when it is about the TOPIC the
+    // question was reduced to — its extract must contain the topic's
+    // own words, and a disambiguation page never counts. Checking the
+    // QUESTION's words was wrong: the Hamlet summary says "by William
+    // Shakespeare" without the word "wrote", and the Paris summary
+    // states the country without the word "country". Otherwise fall
+    // through to search.
+    const topicCheckWords = topicWords(topic);
     if (
       summary &&
       summary.type !== "disambiguation" &&
       typeof summary.extract === "string" &&
       summary.extract.trim() &&
-      snippetMatches(summary.extract, topic, words)
+      topicCheckWords.length > 0 &&
+      matchesTopic(summary.extract, topic, topicCheckWords)
     ) {
       return compose(summary.extract.trim(), sourceName, lang);
     }
@@ -407,8 +488,12 @@ async function wikipedia(
   // words, not just the derived topic: for "capital of France" the
   // topic is "France", but the answer must say "capital" too.)
   // Search with the question's content words ("capital France") so
-  // the Paris article outranks the France article.
-  const searchText = words.length > 0 ? words.join(" ") : topic || question;
+  // the Paris article outranks the France article — INCLUDING the
+  // question verb ("invented telephone", not just "telephone"), so
+  // a who-question finds the inventor's article, not just the
+  // device's description.
+  const searchWords = topicWords(question, true);
+  const searchText = searchWords.length > 0 ? searchWords.join(" ") : topic || question;
   for (const sub of [wikiLang, "en"]) {
     const data = (await fetchJson(
       `https://${sub}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(
@@ -416,29 +501,83 @@ async function wikipedia(
       )}&format=json&origin=*`
     )) as { query?: { search?: Array<{ snippet?: string; title?: string }> } } | null;
     const results = data?.query?.search ?? [];
+    // ROUND 5: search hits use the 2/3-word match (matchesTopic),
+    // not the ALL-words match — "When did World War II end?" has
+    // words [world, war, ii, end] and the right article's snippet
+    // says "ended" without "end" as a separate word, so ALL-words
+    // dropped every hit and the question got the honest fallback.
+    // The direct-summary check above stays ALL-words (strict).
     const matches = results
       .slice(0, 8)
       .map((hit) => ({ title: hit.title ?? "", snippet: hit.snippet ? stripHtml(hit.snippet) : "" }))
-      .filter((m) => m.snippet.length > 20 && snippetMatches(m.snippet, m.title, words));
+      .filter((m) => m.snippet.length > 20 && matchesTopic(m.snippet, m.title, words));
     // Rank the matches: a hit whose snippet actually states the
     // question's key phrase ("The capital of France has been Paris")
-    // beats one that merely mentions the words ("Capital is a monthly
-    // French magazine…"); then a hit whose FIRST sentence already
-    // states the topic, then a short title (the article about the
-    // thing itself, e.g. "Paris" over "Capital punishment in France").
+    // beats one that merely mentions the words; then a hit whose
+    // FIRST sentence already states the topic. Disambiguation
+    // snippets ("Python may refer to…", "Look up Python…") are
+    // pushed to the bottom — they answer nothing. Search order
+    // (Wikipedia's own relevance) breaks remaining ties: the old
+    // short-title bonus backfired ("Pythonidae" beat "Python
+    // (programming language)" for "What is Python?").
     const scored = matches
       .map((m) => {
         const first = m.snippet.split(/[.!؟]/)[0] ?? "";
-        const firstStatesTopic = words.every((w) => first.toLowerCase().includes(w.toLowerCase()));
-        const titleWords = m.title.split(" ").filter(Boolean).length || 99;
+        // ROUND 5: fold Pashto Yeh variants here too (see foldPashto).
+        const firstFolded = foldPashto(first.toLowerCase());
+        const firstStatesTopic = words.every((w) => firstFolded.includes(foldPashto(w.toLowerCase())));
+        const isDisambig = /may refer to|look up/i.test(m.snippet.slice(0, 80));
+        // ROUND 5: Wikipedia's own order can put the wrong article
+        // first ("President pro tempore…" outranks "President of the
+        // United States" for "current president…"). Bonus when the
+        // article's title is made ONLY of the question's words:
+        // "President of the United States" is exactly the thing
+        // asked about, while the pro-tempore title adds "pro /
+        // tempore / senate". Exact-word match only — a substring
+        // test would let "Pythonidae" pose as "Python" and beat the
+        // programming-language article.
+        const titleWordList = topicWords(m.title);
+        const titleIsSubset =
+          titleWordList.length > 0 &&
+          titleWordList.every((tw) =>
+            words.some((w) => foldPashto(tw.toLowerCase()) === foldPashto(w.toLowerCase()))
+          );
         return {
           m,
-          score: (phraseIn(m.snippet, phrase) ? -20 : 0) + (firstStatesTopic ? 0 : 10) + titleWords,
+          score:
+            (phraseIn(m.snippet, phrase) ? -20 : 0) +
+            (firstStatesTopic ? 0 : 10) +
+            (isDisambig ? 100 : 0) +
+            (titleIsSubset ? -10 : 0),
         };
       })
       .sort((a, b) => a.score - b.score);
     const best = scored[0]?.m;
-    if (best) return compose(best.snippet, sourceName, lang);
+    if (best) {
+      // ROUND 5: a search snippet is only one short fragment — fetch
+      // the FULL summary extract for the best article so the answer
+      // is 2–3 complete paragraphs, not a clipped snippet. Fall back
+      // to the snippet itself when the summary is missing or off-topic.
+      // Relevance here is checked against the ARTICLE's title words
+      // (the summary is about that article), not the question's
+      // words — the World War II summary never says "end".
+      const title = encodeURIComponent(best.title.replace(/\s+/g, "_"));
+      const full = (await fetchJson(
+        `https://${sub}.wikipedia.org/api/rest_v1/page/summary/${title}`
+      )) as { extract?: string; type?: string } | null;
+      const titleCheckWords = topicWords(best.title);
+      if (
+        full &&
+        full.type !== "disambiguation" &&
+        typeof full.extract === "string" &&
+        full.extract.trim().length > 40 &&
+        titleCheckWords.length > 0 &&
+        matchesTopic(full.extract, best.title, titleCheckWords)
+      ) {
+        return compose(full.extract.trim(), sourceName, lang);
+      }
+      return compose(best.snippet, sourceName, lang);
+    }
   }
   return null;
 }
@@ -478,7 +617,7 @@ async function googleBooks(
  * and Google Books for book questions. Returns null when no source
  * has anything useful — the caller must never invent an answer.
  * Every candidate is relevance-checked against the question's
- * content words (see matchesTopic / snippetMatches).
+ * content words (see matchesTopic).
  */
 export async function getFreeWebAnswer(
   question: string,
@@ -495,5 +634,16 @@ export async function getFreeWebAnswer(
       (await wikipedia(q, lang, words, phrase))
     );
   }
-  return (await duckDuckGo(q, lang, words, phrase)) ?? (await wikipedia(q, lang, words, phrase));
+  // ROUND 5: a DuckDuckGo abstract is often only 1–2 sentences. When
+  // it is short, also ask Wikipedia and return whichever answer is
+  // fuller — the user asked for UNLIMITED information, not a snippet.
+  // Exception: "who" questions — a DuckDuckGo abstract is usually a
+  // DEFINITION ("Penicillins are a group of antibiotics…"), not the
+  // person asked for, so Wikipedia's verb-aware search wins there.
+  const isWho = /^\s*(hi|hello|salam)?,?\s*who\b/i.test(q);
+  const ddg = await duckDuckGo(q, lang, words, phrase);
+  if (ddg && ddg.text.length >= 400 && !isWho) return ddg;
+  const wiki = await wikipedia(q, lang, words, phrase);
+  if (wiki && ddg) return isWho || wiki.text.length >= ddg.text.length ? wiki : ddg;
+  return ddg ?? wiki;
 }

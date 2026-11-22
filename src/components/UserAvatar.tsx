@@ -10,6 +10,13 @@
  * on a deterministic colour picked from the name. If a photo fails
  * to load, fall back to initials — an uploaded photo is never
  * replaced by the fallback photo.
+ * ROUND 5: the founder fallback ("/avatar.jpg") is a 3:4 full-body
+ * portrait, so it renders through the face-zoom frame
+ * (.ai-avatar-frame/.ai-avatar-img in globals.css) — otherwise the
+ * face is a speck at 32–40px. An uploaded photo keeps plain
+ * object-cover. An empty-string photo (Settings → Remove photo
+ * stores "") means "no photo" and falls through to the fallback /
+ * initials instead of rendering a broken src="".
  * The AI's avatar (Samim's real photo, /avatar.jpg) is separate and
  * is NOT touched by this component.
  */
@@ -71,10 +78,32 @@ export default function UserAvatar({
     setImgFailed(false);
   }, [photoUrl, fallbackPhoto]);
   const style = { width: size, height: size, fontSize: Math.max(10, Math.round(size * 0.38)) };
+  // An empty-string photo means "no photo" (see header comment).
+  const cleanPhoto = photoUrl && photoUrl.trim() ? photoUrl : null;
   // An uploaded photo always wins; the fallback only applies when
   // there is no uploaded photo at all.
-  const src = !imgFailed ? (photoUrl ?? fallbackPhoto ?? null) : null;
+  const src = !imgFailed ? (cleanPhoto ?? fallbackPhoto ?? null) : null;
+  // The founder fallback is the full-body portrait — zoom to the
+  // face; an uploaded photo is shown as-is.
+  const isFounderFallback = !cleanPhoto && !!fallbackPhoto;
   if (src) {
+    if (isFounderFallback) {
+      return (
+        <span
+          style={style}
+          className={`ai-avatar-frame ring-1 ring-black/5 dark:ring-white/10 ${className}`}
+        >
+          <img
+            src={src}
+            alt={name ?? email ?? "User"}
+            width={size}
+            height={size}
+            onError={() => setImgFailed(true)}
+            className="ai-avatar-img"
+          />
+        </span>
+      );
+    }
     return (
       <img
         src={src}
