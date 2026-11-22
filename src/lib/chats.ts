@@ -85,3 +85,20 @@ export async function saveMessage(
     .eq("id", chatId);
   return true;
 }
+
+/** Update one message's text (own row only — RLS enforces ownership). */
+export async function updateMessage(messageId: string, content: string): Promise<boolean> {
+  if (!supabase) return false;
+  const { error } = await supabase
+    .from("ai_messages")
+    .update({ content })
+    .eq("id", messageId);
+  return !error;
+}
+
+/** Delete one message row (own row only — RLS enforces ownership). */
+export async function deleteMessage(messageId: string): Promise<boolean> {
+  if (!supabase) return false;
+  const { error } = await supabase.from("ai_messages").delete().eq("id", messageId);
+  return !error;
+}

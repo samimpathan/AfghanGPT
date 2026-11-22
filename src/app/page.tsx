@@ -15,9 +15,17 @@ import {
   deleteChat as deleteChatDb,
   listMessages,
   saveMessage,
+  updateMessage,
+  deleteMessage,
   chatTitleFrom,
   type ChatRow,
 } from "@/lib/chats";
+import {
+  createRecognizer,
+  isSpeechRecognitionSupported,
+  stopSpeaking,
+  type SpeechRecognitionInstance,
+} from "@/lib/voice";
 
 type LocalChat = {
   id: string;
@@ -27,6 +35,7 @@ type LocalChat = {
 };
 
 const GUEST_KEY = "samim-ai-guest-chats";
+const GUEST_ACTIVE_KEY = "samim-ai-guest-active";
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 
 function loadGuestChats(): LocalChat[] {
@@ -38,6 +47,57 @@ function loadGuestChats(): LocalChat[] {
   } catch {
     return [];
   }
+}
+
+/** Logged-in user's display name: full_name saved at register, else the email prefix. */
+function displayNameOf(user: {
+  user_metadata?: Record<string, unknown>;
+  email?: string;
+} | null): string | null {
+  if (!user) return null;
+  const meta = user.user_metadata?.full_name;
+  if (typeof meta === "string" && meta.trim()) return meta.trim();
+  const prefix = (user.email ?? "").split("@")[0];
+  return prefix || null;
+}
+
+function loadGuestActiveId(chats: LocalChat[]): string | null {
+  try {
+    const saved = localStorage.getItem(GUEST_ACTIVE_KEY);
+    if (saved && chats.some((c) => c.id === saved)) return saved;
+  } catch {
+    // ignore
+  }
+  return chats[0]?.id ?? null;
+}
+
+/** Downscale a photo client-side to max 1024px (JPEG 0.8) before sending. */
+function downscaleImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new window.Image();
+    img.onload = () => {
+      const MAX = 1024;
+      const scale = Math.min(1, MAX / Math.max(img.width, img.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(img.width * scale));
+      canvas.height = Math.max(1, Math.round(img.height * scale));
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        URL.revokeObjectURL(url);
+        reject(new Error("no canvas"));
+        return;
+      }
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL("image/jpeg", 0.8));
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("bad image"));
+    };
+    img.src = url;
+  });
 }
 
 /** Three animated dots, like the typing indicator in the video. */
@@ -55,6 +115,7 @@ export default function HomePage() {
   const { lang, setLang, theme, setTheme } = useUi();
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string | null>(null);
   const [chats, setChats] = useState<LocalChat[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -62,6 +123,8 @@ export default function HomePage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [listening, setListening] = useState(false);
+  const [pendingImage, setPendingImage] = useState<{ dataUrl: string } | null>(null);
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
@@ -71,6 +134,12 @@ export default function HomePage() {
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const recogRef = useRef<SpeechRecognitionInstance | null>(null);
+  // True once the initial load (guest storage or Supabase) has run.
+  // The persist effect must NOT write before this, or it would overwrite
+  // the saved guest chats with [] on first paint.
+  const loadedRef = useRef(false);
   const chatsRef = useRef<LocalChat[]>([]);
   chatsRef.current = chats;
 
@@ -84,9 +153,20 @@ export default function HomePage() {
     noticeTimer.current = setTimeout(() => setNotice(null), 3000);
   };
 
-  // Persist guest chats locally.
+  // Stop any voice input/output when leaving the page.
   useEffect(() => {
-    if (userId) return; // logged-in chats live in Supabase
+    return () => {
+      recogRef.current?.abort();
+      stopSpeaking();
+    };
+  }, []);
+
+  // Persist guest chats locally — ONLY after the initial load has run.
+  // Before this fix this effect ran on mount with chats=[] and overwrote
+  // the saved chats with [] before the load effect could read them,
+  // so every guest chat vanished on reload.
+  useEffect(() => {
+    if (!loadedRef.current || userId) return; // logged-in chats live in Supabase
     try {
       localStorage.setItem(GUEST_KEY, JSON.stringify(chats));
     } catch {
@@ -94,20 +174,38 @@ export default function HomePage() {
     }
   }, [chats, userId]);
 
+  // Remember which guest chat was open, so re-entering restores it.
+  useEffect(() => {
+    if (!loadedRef.current || userId) return;
+    try {
+      if (activeId) localStorage.setItem(GUEST_ACTIVE_KEY, activeId);
+      else localStorage.removeItem(GUEST_ACTIVE_KEY);
+    } catch {
+      // ignore
+    }
+  }, [activeId, userId]);
+
   // Auth session + load history.
   useEffect(() => {
+    const loadGuest = () => {
+      const guest = loadGuestChats();
+      setChats(guest);
+      setActiveId(loadGuestActiveId(guest));
+      loadedRef.current = true;
+    };
     if (!supabase) {
-      setChats(loadGuestChats());
+      loadGuest();
       return;
     }
     supabase.auth.getSession().then(async ({ data }) => {
       const session = data.session;
       if (!session?.user) {
-        setChats(loadGuestChats());
+        loadGuest();
         return;
       }
       setUserEmail(session.user.email ?? null);
       setUserId(session.user.id);
+      setUserName(displayNameOf(session.user));
       const rows: ChatRow[] = await listChats(session.user.id);
       const loaded: LocalChat[] = rows.map((r) => ({
         id: r.id,
@@ -117,10 +215,24 @@ export default function HomePage() {
       }));
       setChats(loaded);
       if (loaded.length > 0) setActiveId(loaded[0].id);
+      loadedRef.current = true;
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_e, session) => {
-      setUserEmail(session?.user?.email ?? null);
-      setUserId(session?.user?.id ?? null);
+      if (session?.user) {
+        setUserEmail(session.user.email ?? null);
+        setUserId(session.user.id);
+        setUserName(displayNameOf(session.user));
+      } else {
+        // Signed out — go back to the saved guest chats.
+        setUserEmail(null);
+        setUserId(null);
+        setUserName(null);
+        if (loadedRef.current) {
+          const guest = loadGuestChats();
+          setChats(guest);
+          setActiveId(loadGuestActiveId(guest));
+        }
+      }
     });
     return () => listener.subscription.unsubscribe();
   }, []);
@@ -156,9 +268,10 @@ export default function HomePage() {
   }, []);
 
   const send = useCallback(
-    async (text: string, regenerate = false) => {
+    async (text: string, regenerate = false, baseOverride?: UiMessage[]) => {
       const clean = text.trim();
       if (!clean || streaming) return;
+      stopSpeaking();
       let chat = chatsRef.current.find((c) => c.id === activeId) ?? null;
       if (!chat) {
         chat = { id: uid(), title: chatTitleFrom(clean), messages: [] };
@@ -167,20 +280,26 @@ export default function HomePage() {
       }
       const chatId = chat.id;
 
-      let history: { role: "user" | "assistant"; content: string }[];
+      let history: { role: "user" | "assistant"; content: string; image?: string }[];
       if (regenerate) {
-        const base = [...chat.messages];
+        const base = baseOverride ? [...baseOverride] : [...chat.messages];
         while (base.length > 0 && base[base.length - 1].role === "assistant") base.pop();
-        history = base.map((m) => ({ role: m.role, content: m.content }));
+        history = base.map((m) => ({ role: m.role, content: m.content, image: m.image }));
         setChats((prev) =>
           prev.map((c) => (c.id === chatId ? { ...c, messages: base } : c))
         );
       } else {
-        const userMsg: UiMessage = { id: uid(), role: "user", content: clean };
+        const userMsg: UiMessage = {
+          id: uid(),
+          role: "user",
+          content: clean,
+          image: pendingImage?.dataUrl,
+        };
         history = [
-          ...chat.messages.map((m) => ({ role: m.role, content: m.content })),
-          { role: "user" as const, content: clean },
+          ...chat.messages.map((m) => ({ role: m.role, content: m.content, image: m.image })),
+          { role: "user" as const, content: clean, image: pendingImage?.dataUrl },
         ];
+        setPendingImage(null);
         setChats((prev) =>
           prev.map((c) =>
             c.id === chatId
@@ -241,25 +360,47 @@ export default function HomePage() {
           mode = headerMode;
         }
         if (!res.ok || !res.body) throw new Error("API error");
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          full += decoder.decode(value, { stream: true });
-          const snapshot = full;
+        if (headerMode === "image") {
+          // Generated image: JSON body, not a text stream.
+          const data = (await res.json()) as { text?: string; image?: string };
+          full = data.text ?? "";
+          mode = "gemini";
+          const image = data.image;
           setChats((prev) =>
             prev.map((c) =>
               c.id === chatId
                 ? {
                     ...c,
                     messages: c.messages.map((m) =>
-                      m.id === assistantId ? { ...m, content: snapshot, mode } : m
+                      m.id === assistantId
+                        ? { ...m, content: full, mode, image }
+                        : m
                     ),
                   }
                 : c
             )
           );
+        } else {
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            full += decoder.decode(value, { stream: true });
+            const snapshot = full;
+            setChats((prev) =>
+              prev.map((c) =>
+                c.id === chatId
+                  ? {
+                      ...c,
+                      messages: c.messages.map((m) =>
+                        m.id === assistantId ? { ...m, content: snapshot, mode } : m
+                      ),
+                    }
+                  : c
+              )
+            );
+          }
         }
       } catch (e) {
         if (e instanceof Error && e.name === "AbortError") {
@@ -297,10 +438,123 @@ export default function HomePage() {
         await saveMessage(dbId, "assistant", full);
       }
     },
-    [activeId, streaming, userId, lang]
+    [activeId, streaming, userId, lang, pendingImage]
   );
 
   const stop = () => abortRef.current?.abort();
+
+  /** Edit your own message: update the text, drop its reply, regenerate. */
+  const applyEdit = useCallback(
+    async (msgId: string, newText: string) => {
+      const chat = chatsRef.current.find((c) => c.id === activeId) ?? null;
+      if (!chat || streaming) return;
+      const idx = chat.messages.findIndex((m) => m.id === msgId);
+      if (idx < 0) return;
+      const edited = chat.messages[idx];
+      if (edited.content === newText) return;
+      const trailing = chat.messages.slice(idx + 1);
+      const newMessages: UiMessage[] = [
+        ...chat.messages.slice(0, idx),
+        { ...edited, content: newText },
+      ];
+      setChats((prev) =>
+        prev.map((c) => (c.id === chat.id ? { ...c, messages: newMessages } : c))
+      );
+      if (chat.dbId) {
+        await updateMessage(edited.id, newText);
+        for (const m of trailing) await deleteMessage(m.id);
+      }
+      send(newText, true, newMessages);
+    },
+    [activeId, streaming, send]
+  );
+
+  /** Delete your own message — and its assistant reply if it directly follows. */
+  const deleteUserMessage = useCallback(
+    async (msgId: string) => {
+      const chat = chatsRef.current.find((c) => c.id === activeId) ?? null;
+      if (!chat || streaming) return;
+      const idx = chat.messages.findIndex((m) => m.id === msgId);
+      if (idx < 0) return;
+      const end =
+        chat.messages[idx + 1]?.role === "assistant" ? idx + 2 : idx + 1;
+      const removed = chat.messages.slice(idx, end);
+      setChats((prev) =>
+        prev.map((c) =>
+          c.id === chat.id
+            ? {
+                ...c,
+                messages: [...c.messages.slice(0, idx), ...c.messages.slice(end)],
+              }
+            : c
+        )
+      );
+      if (chat.dbId) {
+        for (const m of removed) await deleteMessage(m.id);
+      }
+    },
+    [activeId, streaming]
+  );
+
+  /** Voice input via the free Web Speech API (no key, no paid service). */
+  const startListening = useCallback(() => {
+    if (listening) {
+      recogRef.current?.stop();
+      return;
+    }
+    if (!isSpeechRecognitionSupported()) {
+      showNotice(t(lang, "micNotSupported"));
+      return;
+    }
+    const rec = createRecognizer(lang);
+    if (!rec) {
+      showNotice(t(lang, "micNotSupported"));
+      return;
+    }
+    recogRef.current = rec;
+    rec.onresult = (e) => {
+      const transcript = Array.from(e.results)
+        .filter((r) => r.isFinal)
+        .map((r) => r[0].transcript)
+        .join(" ")
+        .trim();
+      if (transcript) {
+        setInput((prev) => (prev ? prev + " " + transcript : transcript));
+      }
+    };
+    rec.onerror = (e) => {
+      setListening(false);
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        showNotice(t(lang, "micPermission"));
+      } else if (e.error === "no-speech") {
+        showNotice(t(lang, "micNoSpeech"));
+      } else {
+        showNotice(t(lang, "micNotSupported"));
+      }
+    };
+    rec.onend = () => setListening(false);
+    try {
+      rec.start();
+      setListening(true);
+    } catch {
+      showNotice(t(lang, "micNotSupported"));
+    }
+  }, [listening, lang]);
+
+  /** Attach a photo: downscale it client-side, show a thumbnail. */
+  const onPhotoPicked = async (file: File | undefined) => {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      showNotice(t(lang, "errorGeneric"));
+      return;
+    }
+    try {
+      const dataUrl = await downscaleImage(file);
+      setPendingImage({ dataUrl });
+    } catch {
+      showNotice(t(lang, "errorGeneric"));
+    }
+  };
 
   const doRename = async (id: string) => {
     const title = editingTitle.trim();
@@ -334,7 +588,7 @@ export default function HomePage() {
   ];
 
   return (
-    <div className="flex h-dvh flex-col bg-white text-slate-900 dark:bg-[#080D1B] dark:text-[#EAF2FF]">
+    <div className="flex h-dvh w-full flex-col overflow-x-hidden bg-white text-slate-900 dark:bg-[#080D1B] dark:text-[#EAF2FF]">
       {/* ===== Drawer (sidebar as an overlay, like the Android app) ===== */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-40">
@@ -473,39 +727,47 @@ export default function HomePage() {
       )}
 
       {/* ===== Top bar — exactly like the video ===== */}
-      <header className="relative px-5 pt-2">
+      <header className="relative min-w-0 px-3 pt-2 sm:px-5">
         {/* dir="ltr" pins the layout: hamburger LEFT, ••• RIGHT, even in RTL Pashto */}
         <div dir="ltr" className="flex items-start justify-between">
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
-            className="relative mt-1.5 flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-[#E3E3E3] bg-white dark:border-[#263550] dark:bg-[#111B30]"
+            className="relative mt-1.5 flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#E3E3E3] bg-white transition-transform active:scale-95 sm:h-14 sm:w-14 dark:border-[#263550] dark:bg-[#111B30]"
             aria-label="Menu"
           >
-            <span className="text-[26px] leading-none text-[#222222] dark:text-[#EAF2FF]">≡</span>
+            <span className="text-2xl leading-none text-[#222222] sm:text-[26px] dark:text-[#EAF2FF]">≡</span>
             <span className="absolute right-1 top-0.5 h-2.5 w-2.5 rounded-full bg-[#2457FF]" />
           </button>
-          <Image
-            src="/avatar.jpg"
-            alt="Samim AI"
-            width={64}
-            height={64}
-            className="rounded-full object-cover"
-            priority
-          />
+          {/* The avatar is a real button — tapping it opens About. */}
+          <Link
+            href="/about"
+            aria-label={t(lang, "about")}
+            className="shrink-0 rounded-full transition-transform active:scale-95"
+          >
+            <Image
+              src="/avatar.jpg"
+              alt="Samim AI"
+              width={64}
+              height={64}
+              className="rounded-full object-cover ring-2 ring-white/80 dark:ring-[#263550]"
+              priority
+            />
+          </Link>
           <button
             type="button"
             onClick={() => setMoreOpen((v) => !v)}
-            className="mt-1.5 flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-[#E3E3E3] bg-white dark:border-[#263550] dark:bg-[#111B30]"
+            className="mt-1.5 flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#E3E3E3] bg-white transition-transform active:scale-95 sm:h-14 sm:w-14 dark:border-[#263550] dark:bg-[#111B30]"
             aria-label="More options"
           >
-            <span className="text-[22px] leading-none tracking-[2px] text-[#222222] dark:text-[#EAF2FF]">•••</span>
+            <span className="text-xl leading-none tracking-[2px] text-[#222222] sm:text-[22px] dark:text-[#EAF2FF]">•••</span>
           </button>
         </div>
-        <div className="mt-1.5 flex flex-col items-center">
-          <div className="rounded-2xl bg-white px-3.5 py-1.5 shadow-md dark:bg-[#111B30] dark:shadow-none dark:ring-1 dark:ring-[#263550]">
-            <span className="text-base text-black dark:text-[#EAF2FF]">
-              {t(lang, "appName")}
+        <div className="mt-1.5 flex min-w-0 flex-col items-center">
+          <div className="max-w-full rounded-2xl bg-white px-3.5 py-1.5 shadow-md dark:bg-[#111B30] dark:shadow-none dark:ring-1 dark:ring-[#263550]">
+            <span className="block truncate text-base text-black dark:text-[#EAF2FF]">
+              {/* Logged in: the name pill shows THAT user's name, not the assistant's. */}
+              {userName ?? t(lang, "appName")}
               {isAdmin && (
                 <span className="ms-1 rounded-full bg-amber-400 px-2 py-0.5 text-[11px] font-bold text-black">
                   {t(lang, "admin")}
@@ -514,7 +776,11 @@ export default function HomePage() {
             </span>
           </div>
           <p className="mt-1 text-sm text-[#8A8A8A]">
-            {streaming ? t(lang, "isWorking") : t(lang, "tagline")}
+            {streaming
+              ? t(lang, "isWorking")
+              : userName
+                ? t(lang, "appShort")
+                : t(lang, "tagline")}
           </p>
         </div>
 
@@ -604,12 +870,12 @@ export default function HomePage() {
       </header>
 
       {!isSupabaseConfigured && (
-        <div className="bg-amber-100 px-3 py-2 text-center text-xs text-amber-900 dark:bg-amber-900 dark:text-amber-100">
+        <div className="break-words px-3 py-2 text-center text-[11px] leading-relaxed text-amber-900 sm:text-xs dark:bg-amber-900 dark:text-amber-100 bg-amber-100">
           {t(lang, "setupNeeded")}
         </div>
       )}
       {!userEmail && isSupabaseConfigured && (
-        <div className="bg-blue-50 px-3 py-2 text-center text-xs text-blue-900 dark:bg-blue-950 dark:text-blue-100">
+        <div className="break-words px-3 py-2 text-center text-[11px] leading-relaxed text-blue-900 sm:text-xs dark:bg-blue-950 dark:text-blue-100 bg-blue-50">
           {t(lang, "guestNote")}{" "}
           <Link href="/login" className="font-bold underline">
             {t(lang, "login")}
@@ -622,21 +888,38 @@ export default function HomePage() {
       )}
 
       {/* ===== Chat area ===== */}
-      <div className="chat-scroll flex-1 overflow-y-auto px-[18px] py-4">
-        <p className="mb-4 text-center text-sm text-[#8A8A8A]">{chatTime}</p>
+      <div className="chat-scroll min-w-0 w-full flex-1 overflow-x-hidden overflow-y-auto px-[18px] py-4">
+        {/* Sticky timestamp — always fully visible and centred, never clipped. */}
+        <div className="sticky top-0 z-10 -mx-[18px] mb-4 bg-white/90 px-[18px] py-1.5 text-center dark:bg-[#080D1B]/90">
+          <span className="inline-block rounded-full bg-slate-100 px-3 py-1 text-xs text-[#8A8A8A] dark:bg-[#111B30]">
+            {chatTime}
+          </span>
+        </div>
         {messages.length === 0 ? (
-          <div className="mx-auto max-w-2xl pb-6 text-center">
-            <Image
-              src="/avatar.jpg"
-              alt="Samim AI"
-              width={64}
-              height={64}
-              className="mx-auto rounded-full object-cover"
-            />
-            <div className="mt-3 inline-block rounded-2xl bg-white px-3.5 py-1.5 shadow-md dark:bg-[#111B30] dark:shadow-none dark:ring-1 dark:ring-[#263550]">
-              <span className="text-base text-black dark:text-[#EAF2FF]">{t(lang, "appName")}</span>
+          <div className="mx-auto w-full min-w-0 max-w-2xl pb-6 text-center">
+            <Link
+              href="/about"
+              aria-label={t(lang, "about")}
+              className="inline-block rounded-full transition-transform active:scale-95"
+            >
+              <Image
+                src="/avatar.jpg"
+                alt="Samim AI"
+                width={64}
+                height={64}
+                className="mx-auto rounded-full object-cover ring-2 ring-white/80 dark:ring-[#263550]"
+              />
+            </Link>
+            <div className="mt-3 inline-block max-w-full rounded-2xl bg-white px-3.5 py-1.5 shadow-md dark:bg-[#111B30] dark:shadow-none dark:ring-1 dark:ring-[#263550]">
+              <span className="block truncate text-base text-black dark:text-[#EAF2FF]">
+                {userName ?? t(lang, "appName")}
+              </span>
             </div>
-            <h1 className="mt-4 text-xl font-bold">{t(lang, "welcomeTitle")}</h1>
+            <h1 className="mt-4 text-xl font-bold">
+              {userName
+                ? t(lang, "helloName").replace("{name}", userName)
+                : t(lang, "welcomeTitle")}
+            </h1>
             <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
               {t(lang, "welcomeText")}
             </p>
@@ -654,7 +937,7 @@ export default function HomePage() {
             </div>
           </div>
         ) : (
-          <div className="mx-auto flex max-w-3xl flex-col gap-2.5">
+          <div className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-2.5">
             {messages.map((m, i) => (
               <ChatMessage
                 key={m.id}
@@ -673,6 +956,10 @@ export default function HomePage() {
                       }
                     : undefined
                 }
+                onEditMessage={applyEdit}
+                onDeleteMessage={deleteUserMessage}
+                onNote={showNotice}
+                actionsDisabled={streaming}
               />
             ))}
             {streaming && messages[messages.length - 1]?.content === "" && (
@@ -688,11 +975,33 @@ export default function HomePage() {
       </div>
 
       {/* ===== Bottom input — like the video ===== */}
-      <div className="px-3.5 pb-2.5 pt-1">
+      <div className="min-w-0 w-full px-2.5 pb-2.5 pt-1 sm:px-3.5">
         {notice && (
           <p className="mx-auto mb-2 max-w-3xl rounded-full bg-slate-900 px-4 py-2 text-center text-xs text-white dark:bg-slate-100 dark:text-slate-900">
             {notice}
           </p>
+        )}
+        {listening && (
+          <p className="mx-auto mb-2 max-w-3xl text-center text-xs font-bold text-red-500">
+            🎙 {t(lang, "listening")}
+          </p>
+        )}
+        {pendingImage && (
+          <div className="mx-auto mb-2 flex max-w-3xl items-start gap-2">
+            <img
+              src={pendingImage.dataUrl}
+              alt=""
+              className="max-h-28 rounded-2xl object-cover"
+            />
+            <button
+              type="button"
+              onClick={() => setPendingImage(null)}
+              className="rounded-full bg-slate-200 px-2 py-1 text-xs dark:bg-slate-800"
+              aria-label={t(lang, "close")}
+            >
+              ✕
+            </button>
+          </div>
         )}
         <form
           dir="ltr"
@@ -701,13 +1010,24 @@ export default function HomePage() {
             send(input);
             setInput("");
           }}
-          className="mx-auto flex max-w-3xl items-center gap-2.5"
+          className="mx-auto flex w-full min-w-0 max-w-3xl items-center gap-2 sm:gap-2.5"
         >
-          <div className="flex min-h-14 flex-1 items-center rounded-[32px] bg-[#F0F0F0] px-3 dark:bg-[#111B30]">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            aria-label="Attach photo"
+            onChange={(e) => {
+              onPhotoPicked(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
+          <div className="flex min-h-12 min-w-0 flex-1 items-center rounded-[32px] bg-[#F0F0F0] px-2 sm:min-h-14 sm:px-3 dark:bg-[#111B30]">
             <button
               type="button"
-              onClick={() => showNotice(t(lang, "attachNote"))}
-              className="shrink-0 px-1 text-[26px] leading-none text-[#111111] dark:text-[#EAF2FF]"
+              onClick={() => fileInputRef.current?.click()}
+              className="shrink-0 px-1 text-2xl leading-none text-[#111111] sm:text-[26px] dark:text-[#EAF2FF]"
               aria-label="+"
             >
               ＋
@@ -717,12 +1037,14 @@ export default function HomePage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={t(lang, "askPlaceholder")}
-              className="min-w-0 flex-1 bg-transparent px-2 py-1 text-[17px] text-[#111111] outline-none placeholder:text-[#9A9A9A] dark:text-[#EAF2FF]"
+              className="bidi-plaintext min-w-0 flex-1 bg-transparent px-2 py-1 text-base text-[#111111] outline-none placeholder:text-[#9A9A9A] sm:text-[17px] dark:text-[#EAF2FF]"
             />
             <button
               type="button"
-              onClick={() => showNotice(t(lang, "micNote"))}
-              className="shrink-0 px-1 text-[22px] leading-none"
+              onClick={startListening}
+              className={`shrink-0 rounded-full px-1 text-xl leading-none sm:text-[22px] ${
+                listening ? "mic-listening text-red-500" : ""
+              }`}
               aria-label="Microphone"
             >
               🎙
@@ -732,19 +1054,19 @@ export default function HomePage() {
             <button
               type="button"
               onClick={stop}
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white dark:bg-white dark:text-black"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white transition-transform active:scale-95 sm:h-12 sm:w-12 dark:bg-white dark:text-black"
               aria-label={t(lang, "stop")}
             >
-              <span className="text-lg leading-none">■</span>
+              <span className="text-base leading-none sm:text-lg">■</span>
             </button>
           ) : (
             <button
               type="submit"
               disabled={!input.trim()}
-              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white disabled:bg-[#B9B9B9] dark:bg-white dark:text-black dark:disabled:bg-[#334155]"
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white transition-transform disabled:bg-[#B9B9B9] active:scale-95 sm:h-12 sm:w-12 dark:bg-white dark:text-black dark:disabled:bg-[#334155]"
               aria-label={t(lang, "send")}
             >
-              <span className="text-2xl leading-none">↑</span>
+              <span className="text-xl leading-none sm:text-2xl">↑</span>
             </button>
           )}
         </form>

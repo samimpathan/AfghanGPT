@@ -48,8 +48,8 @@ export function getOfflineAnswer(rawInput: string): string {
     )
   ) {
     return english
-      ? "My name is Abdul Samim's Assistant — Samim AI. I am Samim Pathan's AI assistant, and I help with programming, websites, English, and general questions."
-      : "زما نوم د عبدالصمیم مرستیال دی — Samim AI. زه د صمیم پټان AI مرستیال یم، او په پروګرامینګ، ویبسایټ، انګلیسي او عمومي پوښتنو کې مرسته کوم.";
+      ? "My name is Abdul Samim's Assistant — Samim AI. I am Samim Pathan's AI assistant, and I help with any kind of technology — programming, websites, mobile apps, AI, databases, networking, and more."
+      : "زما نوم د عبدالصمیم مرستیال دی — Samim AI. زه د صمیم پټان AI مرستیال یم، او په هر ډول ټکنالوژۍ، پروګرامینګ، ویبسایټ، موبایل اپ، AI، ډیټابیس، شبکو او نورو پوښتنو کې مرسته کوم.";
   }
 
   // --- How are you? ---
@@ -130,8 +130,8 @@ export function getOfflineAnswer(rawInput: string): string {
   // --- Samim AI itself ---
   if (has(lower, "samim ai") || has(text, "صمیم ای ای", "دا اپ څه دی", "what is samim ai")) {
     return english
-      ? "Samim AI is a free AI assistant made by Abdul Samim Niazai. Anyone can create an account and ask questions — programming, websites, English, and general knowledge.\n\nThis is not Muse or Google — it is Samim's own app."
-      : "Samim AI د عبدالصمیم نیازی وړیا AI مرستیال دی. هر څوک کولای شي اکاونټ جوړ کړي او پوښتنې وکړي — پروګرامینګ، ویبسایټ، انګلیسي او عمومي معلومات.\n\nدا Muse یا Google نه دی؛ دا د صمیم خپل اپ دی.";
+      ? "Samim AI is a free AI assistant made by Abdul Samim Niazai. Anyone can create an account and ask questions — any kind of technology: programming, websites, mobile apps, AI, databases, networking, and general knowledge.\n\nThis is not Muse or Google — it is Samim's own app."
+      : "Samim AI د عبدالصمیم نیازی وړیا AI مرستیال دی. هر څوک کولای شي اکاونټ جوړ کړي او پوښتنې وکړي — هر ډول ټکنالوژي: پروګرامینګ، ویبسایټ، موبایل اپ، AI، ډیټابیس، شبکې او عمومي معلومات.\n\nدا Muse یا Google نه دی؛ دا د صمیم خپل اپ دی.";
   }
 
   // --- HTML: build a web page ---
@@ -224,12 +224,12 @@ export function getOfflineAnswer(rawInput: string): string {
   // --- What can you do / help ---
   if (has(text, "څه کولای شې", "څه کولی شې", "مرسته", "مرستې ته اړتیا لرم", "help") || has(lower, "what can you do")) {
     return english
-      ? "I am your assistant! I can:\n\n- Chat in Pashto, English and Dari\n- Help with code (HTML, CSS, JavaScript, Python, C++, Java)\n- Explain how to build a website\n- Teach English\n- Tell the time and date, and jokes 😊"
-      : "زه ستا مرستیال یم! زه دا کولی شم:\n\n- په پښتو، انګلیسي او دري خبرې وکړم\n- په کوډ کې مرسته وکړم (HTML، CSS، JavaScript، Python، C++، Java)\n- د ویبسایټ جوړول تشریح کړم\n- انګلیسي وښیم\n- وخت او نېټه ووایم، او ټوکې وکړم 😊";
+      ? "I am your assistant! I can:\n\n- Chat in Pashto, English and Dari\n- Help with any kind of technology: programming (HTML, CSS, JavaScript, Python, C++, Java), mobile apps, AI, databases, networking, cybersecurity, hardware and cloud\n- Explain how to build a website or an app\n- Teach English\n- Tell the time and date, and jokes 😊"
+      : "زه ستا مرستیال یم! زه دا کولی شم:\n\n- په پښتو، انګلیسي او دري خبرې وکړم\n- په هر ډول ټکنالوژۍ کې مرسته وکړم: پروګرامینګ (HTML، CSS، JavaScript، Python، C++، Java)، موبایل اپ، AI، ډیټابیس، شبکې، سایبر امنیت، هارډویر او کلاوډ\n- د ویبسایټ یا اپ جوړول تشریح کړم\n- انګلیسي وښیم\n- وخت او نېټه ووایم، او ټوکې وکړم 😊";
   }
 
   // --- Fallback ---
   return english
-    ? "Sorry, I could not answer that well in offline mode. Please ask it in another way — for example about programming, websites, English, or DevConnect. 😊" + OFFLINE_NOTE_EN
-    : "بښنه غواړم، دا مې په آف‌لاین حالت کې سم ونه شو کړای... بیا یې په بل ډول ووایه.\n\nکه غواړې، د پروګرامینګ، ویبسایټ، انګلیسي، یا DevConnect په اړه پوښتنه وکړه. 😊" + OFFLINE_NOTE_PS;
+    ? "Sorry, I could not answer that well in offline mode. Please ask it in another way — for example about any kind of technology: programming, mobile apps, AI, databases, networking, or DevConnect. 😊" + OFFLINE_NOTE_EN
+    : "بښنه غواړم، دا مې په آف‌لاین حالت کې سم ونه شو کړای... بیا یې په بل ډول ووایه.\n\nکه غواړې، د هر ډول ټکنالوژۍ — پروګرامینګ، موبایل اپ، AI، ډیټابیس، شبکې — یا DevConnect په اړه پوښتنه وکړه. 😊" + OFFLINE_NOTE_PS;
 }

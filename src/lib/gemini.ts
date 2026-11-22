@@ -5,21 +5,80 @@
  * It is NEVER exposed to the browser and NEVER hardcoded.
  */
 
-export type ChatMsg = { role: "user" | "assistant"; content: string };
+export type ChatMsg = {
+  role: "user" | "assistant";
+  content: string;
+  /** Optional attached photo as a data URL (data:<mime>;base64,...). */
+  image?: string;
+};
 
 const GEMINI_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse";
 
+const IMAGE_MODEL_URL =
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent";
+
 const SYSTEM_PROMPT = `You are "د عبدالصمیم مرستیال" (Samim AI), the free AI assistant of Abdul Samim Niazai (Samim Pathan), founder of DevConnect.
 Answer in the user's language — Pashto by default, otherwise the language they write in. Use simple, clear explanations.
-You are an expert in programming (HTML, CSS, JavaScript, Python, C++, Java), building websites, teaching English, and general knowledge.
+You are an expert in all technology — programming (HTML, CSS, JavaScript, Python, C++, Java), building websites and mobile apps, artificial intelligence, databases, networking, cybersecurity, hardware, cloud computing, and general tech — as well as teaching English and general knowledge.
 Give short, practical answers with code examples when asked. Never claim to be Muse, ChatGPT, or Google. If the user asks for porn, adult or sexy content, do not generate it — reply only in Pashto: "دا محتوا نه لرو. نور هر رقم پوښتنه کولای شې — پروګرامینګ، ویبسایټ، انګلیسي او نور — په خوښۍ به دې مرسته وکړم."`;
 
 function toGeminiContents(messages: ChatMsg[]) {
-  return messages.map((m) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
+  return messages.map((m) => {
+    const parts: { text?: string; inlineData?: { mimeType: string; data: string } }[] = [
+      { text: m.content },
+    ];
+    // An attached photo travels as inline image data with the question.
+    if (m.role === "user" && m.image) {
+      const match = /^data:([^;]+);base64,(.+)$/.exec(m.image);
+      if (match) {
+        parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
+      }
+    }
+    return {
+      role: m.role === "assistant" ? "model" : "user",
+      parts,
+    };
+  });
+}
+
+/** Best-effort image generation with Gemini's image model.
+ * Returns the image as a data URL, or null when the model is unavailable
+ * for this key — callers must then say so honestly, never fake an image. */
+export async function generateImage(
+  prompt: string,
+  apiKey: string
+): Promise<string | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000);
+  try {
+    const res = await fetch(`${IMAGE_MODEL_URL}?key=${encodeURIComponent(apiKey)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
+      }),
+      signal: controller.signal,
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      candidates?: {
+        content?: {
+          parts?: { inlineData?: { mimeType?: string; data?: string } }[];
+        };
+      }[];
+    };
+    const parts = json?.candidates?.[0]?.content?.parts ?? [];
+    const img = parts.find((p) => p.inlineData?.data);
+    if (!img?.inlineData?.data) return null;
+    const mime = img.inlineData.mimeType ?? "image/png";
+    return `data:${mime};base64,${img.inlineData.data}`;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 /** Stream Gemini reply text chunk by chunk. Throws on HTTP / network errors. */

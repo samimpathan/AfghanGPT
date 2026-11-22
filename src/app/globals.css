@@ -18,6 +18,42 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Safety net: the page must never scroll sideways on a phone. */
+html,
+body {
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
+/* Bidi: each paragraph picks its own direction from its first strong
+   character (Pashto RTL / English LTR), so mixed text does not get
+   jumbled — numbers and parentheses stay with their own sentence. */
+.bidi-plaintext {
+  unicode-bidi: plaintext;
+}
+
+/* Read-more collapse for long messages (about 4 lines when collapsed). */
+.clamp-4 {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Pulsing red mic while speech recognition is listening. */
+@keyframes mic-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+  }
+}
+.mic-listening {
+  animation: mic-pulse 1.2s infinite;
+}
+
 /* Typing indicator — three bouncing dots, like the video (frame 002) */
 @keyframes typing-bounce {
   0%,
@@ -57,6 +93,13 @@ body {
 .md-body {
   line-height: 1.7;
   overflow-wrap: anywhere;
+}
+.md-body p,
+.md-body li {
+  unicode-bidi: plaintext;
+}
+.md-body code {
+  unicode-bidi: isolate;
 }
 .md-body p {
   margin: 0.5rem 0;
