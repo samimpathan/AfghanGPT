@@ -11,7 +11,9 @@ export async function GET() {
       process.env.NEXT_PUBLIC_SUPABASE_URL &&
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
     ),
-    geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
+    geminiConfigured: Boolean(
+      process.env.GEMINI_API_KEY || process.env.GEMINIAPIKEY
+    ),
     geminiModel: "gemini-3-flash-preview",
   });
 }

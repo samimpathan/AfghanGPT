@@ -50,7 +50,9 @@ export async function POST(req: NextRequest) {
     return textStream(ADULT_REFUSAL_PS, "refused");
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+  // Accept both spellings: the user saved the key in Vercel as GEMINIAPIKEY
+  // (no underscores). Either variable enables the real Gemini brain.
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GEMINIAPIKEY;
 
   // No key (or empty) → honest offline fallback, clearly labelled.
   if (!apiKey) {

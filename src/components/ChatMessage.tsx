@@ -78,10 +78,12 @@ export default function ChatMessage({
   const rtl = isPashto(msg.content);
 
   if (isUser) {
+    // Physical margins (ml-auto) — NOT justify-end — so the bubble stays on
+    // the RIGHT even when the page is RTL (Pashto/Dari), like the video.
     return (
-      <div className="flex justify-end">
+      <div className="flex">
         <div
-          className="max-w-[85%] rounded-3xl px-4 py-2.5 text-slate-900 md:max-w-[70%]"
+          className="ml-auto max-w-[78%] rounded-[28px] px-[18px] py-3 text-[17px] leading-6 text-[#111111]"
           style={{ background: "#A8B6CC" }}
           dir={rtl ? "rtl" : "ltr"}
         >
@@ -92,10 +94,10 @@ export default function ChatMessage({
   }
 
   return (
-    <div className="flex justify-start">
-      <div className="max-w-[92%] md:max-w-[85%]">
+    <div className="flex">
+      <div className="mr-auto max-w-[82%] md:max-w-[85%]">
         <div
-          className="rounded-3xl bg-[#EDEEF0] px-4 py-3 text-slate-900 dark:bg-slate-800 dark:text-slate-100"
+          className="rounded-[28px] bg-[#EDEEF0] px-[18px] py-3 text-slate-900 dark:bg-[#111B30] dark:text-[#EAF2FF]"
           dir={rtl ? "rtl" : "ltr"}
         >
           <div className="md-body">

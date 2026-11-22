@@ -5,7 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import ChatMessage, { type UiMessage } from "@/components/ChatMessage";
 import { useUi } from "@/components/Providers";
-import { t, LANGS, type Lang } from "@/lib/i18n";
+import { t, LANGS } from "@/lib/i18n";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { isAdminEmail } from "@/lib/admin";
 import {
@@ -40,6 +40,17 @@ function loadGuestChats(): LocalChat[] {
   }
 }
 
+/** Three animated dots, like the typing indicator in the video. */
+function TypingDots() {
+  return (
+    <span className="flex items-center gap-1.5 px-1 py-2">
+      <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[#555555] dark:bg-slate-300" />
+      <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[#555555] dark:bg-slate-300" />
+      <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[#555555] dark:bg-slate-300" />
+    </span>
+  );
+}
+
 export default function HomePage() {
   const { lang, setLang, theme, setTheme } = useUi();
   const [userEmail, setUserEmail] = useState<string | null>(null);
@@ -49,17 +60,29 @@ export default function HomePage() {
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
+  const [chatTime] = useState(() =>
+    new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+  );
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chatsRef = useRef<LocalChat[]>([]);
   chatsRef.current = chats;
 
   const active = chats.find((c) => c.id === activeId) ?? null;
   const messages: UiMessage[] = active?.messages ?? [];
   const isAdmin = isAdminEmail(userEmail);
+
+  const showNotice = (text: string) => {
+    setNotice(text);
+    if (noticeTimer.current) clearTimeout(noticeTimer.current);
+    noticeTimer.current = setTimeout(() => setNotice(null), 3000);
+  };
 
   // Persist guest chats locally.
   useEffect(() => {
@@ -311,308 +334,424 @@ export default function HomePage() {
   ];
 
   return (
-    <div className="flex h-dvh bg-white text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-      {/* Sidebar */}
-      <aside
-        className={`${
-          sidebarOpen ? "fixed inset-y-0 z-40 flex w-72" : "hidden"
-        } flex-col border-e border-slate-200 bg-slate-50 dark:border-slate-800 dark:bg-slate-900 md:static md:flex md:w-72`}
-      >
-        <div className="flex items-center gap-2 p-3">
-          <Image
-            src="/avatar.jpg"
-            alt="Samim AI"
-            width={40}
-            height={40}
-            className="rounded-full object-cover"
-          />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-bold">
-              {t(lang, "appName")}
-              {isAdmin && (
-                <span className="ms-1 rounded-full bg-amber-400 px-2 py-0.5 text-[11px] font-bold text-black">
-                  {t(lang, "admin")}
-                </span>
-              )}
-            </p>
-            <p className="text-xs text-slate-500">Samim AI</p>
-          </div>
+    <div className="flex h-dvh flex-col bg-white text-slate-900 dark:bg-[#080D1B] dark:text-[#EAF2FF]">
+      {/* ===== Drawer (sidebar as an overlay, like the Android app) ===== */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-40">
           <button
             type="button"
-            onClick={() => setSidebarOpen(false)}
-            className="rounded-full px-2 py-1 text-slate-500 hover:bg-slate-200 md:hidden"
             aria-label="Close menu"
-          >
-            ✕
-          </button>
-        </div>
-        <div className="px-3">
-          <button
-            type="button"
-            onClick={newChat}
-            className="w-full rounded-xl bg-[#2457FF] px-3 py-2.5 text-sm font-bold text-white hover:bg-blue-700"
-          >
-            + {t(lang, "newChat")}
-          </button>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={t(lang, "searchChats")}
-            className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800"
+            onClick={() => setSidebarOpen(false)}
+            className="absolute inset-0 bg-black/35"
           />
-        </div>
-        <div className="chat-scroll mt-2 flex-1 overflow-y-auto px-2 pb-2">
-          {filtered.length === 0 && (
-            <p className="px-2 py-4 text-center text-sm text-slate-500">
-              {t(lang, "noChats")}
-            </p>
-          )}
-          {filtered.map((c) => (
-            <div
-              key={c.id}
-              className={`group mb-1 rounded-xl px-2 py-2 text-sm ${
-                c.id === activeId
-                  ? "bg-slate-200 dark:bg-slate-800"
-                  : "hover:bg-slate-100 dark:hover:bg-slate-800"
-              }`}
-            >
-              {editingId === c.id ? (
-                <input
-                  autoFocus
-                  value={editingTitle}
-                  onChange={(e) => setEditingTitle(e.target.value)}
-                  onBlur={() => doRename(c.id)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") doRename(c.id);
-                    if (e.key === "Escape") setEditingId(null);
-                  }}
-                  className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
-                />
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => selectChat(c.id)}
-                  className="block w-full truncate text-start"
-                >
-                  {c.title}
-                </button>
-              )}
-              <div className="mt-1 flex gap-2 text-xs text-slate-500">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingId(c.id);
-                    setEditingTitle(c.title);
-                  }}
-                >
-                  {t(lang, "rename")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => doDelete(c.id)}
-                  className="text-red-500"
-                >
-                  {t(lang, "delete")}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="border-t border-slate-200 p-3 text-xs dark:border-slate-800">
-          <div className="flex flex-wrap gap-3">
-            <Link href="/settings" className="text-slate-600 hover:underline dark:text-slate-300">
-              ⚙ {t(lang, "settings")}
-            </Link>
-            <Link href="/about" className="text-slate-600 hover:underline dark:text-slate-300">
-              ℹ {t(lang, "about")}
-            </Link>
-            {isAdmin && (
-              <Link href="/admin" className="font-bold text-amber-600 hover:underline dark:text-amber-400">
-                ★ {t(lang, "admin")}
-              </Link>
-            )}
-            {userEmail ? (
-              <span className="truncate text-slate-500">{userEmail}</span>
-            ) : (
-              <Link href="/login" className="font-bold text-[#2457FF] hover:underline">
-                {t(lang, "login")}
-              </Link>
-            )}
-          </div>
-          <p className="mt-2 text-slate-400">{t(lang, "notMuse")}</p>
-        </div>
-      </aside>
-
-      {/* Main */}
-      <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center gap-2 border-b border-slate-200 px-3 py-2.5 dark:border-slate-800">
-          <button
-            type="button"
-            onClick={() => setSidebarOpen(true)}
-            className="rounded-full border border-slate-300 px-3 py-1 md:hidden"
-            aria-label="Menu"
-          >
-            ☰
-          </button>
-          <Image
-            src="/avatar.jpg"
-            alt="Samim AI"
-            width={36}
-            height={36}
-            className="rounded-full object-cover"
-          />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-bold">
-              {t(lang, "appName")}
-              {isAdmin && (
-                <span className="ms-1 rounded-full bg-amber-400 px-2 py-0.5 text-[11px] font-bold text-black">
-                  {t(lang, "admin")}
-                </span>
-              )}
-            </p>
-            <p className="text-xs text-slate-500">
-              {streaming ? t(lang, "thinking") : t(lang, "tagline")}
-            </p>
-          </div>
-          <select
-            value={lang}
-            onChange={(e) => setLang(e.target.value as Lang)}
-            className="rounded-full border border-slate-300 bg-transparent px-2 py-1 text-xs dark:border-slate-700"
-            aria-label={t(lang, "language")}
-          >
-            {LANGS.map((l) => (
-              <option key={l.code} value={l.code}>
-                {l.label}
-              </option>
-            ))}
-          </select>
-          <button
-            type="button"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            className="rounded-full border border-slate-300 px-2.5 py-1 text-xs dark:border-slate-700"
-            aria-label={t(lang, "theme")}
-          >
-            {theme === "dark" ? "☀ " + t(lang, "light") : "🌙 " + t(lang, "dark")}
-          </button>
-        </header>
-
-        {!isSupabaseConfigured && (
-          <div className="bg-amber-100 px-3 py-2 text-center text-xs text-amber-900 dark:bg-amber-900 dark:text-amber-100">
-            {t(lang, "setupNeeded")}
-          </div>
-        )}
-        {!userEmail && isSupabaseConfigured && (
-          <div className="bg-blue-50 px-3 py-2 text-center text-xs text-blue-900 dark:bg-blue-950 dark:text-blue-100">
-            {t(lang, "guestNote")}{" "}
-            <Link href="/login" className="font-bold underline">
-              {t(lang, "login")}
-            </Link>
-            {" / "}
-            <Link href="/register" className="font-bold underline">
-              {t(lang, "register")}
-            </Link>
-          </div>
-        )}
-
-        <div className="chat-scroll flex-1 overflow-y-auto px-3 py-4 md:px-6">
-          {messages.length === 0 ? (
-            <div className="mx-auto max-w-2xl py-10 text-center">
+          <aside className="absolute inset-y-0 left-0 flex w-72 flex-col overflow-y-auto bg-white shadow-xl dark:bg-[#0D1426]">
+            <div className="flex items-center gap-2 p-3">
               <Image
                 src="/avatar.jpg"
                 alt="Samim AI"
-                width={96}
-                height={96}
-                className="mx-auto rounded-full object-cover"
+                width={40}
+                height={40}
+                className="rounded-full object-cover"
               />
-              <h1 className="mt-4 text-xl font-bold">{t(lang, "welcomeTitle")}</h1>
-              <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
-                {t(lang, "welcomeText")}
-              </p>
-              <div className="mt-6 grid gap-2 text-start sm:grid-cols-2">
-                {suggestions.map((s) => (
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-bold">
+                  {t(lang, "appName")}
+                  {isAdmin && (
+                    <span className="ms-1 rounded-full bg-amber-400 px-2 py-0.5 text-[11px] font-bold text-black">
+                      {t(lang, "admin")}
+                    </span>
+                  )}
+                </p>
+                <p className="text-xs text-slate-500">Samim AI</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(false)}
+                className="rounded-full px-2 py-1 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"
+                aria-label="Close menu"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="px-3">
+              <button
+                type="button"
+                onClick={newChat}
+                className="w-full rounded-xl bg-[#2457FF] px-3 py-2.5 text-sm font-bold text-white hover:bg-blue-700"
+              >
+                + {t(lang, "newChat")}
+              </button>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t(lang, "searchChats")}
+                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800"
+              />
+            </div>
+            <div className="chat-scroll mt-2 flex-1 overflow-y-auto px-2 pb-2">
+              {filtered.length === 0 && (
+                <p className="px-2 py-4 text-center text-sm text-slate-500">
+                  {t(lang, "noChats")}
+                </p>
+              )}
+              {filtered.map((c) => (
+                <div
+                  key={c.id}
+                  className={`group mb-1 rounded-xl px-2 py-2 text-sm ${
+                    c.id === activeId
+                      ? "bg-slate-200 dark:bg-slate-800"
+                      : "hover:bg-slate-100 dark:hover:bg-slate-800"
+                  }`}
+                >
+                  {editingId === c.id ? (
+                    <input
+                      autoFocus
+                      value={editingTitle}
+                      onChange={(e) => setEditingTitle(e.target.value)}
+                      onBlur={() => doRename(c.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") doRename(c.id);
+                        if (e.key === "Escape") setEditingId(null);
+                      }}
+                      className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => selectChat(c.id)}
+                      className="block w-full truncate text-start"
+                    >
+                      {c.title}
+                    </button>
+                  )}
+                  <div className="mt-1 flex gap-2 text-xs text-slate-500">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingId(c.id);
+                        setEditingTitle(c.title);
+                      }}
+                    >
+                      {t(lang, "rename")}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => doDelete(c.id)}
+                      className="text-red-500"
+                    >
+                      {t(lang, "delete")}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="border-t border-slate-200 p-3 text-xs dark:border-slate-800">
+              <div className="flex flex-wrap gap-3">
+                <Link href="/settings" className="text-slate-600 hover:underline dark:text-slate-300">
+                  ⚙ {t(lang, "settings")}
+                </Link>
+                <Link href="/about" className="text-slate-600 hover:underline dark:text-slate-300">
+                  ℹ {t(lang, "about")}
+                </Link>
+                {isAdmin && (
+                  <Link href="/admin" className="font-bold text-amber-600 hover:underline dark:text-amber-400">
+                    ★ {t(lang, "admin")}
+                  </Link>
+                )}
+                {userEmail ? (
+                  <span className="truncate text-slate-500">{userEmail}</span>
+                ) : (
+                  <Link href="/login" className="font-bold text-[#2457FF] hover:underline">
+                    {t(lang, "login")}
+                  </Link>
+                )}
+              </div>
+              <p className="mt-2 text-slate-400">{t(lang, "notMuse")}</p>
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {/* ===== Top bar — exactly like the video ===== */}
+      <header className="relative px-5 pt-2">
+        {/* dir="ltr" pins the layout: hamburger LEFT, ••• RIGHT, even in RTL Pashto */}
+        <div dir="ltr" className="flex items-start justify-between">
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(true)}
+            className="relative mt-1.5 flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-[#E3E3E3] bg-white dark:border-[#263550] dark:bg-[#111B30]"
+            aria-label="Menu"
+          >
+            <span className="text-[26px] leading-none text-[#222222] dark:text-[#EAF2FF]">≡</span>
+            <span className="absolute right-1 top-0.5 h-2.5 w-2.5 rounded-full bg-[#2457FF]" />
+          </button>
+          <Image
+            src="/avatar.jpg"
+            alt="Samim AI"
+            width={64}
+            height={64}
+            className="rounded-full object-cover"
+            priority
+          />
+          <button
+            type="button"
+            onClick={() => setMoreOpen((v) => !v)}
+            className="mt-1.5 flex h-14 w-14 shrink-0 items-center justify-center rounded-full border border-[#E3E3E3] bg-white dark:border-[#263550] dark:bg-[#111B30]"
+            aria-label="More options"
+          >
+            <span className="text-[22px] leading-none tracking-[2px] text-[#222222] dark:text-[#EAF2FF]">•••</span>
+          </button>
+        </div>
+        <div className="mt-1.5 flex flex-col items-center">
+          <div className="rounded-2xl bg-white px-3.5 py-1.5 shadow-md dark:bg-[#111B30] dark:shadow-none dark:ring-1 dark:ring-[#263550]">
+            <span className="text-base text-black dark:text-[#EAF2FF]">
+              {t(lang, "appName")}
+              {isAdmin && (
+                <span className="ms-1 rounded-full bg-amber-400 px-2 py-0.5 text-[11px] font-bold text-black">
+                  {t(lang, "admin")}
+                </span>
+              )}
+            </span>
+          </div>
+          <p className="mt-1 text-sm text-[#8A8A8A]">
+            {streaming ? t(lang, "isWorking") : t(lang, "tagline")}
+          </p>
+        </div>
+
+        {/* ===== ••• menu ===== */}
+        {moreOpen && (
+          <>
+            <button
+              type="button"
+              aria-label="Close menu"
+              onClick={() => setMoreOpen(false)}
+              className="fixed inset-0 z-20 cursor-default"
+            />
+            <div className="absolute right-4 top-full z-30 mt-1 w-56 rounded-2xl border border-[#E3E3E3] bg-white p-2 shadow-lg dark:border-[#263550] dark:bg-[#111B30]">
+              <p className="px-2 pb-1 pt-1 text-xs text-slate-500">{t(lang, "language")}</p>
+              <div className="flex gap-1 px-1 pb-2">
+                {LANGS.map((l) => (
                   <button
-                    key={s}
+                    key={l.code}
                     type="button"
-                    onClick={() => send(s)}
-                    className="rounded-2xl border border-slate-300 px-4 py-3 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
+                    onClick={() => setLang(l.code)}
+                    className={`flex-1 rounded-full px-2 py-1.5 text-xs font-bold ${
+                      lang === l.code
+                        ? "bg-[#2457FF] text-white"
+                        : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                    }`}
                   >
-                    {s}
+                    {l.label}
                   </button>
                 ))}
               </div>
-            </div>
-          ) : (
-            <div className="mx-auto flex max-w-3xl flex-col gap-4">
-              {messages.map((m, i) => (
-                <ChatMessage
-                  key={m.id}
-                  msg={m}
-                  lang={lang}
-                  isLastAssistant={
-                    m.role === "assistant" && i === messages.length - 1 && !streaming
-                  }
-                  onRegenerate={
-                    m.role === "assistant" && i === messages.length - 1
-                      ? () => {
-                          const lastUser = [...messages]
-                            .reverse()
-                            .find((x) => x.role === "user");
-                          if (lastUser) send(lastUser.content, true);
-                        }
-                      : undefined
-                  }
-                />
-              ))}
-              {streaming && messages[messages.length - 1]?.content === "" && (
-                <div className="rounded-3xl bg-[#EDEEF0] px-4 py-3 text-slate-500 dark:bg-slate-800">
-                  ● ● ●
-                </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setTheme(theme === "dark" ? "light" : "dark");
+                  setMoreOpen(false);
+                }}
+                className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                {theme === "dark" ? "☀ " + t(lang, "light") : "🌙 " + t(lang, "dark")}
+              </button>
+              <Link
+                href="/settings"
+                onClick={() => setMoreOpen(false)}
+                className="block rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                ⚙ {t(lang, "settings")}
+              </Link>
+              <Link
+                href="/about"
+                onClick={() => setMoreOpen(false)}
+                className="block rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                ℹ {t(lang, "about")}
+              </Link>
+              {isAdmin && (
+                <Link
+                  href="/admin"
+                  onClick={() => setMoreOpen(false)}
+                  className="block rounded-xl px-3 py-2 text-sm font-bold text-amber-600 hover:bg-slate-100 dark:text-amber-400 dark:hover:bg-slate-800"
+                >
+                  ★ {t(lang, "admin")}
+                </Link>
               )}
-              <div ref={bottomRef} />
+              {userEmail ? (
+                <p className="truncate px-3 py-2 text-xs text-slate-500">{userEmail}</p>
+              ) : (
+                <>
+                  <Link
+                    href="/login"
+                    onClick={() => setMoreOpen(false)}
+                    className="block rounded-xl px-3 py-2 text-sm font-bold text-[#2457FF] hover:bg-slate-100 dark:hover:bg-slate-800"
+                  >
+                    {t(lang, "login")}
+                  </Link>
+                  <Link
+                    href="/register"
+                    onClick={() => setMoreOpen(false)}
+                    className="block rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                  >
+                    {t(lang, "register")}
+                  </Link>
+                </>
+              )}
             </div>
-          )}
-        </div>
+          </>
+        )}
+      </header>
 
+      {!isSupabaseConfigured && (
+        <div className="bg-amber-100 px-3 py-2 text-center text-xs text-amber-900 dark:bg-amber-900 dark:text-amber-100">
+          {t(lang, "setupNeeded")}
+        </div>
+      )}
+      {!userEmail && isSupabaseConfigured && (
+        <div className="bg-blue-50 px-3 py-2 text-center text-xs text-blue-900 dark:bg-blue-950 dark:text-blue-100">
+          {t(lang, "guestNote")}{" "}
+          <Link href="/login" className="font-bold underline">
+            {t(lang, "login")}
+          </Link>
+          {" / "}
+          <Link href="/register" className="font-bold underline">
+            {t(lang, "register")}
+          </Link>
+        </div>
+      )}
+
+      {/* ===== Chat area ===== */}
+      <div className="chat-scroll flex-1 overflow-y-auto px-[18px] py-4">
+        <p className="mb-4 text-center text-sm text-[#8A8A8A]">{chatTime}</p>
+        {messages.length === 0 ? (
+          <div className="mx-auto max-w-2xl pb-6 text-center">
+            <Image
+              src="/avatar.jpg"
+              alt="Samim AI"
+              width={64}
+              height={64}
+              className="mx-auto rounded-full object-cover"
+            />
+            <div className="mt-3 inline-block rounded-2xl bg-white px-3.5 py-1.5 shadow-md dark:bg-[#111B30] dark:shadow-none dark:ring-1 dark:ring-[#263550]">
+              <span className="text-base text-black dark:text-[#EAF2FF]">{t(lang, "appName")}</span>
+            </div>
+            <h1 className="mt-4 text-xl font-bold">{t(lang, "welcomeTitle")}</h1>
+            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+              {t(lang, "welcomeText")}
+            </p>
+            <div className="mt-6 grid gap-2 text-start sm:grid-cols-2">
+              {suggestions.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => send(s)}
+                  className="rounded-2xl border border-slate-300 px-4 py-3 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="mx-auto flex max-w-3xl flex-col gap-2.5">
+            {messages.map((m, i) => (
+              <ChatMessage
+                key={m.id}
+                msg={m}
+                lang={lang}
+                isLastAssistant={
+                  m.role === "assistant" && i === messages.length - 1 && !streaming
+                }
+                onRegenerate={
+                  m.role === "assistant" && i === messages.length - 1
+                    ? () => {
+                        const lastUser = [...messages]
+                          .reverse()
+                          .find((x) => x.role === "user");
+                        if (lastUser) send(lastUser.content, true);
+                      }
+                    : undefined
+                }
+              />
+            ))}
+            {streaming && messages[messages.length - 1]?.content === "" && (
+              <div className="flex">
+                <div className="mr-auto rounded-[28px] bg-[#EDEEF0] px-[18px] py-1.5 dark:bg-[#111B30]">
+                  <TypingDots />
+                </div>
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+        )}
+      </div>
+
+      {/* ===== Bottom input — like the video ===== */}
+      <div className="px-3.5 pb-2.5 pt-1">
+        {notice && (
+          <p className="mx-auto mb-2 max-w-3xl rounded-full bg-slate-900 px-4 py-2 text-center text-xs text-white dark:bg-slate-100 dark:text-slate-900">
+            {notice}
+          </p>
+        )}
         <form
+          dir="ltr"
           onSubmit={(e) => {
             e.preventDefault();
             send(input);
             setInput("");
           }}
-          className="border-t border-slate-200 p-3 dark:border-slate-800"
+          className="mx-auto flex max-w-3xl items-center gap-2.5"
         >
-          <div className="mx-auto flex max-w-3xl items-center gap-2 rounded-full bg-slate-100 px-3 py-2 dark:bg-slate-800">
+          <div className="flex min-h-14 flex-1 items-center rounded-[32px] bg-[#F0F0F0] px-3 dark:bg-[#111B30]">
+            <button
+              type="button"
+              onClick={() => showNotice(t(lang, "attachNote"))}
+              className="shrink-0 px-1 text-[26px] leading-none text-[#111111] dark:text-[#EAF2FF]"
+              aria-label="+"
+            >
+              ＋
+            </button>
             <input
+              dir="auto"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder={t(lang, "askPlaceholder")}
-              className="min-w-0 flex-1 bg-transparent px-2 py-1 text-sm outline-none"
+              className="min-w-0 flex-1 bg-transparent px-2 py-1 text-[17px] text-[#111111] outline-none placeholder:text-[#9A9A9A] dark:text-[#EAF2FF]"
             />
-            {streaming ? (
-              <button
-                type="button"
-                onClick={stop}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-black text-white"
-                aria-label={t(lang, "stop")}
-              >
-                ■
-              </button>
-            ) : (
-              <button
-                type="submit"
-                disabled={!input.trim()}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#2457FF] text-white disabled:opacity-40"
-                aria-label={t(lang, "send")}
-              >
-                ↑
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => showNotice(t(lang, "micNote"))}
+              className="shrink-0 px-1 text-[22px] leading-none"
+              aria-label="Microphone"
+            >
+              🎙
+            </button>
           </div>
-          <p className="mt-2 text-center text-[11px] text-slate-400">
-            Samim AI • {t(lang, "notMuse")}
-          </p>
+          {streaming ? (
+            <button
+              type="button"
+              onClick={stop}
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white dark:bg-white dark:text-black"
+              aria-label={t(lang, "stop")}
+            >
+              <span className="text-lg leading-none">■</span>
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={!input.trim()}
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white disabled:bg-[#B9B9B9] dark:bg-white dark:text-black dark:disabled:bg-[#334155]"
+              aria-label={t(lang, "send")}
+            >
+              <span className="text-2xl leading-none">↑</span>
+            </button>
+          )}
         </form>
-      </main>
+        <p className="mt-2 text-center text-[11px] text-slate-400">
+          Samim AI • {t(lang, "notMuse")}
+        </p>
+      </div>
     </div>
   );
 }

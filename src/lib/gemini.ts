@@ -1,6 +1,7 @@
 /**
  * lib/gemini.ts — Google Gemini API helper (server-side ONLY).
- * The API key is read from process.env.GEMINI_API_KEY on the server.
+ * The API key is read from process.env.GEMINI_API_KEY (or GEMINIAPIKEY,
+ * the spelling the key was saved under in Vercel) on the server.
  * It is NEVER exposed to the browser and NEVER hardcoded.
  */
 
