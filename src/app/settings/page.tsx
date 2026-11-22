@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -9,6 +9,7 @@ import { t, LANGS, type Lang } from "@/lib/i18n";
 import { supabase } from "@/lib/supabaseClient";
 import { store, type Settings } from "@/lib/store";
 import { providerInfos, type ProviderId } from "@/lib/providers";
+import UserAvatar from "@/components/UserAvatar";
 
 /** Optional provider keys (Settings → Providers). Each key is the
  * user's own and stays in this browser only — never sent to our
@@ -31,6 +32,36 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [serverGemini, setServerGemini] = useState(false);
   const [testResults, setTestResults] = useState<Record<string, "ok" | "fail" | "testing">>({});
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
+
+  /** Profile photo: downscale client-side to 256px (JPEG 0.8) and save
+   * it in settings.avatarDataUrl. The chat + drawer read the same
+   * setting, so the new avatar shows everywhere immediately. */
+  const onPhotoPicked = (file: File | undefined) => {
+    if (!file || !file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const img = new window.Image();
+      img.onload = () => {
+        try {
+          const size = 256;
+          const canvas = document.createElement("canvas");
+          canvas.width = size;
+          canvas.height = size;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          const side = Math.min(img.width, img.height);
+          ctx.drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
+          updateSettings({ avatarDataUrl: canvas.toDataURL("image/jpeg", 0.8) });
+          setNote(t(lang, "saved"));
+        } catch {
+          // ignore
+        }
+      };
+      img.src = String(reader.result ?? "");
+    };
+    reader.readAsDataURL(file);
+  };
 
   useEffect(() => {
     try {
@@ -102,6 +133,57 @@ export default function SettingsPage() {
             <p className="text-sm text-slate-500">{t(lang, "appName")} • Samim AI</p>
           </div>
         </div>
+
+        {/* Profile: your photo + name. Like Muse, the avatar is your
+            photo when set, otherwise your initials on a colour. */}
+        {settings && (
+          <div className="mt-6 flex items-center gap-4 rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
+            <UserAvatar
+              name={settings.displayName || email?.split("@")[0] || null}
+              email={email}
+              photoUrl={settings.avatarDataUrl || null}
+              size={64}
+            />
+            <div className="min-w-0 flex-1">
+              <label className="block text-xs font-bold text-slate-500">{t(lang, "yourName")}</label>
+              <input
+                type="text"
+                value={settings.displayName}
+                onChange={(e) => updateSettings({ displayName: e.target.value })}
+                placeholder={email?.split("@")[0] ?? ""}
+                className="mt-1 w-full rounded-xl border border-slate-300 bg-transparent px-3 py-2 text-sm dark:border-slate-700"
+              />
+              <div className="mt-2 flex flex-wrap gap-2">
+                <input
+                  ref={photoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    onPhotoPicked(e.target.files?.[0]);
+                    e.target.value = "";
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={() => photoInputRef.current?.click()}
+                  className="rounded-xl bg-[#2457FF] px-3 py-2 text-sm font-bold text-white"
+                >
+                  {t(lang, "uploadPhoto")}
+                </button>
+                {settings.avatarDataUrl && (
+                  <button
+                    type="button"
+                    onClick={() => updateSettings({ avatarDataUrl: "" })}
+                    className="rounded-xl border border-slate-300 px-3 py-2 text-sm font-bold dark:border-slate-700"
+                  >
+                    {t(lang, "removePhoto")}
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="mt-6 flex flex-col gap-5 rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
           <label className="flex items-center justify-between gap-4 text-sm">

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { t, type Lang } from "@/lib/i18n";
+import UserAvatar from "@/components/UserAvatar";
 import {
   isSpeechSynthesisSupported,
   speakText,
@@ -306,6 +307,7 @@ function FileCard({ file, lang }: { file: NonNullable<UiMessage["file"]>; lang: 
 export default function ChatMessage({
   msg,
   lang,
+  userAvatar,
   onRegenerate,
   isLastAssistant,
   onEditMessage,
@@ -317,6 +319,9 @@ export default function ChatMessage({
 }: {
   msg: UiMessage;
   lang: Lang;
+  /** The sender's avatar (photo or generated initials) — shown next
+   * to the user's own messages, like Muse shows it. */
+  userAvatar?: { name?: string | null; email?: string | null; photoUrl?: string | null };
   onRegenerate?: () => void;
   isLastAssistant?: boolean;
   onEditMessage?: (id: string, newText: string) => void;
@@ -389,8 +394,8 @@ export default function ChatMessage({
   if (isUser) {
     if (editing) {
       return (
-        <div className="flex min-w-0">
-          <div className="ml-auto min-w-0 w-[82%] max-w-[82%]">
+        <div className="flex min-w-0 items-start justify-end gap-2">
+          <div className="min-w-0 w-[82%] max-w-[82%]">
             <textarea
               dir="auto"
               value={editText}
@@ -420,6 +425,13 @@ export default function ChatMessage({
               </button>
             </div>
           </div>
+          <UserAvatar
+            name={userAvatar?.name}
+            email={userAvatar?.email}
+            photoUrl={userAvatar?.photoUrl}
+            size={32}
+            className="mt-1"
+          />
         </div>
       );
     }
@@ -427,9 +439,10 @@ export default function ChatMessage({
     // the RIGHT even when the page is RTL (Pashto/Dari), like the video.
     // dir="auto" + unicode-bidi: plaintext lets each line pick its own
     // direction, so mixed Pashto/English text does not get jumbled.
+    // The user's own avatar sits at the right end, like Muse shows it.
     return (
-      <div className="flex min-w-0">
-        <div className="ml-auto min-w-0 max-w-[78%]">
+      <div className="flex min-w-0 items-start justify-end gap-2">
+        <div className="min-w-0 max-w-[78%]">
           {msg.image && (
             <img
               src={msg.image}
@@ -481,6 +494,13 @@ export default function ChatMessage({
             </button>
           </div>
         </div>
+        <UserAvatar
+          name={userAvatar?.name}
+          email={userAvatar?.email}
+          photoUrl={userAvatar?.photoUrl}
+          size={32}
+          className="mt-1"
+        />
       </div>
     );
   }

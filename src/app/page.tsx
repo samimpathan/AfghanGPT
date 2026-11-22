@@ -5,6 +5,7 @@ import Image from "next/image";
 import Link from "next/link";
 import ChatMessage, { type UiMessage } from "@/components/ChatMessage";
 import LiveCall from "@/components/LiveCall";
+import UserAvatar from "@/components/UserAvatar";
 import { useUi } from "@/components/Providers";
 import { t, LANGS } from "@/lib/i18n";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
@@ -151,6 +152,8 @@ export default function HomePage() {
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
+  /** The user's own profile photo (Settings → Profile photo). */
+  const [userPhoto, setUserPhoto] = useState<string | null>(null);
   const [chats, setChats] = useState<LocalChat[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -225,6 +228,8 @@ export default function HomePage() {
       if (saved === "fast" || saved === "smart" || saved === "auto") setModelMode(saved);
       const settings = store.settings();
       if (settings.provider) setProvider(settings.provider);
+      setUserPhoto(settings.avatarDataUrl || null);
+      if (settings.displayName) setUserName(settings.displayName);
     } catch {
       // ignore
     }
@@ -254,7 +259,11 @@ export default function HomePage() {
     if (sidebarOpen) {
       setSavedImages(loadSavedImages());
       try {
-        setStudioFeatures(store.settings().features ?? {});
+        const s = store.settings();
+        setStudioFeatures(s.features ?? {});
+        // The photo/name may have changed in Settings — refresh them.
+        setUserPhoto(s.avatarDataUrl || null);
+        if (s.displayName) setUserName(s.displayName);
       } catch {
         // ignore
       }
@@ -282,7 +291,10 @@ export default function HomePage() {
       store.setMemoryOnly(false);
       setUserEmail(session.user.email ?? null);
       setUserId(session.user.id);
-      setUserName(displayNameOf(session.user));
+      // The name the user set in Settings wins over the register name.
+      const s = store.settings();
+      setUserName(s.displayName || displayNameOf(session.user));
+      setUserPhoto(s.avatarDataUrl || null);
       const rows: ChatRow[] = await listChats(session.user.id);
       const loaded: LocalChat[] = rows.map((r) => ({
         id: r.id,
@@ -298,7 +310,9 @@ export default function HomePage() {
         store.setMemoryOnly(false);
         setUserEmail(session.user.email ?? null);
         setUserId(session.user.id);
-        setUserName(displayNameOf(session.user));
+        const s = store.settings();
+        setUserName(s.displayName || displayNameOf(session.user));
+        setUserPhoto(s.avatarDataUrl || null);
       } else {
         // Signed out — the guest session starts empty. Nothing from
         // the signed-in session (or any earlier guest session) is kept.
@@ -306,6 +320,7 @@ export default function HomePage() {
         setUserEmail(null);
         setUserId(null);
         setUserName(null);
+        setUserPhoto(null);
         setChats([]);
         setActiveId(null);
         setPins([]);
@@ -1465,21 +1480,20 @@ export default function HomePage() {
             <div className="border-t border-slate-200 p-3 dark:border-slate-800">
               {userEmail ? (
                 <a href="/about" className="flex items-center gap-2">
-                  <Image
-                    src="/avatar.jpg"
-                    alt="Samim AI"
-                    width={32}
-                    height={32}
-                    className="rounded-full object-cover"
-                  />
+                  {/* The USER's avatar (photo or initials) — like Muse.
+                      Samim's photo stays in the header/empty state. */}
+                  <UserAvatar name={userName} email={userEmail} photoUrl={userPhoto} size={32} />
                   <span className="min-w-0 flex-1 truncate text-sm font-bold">
                     {userName ?? userEmail}
                   </span>
                 </a>
               ) : (
-                <Link href="/login" className="text-sm font-bold text-[#2457FF] hover:underline">
-                  {t(lang, "login")}
-                </Link>
+                <span className="flex items-center gap-2">
+                  <UserAvatar name={null} email={null} photoUrl={null} size={32} />
+                  <Link href="/login" className="text-sm font-bold text-[#2457FF] hover:underline">
+                    {t(lang, "login")}
+                  </Link>
+                </span>
               )}
               <div className="mt-2 flex flex-wrap gap-3 text-xs">
                 <Link href="/settings" className="text-slate-600 hover:underline dark:text-slate-300">
@@ -1906,6 +1920,7 @@ export default function HomePage() {
                 key={m.id}
                 msg={m}
                 lang={lang}
+                userAvatar={{ name: userName, email: userEmail, photoUrl: userPhoto }}
                 isLastAssistant={
                   m.role === "assistant" && i === messages.length - 1 && !streaming
                 }
