@@ -19,7 +19,7 @@ export type UiMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
-  mode?: "gemini" | "offline" | "refused" | "busy" | "image" | "file" | "provider";
+  mode?: "gemini" | "offline" | "refused" | "busy" | "image" | "file" | "provider" | "web";
   /** Which provider answered (when mode is "provider"). */
   provider?: string;
   /** Attached photo / generated image as a data URL. */
@@ -706,19 +706,12 @@ export default function ChatMessage({
                       </button>
                     </div>
                   )}
-                  {/* The REAL model/mode used — never a made-up label. */}
+                  {/* The REAL model/mode used — never a made-up label.
+                      Every answer is "Samim AI Auto" to the user; the
+                      free-web answer carries its source note in the
+                      text itself. No key is ever mentioned here. */}
                   <div className="mt-1 border-t border-slate-200 px-3 pb-1 pt-2 text-xs text-slate-500 dark:border-slate-700">
-                    {t(lang, "usedModel").replace(
-                      "{model}",
-                      modelUsed ??
-                        (msg.mode === "provider"
-                          ? msg.provider ?? "AI"
-                          : msg.mode === "gemini"
-                            ? "Gemini"
-                            : msg.mode === "offline"
-                              ? t(lang, "offlineMode")
-                              : msg.mode ?? "")
-                    )}
+                    {t(lang, "usedModel").replace("{model}", modelUsed ?? t(lang, "modelAuto"))}
                   </div>
                 </div>
               </>
@@ -733,19 +726,14 @@ export default function ChatMessage({
               <SaveImageButton image={msg.image} lang={lang} />
             </>
           )}
-          {msg.mode === "offline" && (
-            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-200 dark:bg-amber-900/60 dark:text-amber-200 dark:ring-amber-800">
-              {t(lang, "offlineMode")}
-            </span>
-          )}
           {msg.mode === "gemini" && (
             <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-900/60 dark:text-emerald-200 dark:ring-emerald-800">
               {t(lang, "onlineMode")}
             </span>
           )}
-          {msg.mode === "provider" && (
-            <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-800 ring-1 ring-violet-200 dark:bg-violet-900/60 dark:text-violet-200 dark:ring-violet-800">
-              {msg.provider ?? "AI"}
+          {msg.mode === "web" && (
+            <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-900/60 dark:text-emerald-200 dark:ring-emerald-800">
+              {t(lang, "modelAuto")}
             </span>
           )}
         </div>

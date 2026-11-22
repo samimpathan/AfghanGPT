@@ -170,7 +170,7 @@ export default function BuilderPage() {
     } catch (e) {
       store.log("studio/builder", e instanceof Error ? e.message : "generate failed");
       setNotice(
-        "The app could not be generated — the AI is offline or busy right now (no Gemini key on the server, or the model failed). Nothing was faked; please try again later."
+        "The app could not be generated — the AI is offline or busy right now. Nothing was faked; please try again later."
       );
     } finally {
       setGenerating(false);

@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { streamGemini, generateText, generateImage, type ChatMsg, type GeminiMode } from "@/lib/gemini";
 import { getOfflineAnswer, isPashto } from "@/lib/offlineBrain";
+import { getFreeWebAnswer, detectLang } from "@/lib/freeweb";
 import { isAdultRequest, ADULT_REFUSAL_PS } from "@/lib/safety";
 import { rateLimited, clientIp } from "@/lib/ratelimit";
 import {
@@ -17,11 +18,11 @@ export const dynamic = "force-dynamic";
 
 /** Photo questions need the online AI — the offline brain cannot see images. */
 const PHOTO_OFFLINE_NOTE =
-  "د عکس په اړه پوښتنې لپاره آنلاین AI پکار دی — د Gemini کېلي اضافه کړه. / Photo questions need the online AI — please add a Gemini key.";
+  "زه اوس عکسونه نشم لیدلی — مهرباني وکړه خپله پوښتنه په خبرو ولیکه. / I can't see photos right now — please ask with words.";
 
-/** Image generation is not available for this key — never fake an image. */
+/** Image generation is not available right now — never fake an image. */
 const IMAGE_GEN_UNAVAILABLE =
-  "بښنه غواړم، د عکس جوړول اوس شتون نه لري — دا کیلي د عکس جوړولو ملاتړ نه کوي. بله پوښتنه وکړه! / Sorry, image generation is not available right now — this key does not support it. Please ask something else!";
+  "بښنه غواړم، د عکس جوړول اوس شتون نه لري — لږ وروسته بیا هڅه وکړه. / Sorry, image generation isn't available right now — please try again later.";
 
 /* ================= File creation (v3.2) =================
  * The user wants REAL files (docx/xlsx/pptx/pdf/txt/md/csv/json/
@@ -84,12 +85,12 @@ async function handleFileRequest(
 ): Promise<Response | null> {
   const pashto = isPashto(lastText);
   if (!apiKey) {
-    // File content is written by Gemini — without a key there is
-    // nothing honest to put in the file.
+    // File content is written by the online AI — when it is not
+    // available there is nothing honest to put in the file.
     return textStream(
       pashto
-        ? "د فایل جوړولو لپاره آنلاین AI پکار دی — د Gemini کېلي اضافه کړه."
-        : "Making a file needs the online AI — please add a Gemini key.",
+        ? "زه اوس فایل نشم جوړولی — آنلاین AI شتون نه لري. لږ وروسته بیا هڅه وکړه."
+        : "I can't make a file right now — the online AI is not available. Please try again later.",
       "offline"
     );
   }
@@ -228,13 +229,21 @@ function textStream(fullText: string, mode: string): Response {
 }
 
 /** The key IS configured but Gemini failed (after the model fallback):
- * say so honestly — do NOT pretend the offline brain is the real answer,
- * and do NOT claim the owner must add a key (it is already added). */
+ * say so honestly — do NOT pretend the offline brain is the real answer. */
 function busyMessageFor(text: string): string {
   if (!isPashto(text) && /[a-zA-Z]/.test(text)) {
     return "The AI is busy right now — please try again in a moment.";
   }
   return "AI اوس بوخت دی / یو څه ځنډ دی — لږ وروسته بیا هڅه وکړه.";
+}
+
+/** Free web fallback (mode "web"): a real answer from free public
+ * sources (DuckDuckGo / Wikipedia / Google Books), with a source
+ * note. Returns null when no source has anything — the caller then
+ * falls back to the offline brain or the honest "busy" message. */
+async function webFallback(text: string): Promise<Response | null> {
+  const web = await getFreeWebAnswer(text, detectLang(text));
+  return web ? textStream(web.text, "web") : null;
 }
 
 export async function POST(req: NextRequest) {
@@ -285,6 +294,8 @@ export async function POST(req: NextRequest) {
     body.mode === "fast" || body.mode === "smart" ? body.mode : "auto";
   if (body.format === "json") {
     if (!apiKey) {
+      const web = await webFallback(lastText);
+      if (web) return web;
       return textStream(getOfflineAnswer(lastText), "offline");
     }
     try {
@@ -298,6 +309,8 @@ export async function POST(req: NextRequest) {
       });
     } catch (e) {
       console.error("Gemini failed:", e instanceof Error ? e.message : "unknown");
+      const web = await webFallback(lastText);
+      if (web) return web;
       return textStream(busyMessageFor(lastText), "busy");
     }
   }
@@ -335,17 +348,20 @@ export async function POST(req: NextRequest) {
     return textStream(IMAGE_GEN_UNAVAILABLE, "gemini");
   }
 
-  // No key (or empty) → honest offline fallback, clearly labelled.
+  // No key (or empty) → try the free web sources first for a real
+  // sourced answer; only then the offline brain, clearly labelled.
   if (!apiKey) {
+    const web = await webFallback(lastText);
+    if (web) return web;
     return textStream(getOfflineAnswer(lastText), "offline");
   }
 
   // Real Gemini, streamed. Pull the first chunk BEFORE responding, so a
   // total failure (503/429/timeout on a slow connection, even after the
-  // model fallback) can be reported honestly as "busy" instead of
-  // silently falling back to the offline brain and lying that the owner
-  // must add a key — the key IS added. A failure mid-stream (after chunks
-  // were already sent) just closes the stream; the partial reply stays.
+  // model fallback) can fall back to the free web sources first, and
+  // only then be reported honestly as "busy". A failure mid-stream
+  // (after chunks were already sent) just closes the stream; the
+  // partial reply stays.
   // (chatMode and system were defined above, before the JSON branch.)
   let gen: AsyncGenerator<string>;
   let first: IteratorResult<string>;
@@ -355,10 +371,14 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     // Server log only: status/message, never the key.
     console.error("Gemini failed:", e instanceof Error ? e.message : "unknown");
+    const web = await webFallback(lastText);
+    if (web) return web;
     return textStream(busyMessageFor(lastText), "busy");
   }
   if (first.done) {
     console.error("Gemini failed: empty response");
+    const web = await webFallback(lastText);
+    if (web) return web;
     return textStream(busyMessageFor(lastText), "busy");
   }
   try {
@@ -390,6 +410,8 @@ export async function POST(req: NextRequest) {
     });
   } catch (e) {
     console.error("Gemini failed:", e instanceof Error ? e.message : "unknown");
+    const web = await webFallback(lastText);
+    if (web) return web;
     return textStream(busyMessageFor(lastText), "busy");
   }
 }

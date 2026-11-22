@@ -29,9 +29,9 @@ type Generated = { dataUrl: string; prompt: string; ratio: string };
 
 function errorMessage(status: number, code: string): string {
   if (status === 503 || code === "no-key")
-    return "Image generation is not available right now: no AI key is set on the server (503 no-key). No image was created.";
+    return "Image generation is not available right now. No image was created.";
   if (status === 502 || code === "model-unavailable")
-    return "The image model is unavailable for this key right now (502 model-unavailable). No image was created. Please try again later.";
+    return "The image model is unavailable right now. No image was created. Please try again later.";
   if (status === 429 || code === "rate-limited")
     return "Too many image requests — please wait a minute and try again (429 rate-limited). No image was created.";
   if (status === 400 && code === "refused")
@@ -225,7 +225,7 @@ export default function ImageStudioPage() {
           <div className="rounded-xl border border-[var(--card-border)] p-3">
             <p className="text-sm font-semibold">Background removal</p>
             <p className="mt-1 text-sm text-[var(--muted)]">
-              Background removal is not available yet — it needs a removal API (e.g. remove.bg key). Your image is not processed.
+              Background removal is not available yet. Your image is not processed.
             </p>
             <Btn variant="outline" size="sm" disabled className="mt-2">Remove background</Btn>
           </div>

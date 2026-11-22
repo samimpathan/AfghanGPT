@@ -126,13 +126,13 @@ export default function WritingStudioPage() {
       } else {
         setResult(text);
         setShowPreview(false);
-        // If the server answered offline/busy (no key), that honest
-        // note is the text itself — it is shown as the result, not invented.
+        // If the server answered with an honest offline/busy note,
+        // that note is the text itself — it is shown as the result, not invented.
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "generate failed";
       store.log("studio/write", msg);
-      setNotice(`Could not generate: ${msg}. If the server has no Gemini key, the chat API answers with an offline/busy note instead — nothing was invented.`);
+      setNotice(`Could not generate: ${msg}. The chat API answers with an honest note instead — nothing was invented.`);
     } finally {
       setLoading(false);
     }
@@ -198,8 +198,8 @@ export default function WritingStudioPage() {
         <h1 className="text-xl font-bold sm:text-2xl">{t("writing")}</h1>
         <p className="text-sm text-[var(--muted)]">{t("writeSubtitle")}</p>
         <p className="rounded-xl border border-[var(--card-border)] px-3 py-2 text-xs text-[var(--muted)]">
-          How it works: the text is written live by Gemini through /api/chat using the server key — no key is ever in this page.
-          If the server key is not set, the chat API answers with an offline/busy note instead, and that note is shown honestly.
+          How it works: the text is written live by Samim AI through /api/chat — no key is ever asked from you.
+          If the AI is not available right now, the chat API answers with an honest note instead, and that note is shown honestly.
         </p>
       </header>
 

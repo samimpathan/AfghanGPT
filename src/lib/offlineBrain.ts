@@ -1,9 +1,10 @@
 /**
  * lib/offlineBrain.ts — Offline fallback brain for Samim AI.
  * Expanded from ~/workspace/samim-ai-app/lib/assistant.ts.
- * NO internet, NO key needed. Answers in simple Pashto (or English
- * when the question is in English). This is NOT Gemini — the UI labels
- * it clearly as offline mode.
+ * NO internet needed for its built-in topic replies. Answers in
+ * simple Pashto (or English when the question is in English).
+ * Its fallback never mentions a key — it just says honestly that
+ * the answer was not found and suggests asking differently.
  */
 
 export function normalize(input: string): string {
@@ -21,18 +22,11 @@ export function isPashto(text: string): boolean {
   return /[\u0600-\u06FF\u0750-\u077F]/.test(text);
 }
 
-const OFFLINE_NOTE_PS =
-  "\n\n—\nدا ځواب په آف‌لاین حالت کې ورکړل شو. د بشپړ او دقیق ځواب لپاره، د Samim AI مالک باید وړیا Gemini کېلي اضافه کړي.";
-
-const OFFLINE_NOTE_EN =
-  "\n\n—\nThis answer was given in offline mode. For full answers, the owner of Samim AI needs to add a free Gemini key.";
-
 /** Single-string answer (multi-bubble video replies joined with blank lines). */
 export function getOfflineAnswer(rawInput: string): string {
   const text = normalize(rawInput);
   const lower = text.toLowerCase();
   const english = !isPashto(rawInput) && /[a-zA-Z]/.test(rawInput);
-  const note = english ? OFFLINE_NOTE_EN : OFFLINE_NOTE_PS;
 
   // --- Who are you? ---
   if (
@@ -139,7 +133,7 @@ export function getOfflineAnswer(rawInput: string): string {
     return (
       (english
         ? "Here is a simple HTML web page:\n\n```html\n<!DOCTYPE html>\n<html>\n<head>\n  <title>My Page</title>\n</head>\n<body>\n  <h1>Hello World!</h1>\n  <p>This is my first web page.</p>\n</body>\n</html>\n```\n\nSave it as `index.html` and open it in your browser."
-        : "دلته یو ساده HTML ویب پاڼه ده:\n\n```html\n<!DOCTYPE html>\n<html>\n<head>\n  <title>زما پاڼه</title>\n</head>\n<body>\n  <h1>سلام نړۍ!</h1>\n  <p>دا زما لومړۍ ویب پاڼه ده.</p>\n</body>\n</html>\n```\n\nدا د `index.html` په نوم خوندي کړه او په براوزر کې یې خلاص کړه.") + note
+        : "دلته یو ساده HTML ویب پاڼه ده:\n\n```html\n<!DOCTYPE html>\n<html>\n<head>\n  <title>زما پاڼه</title>\n</head>\n<body>\n  <h1>سلام نړۍ!</h1>\n  <p>دا زما لومړۍ ویب پاڼه ده.</p>\n</body>\n</html>\n```\n\nدا د `index.html` په نوم خوندي کړه او په براوزر کې یې خلاص کړه.")
     );
   }
 
@@ -148,7 +142,7 @@ export function getOfflineAnswer(rawInput: string): string {
     return (
       (english
         ? "CSS is used to style a web page — colours, sizes and layout.\n\n```css\nh1 {\n  color: blue;\n  text-align: center;\n}\n```\n\nThis makes every `h1` heading blue and centred."
-        : "CSS د ویب پاڼې د ښکلا لپاره کارېږي — رنګونه، اندازې او ترتیب.\n\n```css\nh1 {\n  color: blue;\n  text-align: center;\n}\n```\n\nدا هر `h1` سرلیک نیلي او په منځ کې کوي.") + note
+        : "CSS د ویب پاڼې د ښکلا لپاره کارېږي — رنګونه، اندازې او ترتیب.\n\n```css\nh1 {\n  color: blue;\n  text-align: center;\n}\n```\n\nدا هر `h1` سرلیک نیلي او په منځ کې کوي.")
     );
   }
 
@@ -157,7 +151,7 @@ export function getOfflineAnswer(rawInput: string): string {
     return (
       (english
         ? "JavaScript makes a web page interactive.\n\n```js\nlet name = \"Samim\";\nconsole.log(\"Hello, \" + name);\n```\n\n`let` creates a variable, and `console.log` prints the text."
-        : "JavaScript ویب پاڼه ژوندۍ کوي.\n\n```js\nlet name = \"Samim\";\nconsole.log(\"Hello, \" + name);\n```\n\n`let` یو متغیر جوړوي، او `console.log` متن ښکاره کوي.") + note
+        : "JavaScript ویب پاڼه ژوندۍ کوي.\n\n```js\nlet name = \"Samim\";\nconsole.log(\"Hello, \" + name);\n```\n\n`let` یو متغیر جوړوي، او `console.log` متن ښکاره کوي.")
     );
   }
 
@@ -166,7 +160,7 @@ export function getOfflineAnswer(rawInput: string): string {
     return (
       (english
         ? "A loop in Python repeats work.\n\n```python\nfor i in range(5):\n    print(i)\n```\n\nThis prints 0, 1, 2, 3, 4. `range(5)` gives the numbers 0 to 4."
-        : "په Python کې لوپ کار تکراروي.\n\n```python\nfor i in range(5):\n    print(i)\n```\n\nدا 0، 1، 2، 3، 4 چاپوي. `range(5)` له 0 څخه تر 4 پورې شمېرې ورکوي.") + note
+        : "په Python کې لوپ کار تکراروي.\n\n```python\nfor i in range(5):\n    print(i)\n```\n\nدا 0، 1، 2، 3، 4 چاپوي. `range(5)` له 0 څخه تر 4 پورې شمېرې ورکوي.")
     );
   }
 
@@ -175,7 +169,7 @@ export function getOfflineAnswer(rawInput: string): string {
     return (
       (english
         ? "Here is a first C++ program:\n\n```cpp\n#include <iostream>\nusing namespace std;\n\nint main() {\n  cout << \"Hello World!\";\n  return 0;\n}\n```\n\n`cout` prints text, and `main()` is where the program starts."
-        : "دلته لومړی C++ پروګرام دی:\n\n```cpp\n#include <iostream>\nusing namespace std;\n\nint main() {\n  cout << \"Hello World!\";\n  return 0;\n}\n```\n\n`cout` متن چاپوي، او `main()` هغه ځای دی چې پروګرام ترې پیلېږي.") + note
+        : "دلته لومړی C++ پروګرام دی:\n\n```cpp\n#include <iostream>\nusing namespace std;\n\nint main() {\n  cout << \"Hello World!\";\n  return 0;\n}\n```\n\n`cout` متن چاپوي، او `main()` هغه ځای دی چې پروګرام ترې پیلېږي.")
     );
   }
 
@@ -184,7 +178,7 @@ export function getOfflineAnswer(rawInput: string): string {
     return (
       (english
         ? "Here is a first Java program:\n\n```java\npublic class Main {\n  public static void main(String[] args) {\n    System.out.println(\"Hello World!\");\n  }\n}\n```\n\n`System.out.println` prints a line of text."
-        : "دلته لومړی Java پروګرام دی:\n\n```java\npublic class Main {\n  public static void main(String[] args) {\n    System.out.println(\"Hello World!\");\n  }\n}\n```\n\n`System.out.println` د متن یوه کرښه چاپوي.") + note
+        : "دلته لومړی Java پروګرام دی:\n\n```java\npublic class Main {\n  public static void main(String[] args) {\n    System.out.println(\"Hello World!\");\n  }\n}\n```\n\n`System.out.println` د متن یوه کرښه چاپوي.")
     );
   }
 
@@ -193,7 +187,7 @@ export function getOfflineAnswer(rawInput: string): string {
     return (
       (english
         ? "To build a website, follow these steps:\n\n1. Learn HTML — the structure of the page\n2. Learn CSS — the design and colours\n3. Learn JavaScript — the interaction\n4. Publish it free on Vercel or Netlify\n\nTell me which step you want to start with, and I will explain it simply."
-        : "د ویبسایټ جوړولو لپاره دا ګامونه واخله:\n\n1. HTML زده کړه — د پاڼې جوړښت\n2. CSS زده کړه — ډیزاین او رنګونه\n3. JavaScript زده کړه — اړیکه او حرکت\n4. په وړیا توګه یې په Vercel یا Netlify خپور کړه\n\nووایه چې له کوم ګام څخه پیل وکړې، زه به یې په ساده ډول درته تشریح کړم.") + note
+        : "د ویبسایټ جوړولو لپاره دا ګامونه واخله:\n\n1. HTML زده کړه — د پاڼې جوړښت\n2. CSS زده کړه — ډیزاین او رنګونه\n3. JavaScript زده کړه — اړیکه او حرکت\n4. په وړیا توګه یې په Vercel یا Netlify خپور کړه\n\nووایه چې له کوم ګام څخه پیل وکړې، زه به یې په ساده ډول درته تشریح کړم.")
     );
   }
 
@@ -202,7 +196,7 @@ export function getOfflineAnswer(rawInput: string): string {
     return (
       (english
         ? "Here is a small English lesson — greetings:\n\n- Hello = سلام\n- Good morning = سهار مو پخیر\n- Thank you = مننه\n- Goodbye = خدای پامان\n\nTry a sentence and I will correct it for you."
-        : "دلته یو کوچنی انګلیسي درس دی — سلامونه:\n\n- Hello = سلام\n- Good morning = سهار مو پخیر\n- Thank you = مننه\n- Goodbye = خدای پامان\n\nیوه جمله ولیکه، زه به یې سم کړم.") + note
+        : "دلته یو کوچنی انګلیسي درس دی — سلامونه:\n\n- Hello = سلام\n- Good morning = سهار مو پخیر\n- Thank you = مننه\n- Goodbye = خدای پامان\n\nیوه جمله ولیکه، زه به یې سم کړم.")
     );
   }
 
@@ -228,8 +222,8 @@ export function getOfflineAnswer(rawInput: string): string {
       : "زه ستا مرستیال یم! زه دا کولی شم:\n\n- په پښتو، انګلیسي او دري خبرې وکړم\n- په هر ډول ټکنالوژۍ کې مرسته وکړم: پروګرامینګ (HTML، CSS، JavaScript، Python، C++، Java)، موبایل اپ، AI، ډیټابیس، شبکې، سایبر امنیت، هارډویر او کلاوډ\n- د ویبسایټ یا اپ جوړول تشریح کړم\n- انګلیسي وښیم\n- وخت او نېټه ووایم، او ټوکې وکړم 😊";
   }
 
-  // --- Fallback ---
+  // --- Fallback (honest, never mentions a key) ---
   return english
-    ? "Sorry, I could not answer that well in offline mode. Please ask it in another way — for example about any kind of technology: programming, mobile apps, AI, databases, networking, or DevConnect. 😊" + OFFLINE_NOTE_EN
-    : "بښنه غواړم، دا مې په آف‌لاین حالت کې سم ونه شو کړای... بیا یې په بل ډول ووایه.\n\nکه غواړې، د هر ډول ټکنالوژۍ — پروګرامینګ، موبایل اپ، AI، ډیټابیس، شبکې — یا DevConnect په اړه پوښتنه وکړه. 😊" + OFFLINE_NOTE_PS;
+    ? "I couldn't find that on the web — try asking it differently. I can help with programming, websites, English, and other technology questions."
+    : "ما دا په انټرنیټ کې ونه موندل — هڅه وکړه چې په بل ډول یې وپوښتې. زه په پروګرامینګ، ویبسایټ، انګلیسي او نورو ټکنالوژۍ پوښتنو کې مرسته کولی شم.";
 }

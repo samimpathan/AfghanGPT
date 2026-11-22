@@ -44,7 +44,11 @@ export type Settings = {
 
 export const DEFAULT_SETTINGS: Settings = {
   lang: "ps",
-  theme: "dark",
+  /* Default theme is LIGHT (2026-11-22): first load must match the
+     reference photos (light-grey voice screen, white composer).
+     Users with a stored theme keep their stored choice — only the
+     default changes. Providers.tsx already defaults to "light". */
+  theme: "light",
   model: "auto",
   personality: "general",
   systemInstructions: "",

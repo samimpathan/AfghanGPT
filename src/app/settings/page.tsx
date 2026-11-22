@@ -8,21 +8,7 @@ import { useUi } from "@/components/Providers";
 import { t, LANGS, type Lang } from "@/lib/i18n";
 import { supabase } from "@/lib/supabaseClient";
 import { store, type Settings } from "@/lib/store";
-import { providerInfos, type ProviderId } from "@/lib/providers";
 import UserAvatar from "@/components/UserAvatar";
-
-/** Optional provider keys (Settings → Providers). Each key is the
- * user's own and stays in this browser only — never sent to our
- * server except inside the provider's own API request. */
-const PROVIDER_FIELDS = [
-  { id: "openai" as const, label: "OpenAI", field: "openaiKey" as const, placeholder: "sk-…" },
-  { id: "anthropic" as const, label: "Anthropic Claude", field: "anthropicKey" as const, placeholder: "sk-ant-…" },
-  { id: "deepseek" as const, label: "DeepSeek", field: "deepseekKey" as const, placeholder: "sk-…" },
-  { id: "grok" as const, label: "Grok (xAI)", field: "grokKey" as const, placeholder: "xai-…" },
-  { id: "qwen" as const, label: "Qwen (Alibaba)", field: "qwenKey" as const, placeholder: "sk-…" },
-  { id: "openrouter" as const, label: "OpenRouter", field: "openRouterKey" as const, placeholder: "sk-or-…" },
-  { id: "huggingface" as const, label: "Hugging Face", field: "hfKey" as const, placeholder: "hf_…" },
-];
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -64,8 +50,6 @@ export default function SettingsPage() {
   const [email, setEmail] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [settings, setSettings] = useState<Settings | null>(null);
-  const [serverGemini, setServerGemini] = useState(false);
-  const [testResults, setTestResults] = useState<Record<string, "ok" | "fail" | "testing">>({});
   const photoInputRef = useRef<HTMLInputElement | null>(null);
 
   /** Profile photo: downscale client-side to 256px (JPEG 0.8) and save
@@ -103,10 +87,6 @@ export default function SettingsPage() {
     } catch {
       // ignore
     }
-    fetch("/api/status")
-      .then((r) => r.json() as Promise<{ geminiConfigured?: boolean }>)
-      .then((j) => setServerGemini(!!j.geminiConfigured))
-      .catch(() => setServerGemini(false));
   }, []);
 
   const updateSettings = (patch: Partial<Settings>) => {
@@ -116,24 +96,6 @@ export default function SettingsPage() {
       setSettings(next);
     } catch {
       // ignore
-    }
-  };
-
-  /** Health test: a tiny real call to the provider ("Say OK").
-   * The key travels in the POST body, never in a URL. */
-  const testProvider = async (id: ProviderId, key: string) => {
-    if (!key.trim()) return;
-    setTestResults((prev) => ({ ...prev, [id]: "testing" }));
-    try {
-      const res = await fetch("/api/providers", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: id, key, test: true }),
-      });
-      const j = (await res.json()) as { ok?: boolean };
-      setTestResults((prev) => ({ ...prev, [id]: j.ok ? "ok" : "fail" }));
-    } catch {
-      setTestResults((prev) => ({ ...prev, [id]: "fail" }));
     }
   };
 
@@ -273,76 +235,12 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between gap-4 text-sm">
             <span className="font-bold">{t(lang, "modelInfo")}</span>
             <span className="max-w-[60%] rounded-full bg-black/5 px-3 py-1 text-end text-xs dark:bg-white/10">
-              gemini-3-flash-preview (free tier) + offline brain
+              {t(lang, "freeModelNote")}
             </span>
           </div>
 
           {settings && (
             <>
-              <div className="border-t border-[var(--card-border)] pt-4">
-                <div className="flex items-center justify-between gap-4 text-sm">
-                  <span className="font-bold">{t(lang, "provider")}</span>
-                  <select
-                    value={settings.provider}
-                    onChange={(e) => updateSettings({ provider: e.target.value as ProviderId })}
-                    className="max-w-[65%] rounded-full border border-[var(--card-border)] bg-transparent px-3 py-1.5 text-sm outline-none"
-                  >
-                    {providerInfos({
-                      geminiConfigured: serverGemini,
-                      openaiKey: !!settings.openaiKey.trim(),
-                      anthropicKey: !!settings.anthropicKey.trim(),
-                      deepseekKey: !!settings.deepseekKey.trim(),
-                      grokKey: !!settings.grokKey.trim(),
-                      qwenKey: !!settings.qwenKey.trim(),
-                      openRouterKey: !!settings.openRouterKey.trim(),
-                      huggingFaceKey: !!settings.hfKey.trim(),
-                    }).map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name}
-                        {p.status === "ready" ? "" : ` — ${t(lang, "providerNeedsKey")}`}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">
-                  Gemini: {serverGemini ? t(lang, "configured") : t(lang, "notConfigured")} (server key).
-                  {` ${t(lang, "providersNote")}`}
-                </p>
-                <div className="mt-3 flex flex-col gap-3">
-                  {PROVIDER_FIELDS.map((f) => (
-                    <div key={f.id} className="flex flex-col gap-1.5">
-                      <label className="text-xs font-bold text-[var(--muted)]">
-                        {f.label} — {t(lang, "providerNeedsKey")}
-                      </label>
-                      <div className="flex gap-2">
-                        <input
-                          type="password"
-                          value={settings[f.field]}
-                          onChange={(e) => updateSettings({ [f.field]: e.target.value } as Partial<Settings>)}
-                          placeholder={f.placeholder}
-                          autoComplete="off"
-                          className="min-w-0 flex-1 rounded-xl border border-[var(--card-border)] bg-transparent px-3 py-2 text-sm outline-none focus:border-[var(--brand2)]"
-                        />
-                        <button
-                          type="button"
-                          disabled={!settings[f.field].trim() || testResults[f.id] === "testing"}
-                          onClick={() => void testProvider(f.id, settings[f.field])}
-                          className="shrink-0 rounded-xl bg-[var(--brand2)] px-3 py-2 text-sm font-bold text-white disabled:opacity-50"
-                        >
-                          {testResults[f.id] === "testing"
-                            ? t(lang, "loading")
-                            : testResults[f.id] === "ok"
-                              ? t(lang, "providerTestOk")
-                              : testResults[f.id] === "fail"
-                                ? t(lang, "providerTestFail")
-                                : t(lang, "providerTest")}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
               <div className="flex flex-col gap-3 border-t border-[var(--card-border)] pt-4 text-sm">
                 <label className="flex items-center justify-between gap-4">
                   <span className="font-bold">{t(lang, "memoryEnabled")}</span>

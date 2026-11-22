@@ -65,9 +65,9 @@ Write a real, complete Word document from the user's text. Use clear headings an
 
 function imageErrorMessage(code: string, status: number): string {
   if (code === "no-key" || status === 503)
-    return "Image generation needs a Gemini key on the server — none is set yet.";
+    return "Image generation is not available right now.";
   if (code === "model-unavailable" || status === 502)
-    return "The image model is unavailable for this key right now.";
+    return "The image model is unavailable right now.";
   if (code === "rate-limited" || status === 429)
     return "Too many image requests — please wait a minute and try again.";
   if (code === "refused") return "That prompt was refused — adult content is not allowed.";
@@ -274,7 +274,7 @@ export default function WorkflowsPage() {
           let msg = e instanceof Error ? e.message : "Step failed.";
           if (/Unexpected token|is not valid JSON/i.test(msg)) {
             msg =
-              "The AI is offline or busy right now (no Gemini key on the server, or the model failed) — this step could not produce its result.";
+              "The AI is offline or busy right now — this step could not produce its result.";
           }
           store.log("studio/workflows", `${step.label}: ${msg}`);
           results.push({ stepId: step.id, label: step.label, kind: step.kind, output: "", status: "error", error: msg });

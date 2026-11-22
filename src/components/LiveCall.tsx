@@ -73,11 +73,14 @@ export default function LiveCall({
   lang,
   onClose,
   onNote,
+  onOpenMenu,
 }: {
   lang: Lang;
   /** Called on End call, with the call transcript to keep in the chat. */
   onClose: (transcript: TranscriptLine[]) => void;
   onNote?: (text: string) => void;
+  /** ChatGPT voice screen: the hamburger opens the chat drawer. */
+  onOpenMenu?: () => void;
 }) {
   const [phase, setPhase] = useState<Phase>("connecting");
   const [errorNote, setErrorNote] = useState<string | null>(null);
@@ -90,6 +93,8 @@ export default function LiveCall({
   const [fallbackBusy, setFallbackBusy] = useState(false);
   /** Gemini live bottom sheet (Screen share / Photos / Files). */
   const [sheetOpen, setSheetOpen] = useState(false);
+  /** The live transcript under the orb can be hidden (sliders button). */
+  const [showTranscript, setShowTranscript] = useState(true);
   const liveFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -145,6 +150,13 @@ export default function LiveCall({
     stopAllTracks();
     onClose(transcriptRef.current);
   }, [onClose, stopAllTracks]);
+
+  /** Voice-screen hamburger (photo 4): end the call and open the
+   * chat drawer, like the reference app. */
+  const openMenu = useCallback(() => {
+    endCall();
+    onOpenMenu?.();
+  }, [endCall, onOpenMenu]);
 
   // Keep the transcript visible; End call is the only way out.
   useEffect(() => () => stopAllTracks(), [stopAllTracks]);
@@ -558,49 +570,48 @@ export default function LiveCall({
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#EDEDED] text-slate-900 dark:bg-[#080D1B] dark:text-white">
-      {/* Header — title + live / screen-sharing status pills */}
+      {/* Header (photo 4 — ChatGPT voice screen): two white circles,
+          hamburger left, sliders right. No title/pills here — the
+          status lives under the orb. */}
       <div className="flex items-center justify-between gap-3 px-4 pt-4">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <p className="text-sm font-bold">
-            {phase === "live" ? t(lang, "liveCall") : t(lang, "voiceMode")}
-          </p>
-          {phase === "live" && (
-            <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-red-500/25 px-2.5 py-1 text-[11px] font-bold text-red-600 dark:text-red-300">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-red-500 dark:bg-red-400" />
-              {t(lang, "liveNow")}
-            </span>
-          )}
-          {screenOn && (
-            <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-[#2457FF]/20 px-2.5 py-1 text-[11px] font-bold text-sky-700 dark:bg-[#2457FF]/30 dark:text-sky-300">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-[#00D4FF]" />
-              {t(lang, "liveScreenSharing")}
-            </span>
-          )}
-        </div>
         <button
           type="button"
-          onClick={endCall}
-          className="shrink-0 rounded-full bg-black/5 px-3 py-1.5 text-sm hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/20"
-          aria-label={t(lang, "close")}
+          onClick={openMenu}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-2xl leading-none text-slate-900 shadow-md transition active:scale-95 dark:bg-[#111B30] dark:text-white dark:ring-1 dark:ring-[#263550]"
+          aria-label="Menu"
         >
-          ✕
+          ≡
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowTranscript((v) => !v)}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-slate-900 shadow-md transition active:scale-95 dark:bg-[#111B30] dark:text-white dark:ring-1 dark:ring-[#263550]"
+          aria-label={t(lang, "liveTranscript")}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
+            <line x1="4" y1="7" x2="20" y2="7" />
+            <circle cx="9" cy="7" r="2.4" fill="currentColor" stroke="none" />
+            <line x1="4" y1="17" x2="20" y2="17" />
+            <circle cx="15" cy="17" r="2.4" fill="currentColor" stroke="none" />
+          </svg>
         </button>
       </div>
 
       {/* BIG glowing gold orb (ChatGPT-style voice screen) with the
           AI photo inside it — it breathes while listening and pulses
-          harder while the AI speaks. */}
+          harder while the AI speaks. The orb is large on a phone
+          (photo 4: about half the screen width). */}
       <div className="flex flex-1 flex-col items-center justify-center px-6">
         <div
-          className={`voice-orb flex h-56 w-56 items-center justify-center rounded-full sm:h-64 sm:w-64 ${
+          className={`voice-orb flex h-72 w-72 items-center justify-center rounded-full sm:h-80 sm:w-80 ${
             speaking ? "voice-orb-speaking" : ""
           }`}
         >
           <Image
             src="/avatar.jpg"
             alt="Samim AI"
-            width={112}
-            height={112}
+            width={128}
+            height={128}
             className="rounded-full object-cover ring-4 ring-white/60"
             priority
           />
@@ -619,6 +630,20 @@ export default function LiveCall({
                   ? t(lang, "voiceTranscribing")
                   : t(lang, "liveTapToTalk")}
         </p>
+        <p className="mt-2 flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+          {phase === "live" && (
+            <span className="flex items-center gap-1.5 rounded-full bg-red-500/25 px-2.5 py-1 text-[11px] font-bold text-red-600 dark:text-red-300">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-red-500 dark:bg-red-400" />
+              {t(lang, "liveNow")}
+            </span>
+          )}
+          {screenOn && (
+            <span className="flex items-center gap-1.5 rounded-full bg-[#2457FF]/20 px-2.5 py-1 text-[11px] font-bold text-sky-700 dark:bg-[#2457FF]/30 dark:text-sky-300">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-[#00D4FF]" />
+              {t(lang, "liveScreenSharing")}
+            </span>
+          )}
+        </p>
         {errorNote && (
           <p className="mt-4 max-w-md rounded-2xl bg-black/5 px-4 py-2.5 text-center text-xs leading-relaxed text-amber-800 dark:bg-white/10 dark:text-amber-200">
             {errorNote}
@@ -628,8 +653,8 @@ export default function LiveCall({
           📶 {t(lang, "liveNeedsWifi")}
         </p>
 
-        {/* Live transcript */}
-        {transcript.length > 0 && (
+        {/* Live transcript (hidden with the sliders button). */}
+        {transcript.length > 0 && showTranscript && (
           <div className="chat-scroll mt-4 max-h-44 w-full max-w-md overflow-y-auto rounded-2xl bg-black/[0.04] p-3 text-start text-sm leading-relaxed dark:bg-white/5">
             <p className="mb-1 text-xs font-bold text-slate-400">{t(lang, "liveTranscript")}</p>
             {transcript.slice(-6).map((l, i) => (
@@ -682,46 +707,50 @@ export default function LiveCall({
         }}
       />
       {sheetOpen && (
-        <div className="mx-auto mb-3 w-full max-w-md px-4">
-          <div className="grid grid-cols-3 gap-2 rounded-[28px] bg-white p-3 shadow-lg dark:bg-[#111B30] dark:ring-1 dark:ring-[#263550]">
+        <div className="mx-auto w-full max-w-md px-4 pb-2">
+          <div className="rounded-[28px] bg-white p-3 pt-2 shadow-xl dark:bg-[#111B30] dark:ring-1 dark:ring-[#263550]">
+            <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-slate-300 dark:bg-slate-600" aria-hidden />
+            <div className="grid grid-cols-3 gap-2">
             <button
               type="button"
               onClick={toggleScreen}
-              className={`flex flex-col items-center justify-center gap-2 rounded-3xl px-2 py-5 text-sm font-medium transition active:scale-95 ${
+              className={`flex flex-col items-center justify-center gap-2 rounded-3xl px-2 py-6 text-sm font-medium transition active:scale-95 ${
                 screenOn
                   ? "bg-[#2457FF] text-white"
                   : "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white"
               }`}
             >
-              <span className="text-2xl leading-none">🖥</span>
+              <span className="text-3xl leading-none">🖥</span>
               {t(lang, "screenShare")}
             </button>
             <button
               type="button"
               onClick={toggleCamera}
-              className={`flex flex-col items-center justify-center gap-2 rounded-3xl px-2 py-5 text-sm font-medium transition active:scale-95 ${
+              className={`flex flex-col items-center justify-center gap-2 rounded-3xl px-2 py-6 text-sm font-medium transition active:scale-95 ${
                 cameraOn
                   ? "bg-[#2457FF] text-white"
                   : "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white"
               }`}
             >
-              <span className="text-2xl leading-none">📷</span>
+              <span className="text-3xl leading-none">📷</span>
               {t(lang, "photos")}
             </button>
             <button
               type="button"
               onClick={() => liveFileInputRef.current?.click()}
-              className="flex flex-col items-center justify-center gap-2 rounded-3xl bg-slate-100 px-2 py-5 text-sm font-medium text-slate-900 transition active:scale-95 dark:bg-slate-800 dark:text-white"
+              className="flex flex-col items-center justify-center gap-2 rounded-3xl bg-slate-100 px-2 py-6 text-sm font-medium text-slate-900 transition active:scale-95 dark:bg-slate-800 dark:text-white"
             >
-              <span className="text-2xl leading-none">📁</span>
+              <span className="text-3xl leading-none">📁</span>
               {t(lang, "files")}
             </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Bottom pill (ChatGPT-style voice screen): + opens the sheet,
-          mic toggles mute / push-to-talk, BLACK X ends the call. */}
+      {/* Bottom row (photo 4): the pill holds ONLY + and "Ask Samim";
+          the mic is its OWN white circle next to it, then the BLACK
+          X ends the call. */}
       <div className="px-4 pb-8">
         <div className="mx-auto flex max-w-md items-center gap-2">
           <div className="flex h-14 min-w-0 flex-1 items-center gap-1 rounded-full bg-white px-2 shadow-md dark:bg-[#111B30] dark:ring-1 dark:ring-[#263550]">
@@ -736,24 +765,24 @@ export default function LiveCall({
             <span className="min-w-0 flex-1 truncate text-sm text-slate-500">
               {t(lang, "askSamim")}
             </span>
-            <button
-              type="button"
-              onClick={toggleMic}
-              disabled={fallbackBusy}
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xl transition active:scale-95 disabled:opacity-40 ${
-                phase === "fallback"
-                  ? fallbackListening
-                    ? "bg-red-500 text-white mic-listening"
-                    : "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white"
-                  : micOn
-                    ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white"
-                    : "bg-red-500 text-white"
-              }`}
-              aria-label={micOn ? t(lang, "liveMicOn") : t(lang, "liveMicOff")}
-            >
-              {phase === "fallback" ? (fallbackListening ? "■" : "🎙") : micOn ? "🎙" : "🔇"}
-            </button>
           </div>
+          <button
+            type="button"
+            onClick={toggleMic}
+            disabled={fallbackBusy}
+            className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-full text-xl shadow-md transition active:scale-95 disabled:opacity-40 ${
+              phase === "fallback"
+                ? fallbackListening
+                  ? "bg-red-500 text-white mic-listening"
+                  : "bg-white text-slate-900 dark:bg-[#111B30] dark:text-white dark:ring-1 dark:ring-[#263550]"
+                : micOn
+                  ? "bg-white text-slate-900 dark:bg-[#111B30] dark:text-white dark:ring-1 dark:ring-[#263550]"
+                  : "bg-red-500 text-white"
+            }`}
+            aria-label={micOn ? t(lang, "liveMicOn") : t(lang, "liveMicOff")}
+          >
+            {phase === "fallback" ? (fallbackListening ? "■" : "🎙") : micOn ? "🎙" : "🔇"}
+          </button>
           <button
             type="button"
             onClick={endCall}

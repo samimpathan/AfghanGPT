@@ -11,7 +11,6 @@ import { t } from "@/lib/i18n";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { isAdminEmail } from "@/lib/admin";
 import { store } from "@/lib/store";
-import { providerInfos, type ProviderId } from "@/lib/providers";
 import { downloadFileSpec } from "@/lib/client";
 import type { FileSpec } from "@/lib/filegen";
 import {
@@ -184,13 +183,11 @@ export default function HomePage() {
   const [editingTitle, setEditingTitle] = useState("");
   const [pins, setPins] = useState<string[]>([]);
   const [savedImages, setSavedImages] = useState<string[]>([]);
-  const [plusOpen, setPlusOpen] = useState(false);
+  const [attachOpen, setAttachOpen] = useState(false);
   const [thinkHarder, setThinkHarder] = useState(false);
   const [liveCallOpen, setLiveCallOpen] = useState(false);
   const [screenShareOpen, setScreenShareOpen] = useState(false);
   // Merged studios + master-prompt features (v3.3).
-  const [provider, setProvider] = useState<ProviderId>("gemini");
-  const [serverGemini, setServerGemini] = useState(true);
   const [tempMode, setTempMode] = useState(false);
   const [chatMeta, setChatMeta] = useState<Record<string, ChatMeta>>({});
   const [drawerCollapsed, setDrawerCollapsed] = useState(false);
@@ -226,7 +223,7 @@ export default function HomePage() {
       setUserMenuOpen(false);
       setModelPickerOpen(false);
       setMoreOpen(false);
-      setPlusOpen(false);
+      setAttachOpen(false);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -258,7 +255,6 @@ export default function HomePage() {
       const saved = localStorage.getItem(MODEL_KEY) as ModelMode | null;
       if (saved === "fast" || saved === "smart" || saved === "auto") setModelMode(saved);
       const settings = store.settings();
-      if (settings.provider) setProvider(settings.provider);
       setUserPhoto(settings.avatarDataUrl || null);
       if (settings.displayName) setUserName(settings.displayName);
     } catch {
@@ -266,11 +262,6 @@ export default function HomePage() {
     }
     // Pins are in-memory only — never loaded from storage.
     setChatMeta(loadChatMeta());
-    // Honest provider status: Gemini is ready only when the server says so.
-    fetch("/api/status")
-      .then((r) => r.json() as Promise<{ geminiConfigured?: boolean }>)
-      .then((j) => setServerGemini(!!j.geminiConfigured))
-      .catch(() => setServerGemini(false));
   }, []);
 
   // Persist chat folders + archive flags — LOGGED-IN ONLY.
@@ -435,41 +426,6 @@ export default function HomePage() {
     }
   };
 
-  /** Provider options for the ••• menu (statuses are honest: a
-   * provider is "ready" only when its key is actually configured). */
-  const providerOptions = (() => {
-    try {
-      const s = store.settings();
-      return providerInfos({
-        geminiConfigured: serverGemini,
-        openaiKey: !!s.openaiKey.trim(),
-        anthropicKey: !!s.anthropicKey.trim(),
-        deepseekKey: !!s.deepseekKey.trim(),
-        grokKey: !!s.grokKey.trim(),
-        qwenKey: !!s.qwenKey.trim(),
-        openRouterKey: !!s.openRouterKey.trim(),
-        huggingFaceKey: !!s.hfKey.trim(),
-      });
-    } catch {
-      return [];
-    }
-  })();
-
-  const pickProvider = (id: ProviderId) => {
-    setProvider(id);
-    setModelPickerOpen(false);
-    try {
-      const s = store.settings();
-      store.saveSettings({ ...s, provider: id });
-    } catch {
-      // ignore
-    }
-  };
-
-  /** Providers actually configured — the model picker shows ONLY
-   * these; unconfigured providers are never offered as working. */
-  const readyProviders = providerOptions.filter((p) => p.status === "ready");
-
   /** Sign out (same action as Settings → Log out). The auth listener
    * clears the session state, so the guest session starts empty. */
   const doSignOut = useCallback(async () => {
@@ -571,7 +527,6 @@ export default function HomePage() {
       const mode: ModelMode = thinkHarder ? "smart" : modelMode;
       let full = "";
       let replyMode: UiMessage["mode"] = "offline";
-      let replyProvider: string | undefined;
       // Conversation memory: the user's own facts, only when enabled
       // in Settings. Sent as a system prompt; never stored server-side.
       let memorySystem = "";
@@ -585,70 +540,10 @@ export default function HomePage() {
       } catch {
         // ignore
       }
-      // Optional provider (Settings → Providers): when the user picked
-      // a provider other than Gemini and supplied its key, try it first.
-      // On any failure we fall back to Gemini below and say so.
-      let providerDone = false;
+      // All answers go through /api/chat — one model (Samim AI Auto),
+      // free web answers when the online AI is unavailable. No user
+      // provider keys exist anymore.
       try {
-        const s = store.settings();
-        const chosen = s.provider ?? "gemini";
-        if (chosen !== "gemini") {
-          const infos = providerInfos({
-            geminiConfigured: serverGemini,
-            openaiKey: !!s.openaiKey.trim(),
-            anthropicKey: !!s.anthropicKey.trim(),
-            deepseekKey: !!s.deepseekKey.trim(),
-            grokKey: !!s.grokKey.trim(),
-            qwenKey: !!s.qwenKey.trim(),
-            openRouterKey: !!s.openRouterKey.trim(),
-            huggingFaceKey: !!s.hfKey.trim(),
-          });
-          const info = infos.find((p) => p.id === chosen);
-          const key = info?.keyField ? s[info.keyField] : "";
-          if (info && key) {
-            const pres = await fetch("/api/providers", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                provider: chosen,
-                key,
-                messages: history,
-                model: info.defaultModel,
-                system: memorySystem,
-              }),
-              signal: controller.signal,
-            });
-            if (!pres.ok) throw new Error("provider failed");
-            const pdata = (await pres.json()) as { text?: string };
-            full = pdata.text ?? "";
-            if (!full.trim()) throw new Error("provider empty");
-            replyMode = "provider";
-            replyProvider = info.name;
-            providerDone = true;
-            setChats((prev) =>
-              prev.map((c) =>
-                c.id === chatId
-                  ? {
-                      ...c,
-                      messages: c.messages.map((m) =>
-                        m.id === assistantId
-                          ? { ...m, content: full, mode: replyMode, provider: replyProvider }
-                          : m
-                      ),
-                    }
-                  : c
-              )
-            );
-          }
-        }
-      } catch (e) {
-        if (!(e instanceof Error && e.name === "AbortError")) {
-          showNotice(t(lang, "providerFallback"));
-        }
-        providerDone = false;
-      }
-      try {
-        if (!providerDone) {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -658,6 +553,7 @@ export default function HomePage() {
         const headerMode = res.headers.get("X-SamimAI-Mode");
         if (
           headerMode === "gemini" ||
+          headerMode === "web" ||
           headerMode === "offline" ||
           headerMode === "refused" ||
           headerMode === "busy" ||
@@ -730,7 +626,6 @@ export default function HomePage() {
             );
           }
         }
-        } // end if (!providerDone) — provider replies skip the Gemini fetch
       } catch (e) {
         if (e instanceof Error && e.name === "AbortError") {
           // Stopped by the user — keep the partial reply.
@@ -767,7 +662,7 @@ export default function HomePage() {
         await saveMessage(dbId, "assistant", full);
       }
     },
-    [activeId, streaming, userId, lang, pendingImage, modelMode, thinkHarder, serverGemini, tempMode]
+    [activeId, streaming, userId, lang, pendingImage, modelMode, thinkHarder, tempMode]
   );
 
   const stop = () => abortRef.current?.abort();
@@ -1137,7 +1032,7 @@ export default function HomePage() {
    * preview, and let the user send ONE still frame to the AI as a
    * photo question. No live call is pretended — there is no peer. */
   const openScreenShare = async () => {
-    setPlusOpen(false);
+    setAttachOpen(false);
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
       screenStreamRef.current = stream;
@@ -1252,9 +1147,10 @@ export default function HomePage() {
       ? t(lang, "modelAuto")
       : `${t(lang, "appShort")} ${modelMode === "fast" ? t(lang, "modelFast") : t(lang, "modelSmart")}`;
 
-  /** The real model/mode string, shown in each message's ••• menu. */
-  const currentProviderName =
-    providerOptions.find((p) => p.id === provider)?.name ?? provider;
+  /** The real model/mode string, shown in each message's ••• menu.
+   * One model only: Samim AI Auto (server Gemini). No provider
+   * list, no key is ever asked. */
+  const currentProviderName = "Google Gemini";
   const modelUsedText = `${modelLabel} • ${currentProviderName}`;
 
   const chatItem = (c: LocalChat) => (
@@ -1389,8 +1285,8 @@ export default function HomePage() {
             ) : (
               <>
             {/* Title + search icon (ChatGPT-style sidebar top). */}
-            <div className="flex items-center gap-1 px-3 pt-3">
-              <p className="min-w-0 flex-1 truncate text-xl font-bold">
+            <div className="flex items-center gap-1 px-4 pt-4">
+              <p className="min-w-0 flex-1 truncate text-2xl font-bold">
                 {t(lang, "appShort")}
                 {isAdmin && (
                   <span className="ms-1 rounded-full bg-amber-400 px-2 py-0.5 align-middle text-[11px] font-bold text-black">
@@ -1443,21 +1339,21 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => libraryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                className="flex items-center gap-3 rounded-lg px-2 py-2 text-start text-[15px] transition hover:bg-slate-100 active:scale-[0.98] dark:hover:bg-slate-800"
+                className="flex items-center gap-3.5 rounded-lg px-2 py-2.5 text-start text-base transition hover:bg-slate-100 active:scale-[0.98] dark:hover:bg-slate-800"
               >
                 <span className="text-xl leading-none">🖼</span> {t(lang, "images")}
               </button>
               <button
                 type="button"
                 onClick={() => libraryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                className="flex items-center gap-3 rounded-lg px-2 py-2 text-start text-[15px] transition hover:bg-slate-100 active:scale-[0.98] dark:hover:bg-slate-800"
+                className="flex items-center gap-3.5 rounded-lg px-2 py-2.5 text-start text-base transition hover:bg-slate-100 active:scale-[0.98] dark:hover:bg-slate-800"
               >
                 <span className="text-xl leading-none">📚</span> {t(lang, "library")}
               </button>
               <button
                 type="button"
                 onClick={() => studiosRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                className="flex items-center gap-3 rounded-lg px-2 py-2 text-start text-[15px] transition hover:bg-slate-100 active:scale-[0.98] dark:hover:bg-slate-800"
+                className="flex items-center gap-3.5 rounded-lg px-2 py-2.5 text-start text-base transition hover:bg-slate-100 active:scale-[0.98] dark:hover:bg-slate-800"
               >
                 <span className="text-xl leading-none">🧩</span> {t(lang, "explore")}
               </button>
@@ -1515,8 +1411,8 @@ export default function HomePage() {
               {/* Pinned — the heading is ALWAYS visible (ChatGPT-style);
                   an empty-state line shows when nothing is pinned. */}
               <div className="mb-1">
-                <p className="px-2 pb-1 pt-1 text-xs font-bold text-slate-500">
-                  📌 {t(lang, "pinned")}
+                <p className="px-2 pb-1.5 pt-2 text-[15px] font-bold text-slate-900 dark:text-slate-100">
+                  {t(lang, "pinned")}
                 </p>
                 {pinnedChats.length > 0 ? (
                   pinnedChats.map(chatItem)
@@ -1527,8 +1423,8 @@ export default function HomePage() {
               {/* Chats — heading ALWAYS visible; folders + unfiled
                   chats below it, or the empty state when there are none. */}
               <div className="mb-1">
-                <p className="px-2 pb-1 pt-1 text-xs font-bold text-slate-500">
-                  💬 {t(lang, "chats")}
+                <p className="px-2 pb-1.5 pt-2 text-[15px] font-bold text-slate-900 dark:text-slate-100">
+                  {t(lang, "chats")}
                 </p>
                 {filtered.length === 0 ? (
                   <p className="px-2 py-4 text-center text-sm text-slate-500">
@@ -1587,7 +1483,7 @@ export default function HomePage() {
                 <button
                   type="button"
                   onClick={newChat}
-                  className="flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-[#2457FF] px-4 text-sm font-bold text-white transition hover:bg-blue-700 active:scale-95"
+                  className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-[#2457FF] px-4 text-sm font-bold text-white transition hover:bg-blue-700 active:scale-95"
                 >
                   ✎ {t(lang, "chat")}
                 </button>
@@ -1617,7 +1513,7 @@ export default function HomePage() {
                     setSidebarOpen(false);
                     setLiveCallOpen(true);
                   }}
-                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#2457FF] text-white transition hover:bg-blue-700 active:scale-95"
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#2457FF] text-white transition hover:bg-blue-700 active:scale-95"
                   aria-label={t(lang, "liveCall")}
                 >
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
@@ -1648,12 +1544,12 @@ export default function HomePage() {
       )}
 
       {/* ===== Header: hamburger | model picker | avatar + new chat + ••• ===== */}
-      <header className="sticky top-0 z-30 min-w-0 border-b border-[var(--border-subtle)] bg-white px-3 py-2 dark:bg-[#080D1B] sm:px-5">
+      <header className="sticky top-0 z-30 min-w-0 border-b border-[var(--border-subtle)] bg-white px-3 py-2.5 dark:bg-[#080D1B] sm:px-5">
         <div dir="ltr" className="flex items-center justify-between gap-2">
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
-            className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--card-border)] bg-[var(--card)] transition duration-150 hover:bg-[var(--surface)] active:scale-95"
+            className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[var(--card-border)] bg-[var(--card)] transition duration-150 hover:bg-[var(--surface)] active:scale-95"
             aria-label="Menu"
           >
             <span className="text-2xl leading-none text-[#222222] dark:text-[#EAF2FF]">≡</span>
@@ -1696,28 +1592,9 @@ export default function HomePage() {
                       {modelMode === m ? " ✓" : ""}
                     </button>
                   ))}
-                  <div className="my-1 border-t border-[var(--border-subtle)]" />
-                  <p className="px-2 pb-1 pt-1 text-xs font-semibold text-slate-500">
-                    {t(lang, "provider")}
-                  </p>
-                  {/* ONLY providers that are actually configured are
-                      offered here — never an unconfigured one. */}
-                  {readyProviders.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => pickProvider(p.id)}
-                      className="block w-full rounded-xl px-3 py-2 text-start text-sm transition duration-150 hover:bg-[var(--surface)]"
-                    >
-                      {p.name}
-                      {provider === p.id ? " ✓" : ""}
-                    </button>
-                  ))}
-                  {readyProviders.length === 0 && (
-                    <p className="px-3 py-2 text-xs text-slate-500">
-                      {t(lang, "providerNeedsKey")}
-                    </p>
-                  )}
+                  {/* One model only: "Samim AI Auto" (Auto/Fast/Smart
+                      above are answer styles of that one model, not
+                      providers). No provider list, no key is ever asked. */}
                   <Link
                     href="/settings"
                     onClick={() => setModelPickerOpen(false)}
@@ -1737,7 +1614,7 @@ export default function HomePage() {
             <button
               type="button"
               onClick={() => setUserMenuOpen((v) => !v)}
-              className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full transition duration-150 hover:opacity-80 active:scale-90"
+              className="flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full transition duration-150 hover:opacity-80 active:scale-90"
               aria-label={userName ?? userEmail ?? t(lang, "about")}
               aria-expanded={userMenuOpen}
             >
@@ -1806,22 +1683,27 @@ export default function HomePage() {
                 </div>
               </>
             )}
-            <button
-              type="button"
-              onClick={newChat}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--card-border)] bg-[var(--card)] text-xl transition duration-150 hover:bg-[var(--surface)] active:scale-95"
-              aria-label={t(lang, "newChat")}
-            >
-              ✎
-            </button>
-            <button
-              type="button"
-              onClick={() => setMoreOpen((v) => !v)}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--card-border)] bg-[var(--card)] transition duration-150 hover:bg-[var(--surface)] active:scale-95"
-              aria-label="More options"
-            >
-              <span className="text-xl leading-none tracking-[2px] text-[#222222] dark:text-[#EAF2FF]">•••</span>
-            </button>
+            {/* Pencil + ••• in ONE rounded pill (photo 1) — the divider
+                separates the two actions inside the shared container. */}
+            <div className="flex shrink-0 items-center rounded-full border border-[var(--card-border)] bg-[var(--card)]">
+              <button
+                type="button"
+                onClick={newChat}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xl transition duration-150 hover:bg-[var(--surface)] active:scale-95"
+                aria-label={t(lang, "newChat")}
+              >
+                ✎
+              </button>
+              <span className="h-6 w-px bg-[var(--border-subtle)]" aria-hidden />
+              <button
+                type="button"
+                onClick={() => setMoreOpen((v) => !v)}
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition duration-150 hover:bg-[var(--surface)] active:scale-95"
+                aria-label="More options"
+              >
+                <span className="text-xl leading-none tracking-[2px] text-[#222222] dark:text-[#EAF2FF]">•••</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1834,14 +1716,14 @@ export default function HomePage() {
               onClick={() => setMoreOpen(false)}
               className="fixed inset-0 z-20 cursor-default"
             />
-            <div className="absolute end-4 top-full z-30 mt-1 w-60 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md">
+            <div className="absolute end-4 top-full z-30 mt-1 w-60 max-w-[90vw] rounded-3xl border border-[var(--card-border)] bg-[var(--card)] p-2.5 shadow-md">
               <button
                 type="button"
                 onClick={() => {
                   setMoreOpen(false);
                   void shareChat();
                 }}
-                className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 ↗ {t(lang, "shareChat")}
               </button>
@@ -1852,7 +1734,7 @@ export default function HomePage() {
                   if (activeId) togglePin(activeId);
                   setMoreOpen(false);
                 }}
-                className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
+                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
               >
                 📌 {isPinned ? t(lang, "unpinChat") : t(lang, "pinChat")}
               </button>
@@ -1867,21 +1749,21 @@ export default function HomePage() {
                   }
                   setMoreOpen(false);
                 }}
-                className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
+                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
               >
                 ✎ {t(lang, "rename")}
               </button>
               <Link
                 href="/about"
                 onClick={() => setMoreOpen(false)}
-                className="block rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="block rounded-xl px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 ℹ {t(lang, "help")}
               </Link>
               <a
                 href="mailto:samimpatan8@gmail.com?subject=Samim%20AI%20feedback"
                 onClick={() => setMoreOpen(false)}
-                className="block rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="block rounded-xl px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 ✉ {t(lang, "feedback")}
               </a>
@@ -1892,41 +1774,20 @@ export default function HomePage() {
                   if (activeId) void doDelete(activeId);
                   setMoreOpen(false);
                 }}
-                className="block w-full rounded-xl px-3 py-2 text-start text-sm text-red-600 hover:bg-slate-100 disabled:opacity-40 dark:text-red-400 dark:hover:bg-slate-800"
+                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm text-red-600 hover:bg-slate-100 disabled:opacity-40 dark:text-red-400 dark:hover:bg-slate-800"
               >
                 🗑 {t(lang, "delete")}
               </button>
               <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
-              <p className="px-2 pb-1 pt-1 text-xs text-slate-500">{t(lang, "provider")}</p>
-              {/* Provider buttons, NOT a <select>: a long provider line
-                  WRAPS onto two lines instead of truncating mid-word
-                  ("Google Gemini — Needs y…"). */}
-              {providerOptions.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => {
-                    pickProvider(p.id);
-                    setMoreOpen(false);
-                  }}
-                  className="block w-full rounded-xl px-3 py-2 text-start hover:bg-slate-100 dark:hover:bg-slate-800"
-                >
-                  <span className="block break-words text-sm">
-                    {p.name}
-                    {provider === p.id ? " ✓" : ""}
-                  </span>
-                  <span className="block text-xs text-slate-500">
-                    {p.status === "ready" ? t(lang, "online") : t(lang, "providerNeedsKey")}
-                  </span>
-                </button>
-              ))}
+              {/* No provider list here anymore: one model ("Samim AI
+                  Auto"), free for everyone — no key is ever asked. */}
               <button
                 type="button"
                 onClick={() => {
                   setTempMode((v) => !v);
                   setMoreOpen(false);
                 }}
-                className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 🔒 {t(lang, "tempChat")}
                 {tempMode ? " ✓" : ""}
@@ -1938,7 +1799,7 @@ export default function HomePage() {
                   void exportChatPdf();
                   setMoreOpen(false);
                 }}
-                className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
+                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
               >
                 📄 {t(lang, "exportPdf")}
               </button>
@@ -1949,7 +1810,7 @@ export default function HomePage() {
                   void exportChatDocx();
                   setMoreOpen(false);
                 }}
-                className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
+                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
               >
                 📝 {t(lang, "exportDocx")}
               </button>
@@ -1960,7 +1821,7 @@ export default function HomePage() {
                   void shareLink();
                   setMoreOpen(false);
                 }}
-                className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
+                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
               >
                 🔗 {t(lang, "shareLink")}
               </button>
@@ -1970,14 +1831,14 @@ export default function HomePage() {
                   setTheme(theme === "dark" ? "light" : "dark");
                   setMoreOpen(false);
                 }}
-                className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 {theme === "dark" ? "☀ " + t(lang, "light") : "🌙 " + t(lang, "dark")}
               </button>
               <Link
                 href="/settings"
                 onClick={() => setMoreOpen(false)}
-                className="block rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="block rounded-xl px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 ⚙ {t(lang, "settings")}
               </Link>
@@ -2004,7 +1865,7 @@ export default function HomePage() {
                   <Link
                     href="/register"
                     onClick={() => setMoreOpen(false)}
-                    className="block rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="block rounded-xl px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
                     {t(lang, "register")}
                   </Link>
@@ -2039,7 +1900,7 @@ export default function HomePage() {
       )}
 
       {/* ===== Chat area ===== */}
-      <div className="chat-scroll min-w-0 w-full flex-1 overflow-x-hidden overflow-y-auto px-[18px] py-4">
+      <div className="chat-scroll min-w-0 w-full flex-1 overflow-x-hidden overflow-y-auto px-5 py-4">
         {messages.length === 0 ? (
           <div className="mx-auto w-full min-w-0 max-w-2xl pb-6 text-center">
             {/* Empty state keeps the video identity: centred avatar + name pill.
@@ -2079,25 +1940,25 @@ export default function HomePage() {
                 DOES something real — Learn sends a starter prompt in
                 the current language, Create an image opens Image
                 Studio, Write opens Writing Studio. */}
-            <div className="mx-auto mt-8 flex w-full max-w-md flex-col gap-1 text-start">
+            <div className="mx-auto mt-10 flex w-full max-w-md flex-col gap-2 text-start">
               <button
                 type="button"
                 onClick={() => send(t(lang, "learnPrompt"))}
-                className="flex items-center gap-3 rounded-2xl px-3 py-3 text-[15px] transition hover:bg-[var(--surface)] active:scale-[0.98]"
+                className="flex items-center gap-3 rounded-2xl px-3 py-3.5 text-base transition hover:bg-[var(--surface)] active:scale-[0.98]"
               >
                 <span className="text-xl leading-none">🎓</span>
                 {t(lang, "learnSomething")}
               </button>
               <Link
                 href="/studio/image"
-                className="flex items-center gap-3 rounded-2xl px-3 py-3 text-[15px] transition hover:bg-[var(--surface)] active:scale-[0.98]"
+                className="flex items-center gap-3 rounded-2xl px-3 py-3.5 text-base transition hover:bg-[var(--surface)] active:scale-[0.98]"
               >
                 <span className="text-xl leading-none">🖼</span>
                 {t(lang, "createImage")}
               </Link>
               <Link
                 href="/studio/write"
-                className="flex items-center gap-3 rounded-2xl px-3 py-3 text-[15px] transition hover:bg-[var(--surface)] active:scale-[0.98]"
+                className="flex items-center gap-3 rounded-2xl px-3 py-3.5 text-base transition hover:bg-[var(--surface)] active:scale-[0.98]"
               >
                 <span className="text-xl leading-none">✎</span>
                 {t(lang, "writeOrEdit")}
@@ -2129,7 +1990,7 @@ export default function HomePage() {
             )}
           </div>
         ) : (
-          <div className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-5">
+          <div className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-6">
             {messages.map((m, i) => (
               <ChatMessage
                 key={m.id}
@@ -2237,10 +2098,10 @@ export default function HomePage() {
               e.target.value = "";
             }}
           />
-          <div className="composer-card relative flex min-w-0 flex-1 items-end rounded-3xl border border-[var(--border-subtle)] bg-[#F0F0F0] px-2 py-1.5 shadow-sm sm:px-3 dark:bg-[#111B30]">
+          <div className="composer-card relative flex min-w-0 flex-1 items-end rounded-full border border-[var(--border-subtle)] bg-white px-2.5 py-2 shadow-sm sm:px-3 dark:bg-[#111B30]">
             <button
               type="button"
-              onClick={() => setPlusOpen((v) => !v)}
+              onClick={() => setAttachOpen((v) => !v)}
               className="mb-1.5 shrink-0 px-1 text-2xl leading-none text-[#111111] sm:text-[26px] dark:text-[#EAF2FF]"
               aria-label="+"
             >
@@ -2275,6 +2136,21 @@ export default function HomePage() {
               placeholder={t(lang, "askSamim")}
               className="composer-textarea bidi-plaintext max-h-[120px] min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-2 text-base leading-6 text-[#111111] outline-none placeholder:text-[#9A9A9A] sm:text-[17px] dark:text-[#EAF2FF]"
             />
+            {/* Photo 1 order inside the pill: + … mic … blue wave.
+                The send button appears ONLY once there is text (or a
+                photo) to send — with an empty pill the photos show
+                just mic + wave, no send arrow. While streaming the
+                black square stops the reply. */}
+            <button
+              type="button"
+              onClick={startListening}
+              className={`mb-1.5 shrink-0 rounded-full px-1 text-xl leading-none sm:text-[22px] ${
+                listening || recording ? "mic-listening text-red-500" : ""
+              }`}
+              aria-label="Microphone"
+            >
+              🎙
+            </button>
             <button
               type="button"
               onClick={() => setLiveCallOpen(true)}
@@ -2289,16 +2165,6 @@ export default function HomePage() {
                 <rect x="19.5" y="9" width="2" height="6" rx="1" fill="currentColor" />
               </svg>
             </button>
-            <button
-              type="button"
-              onClick={startListening}
-              className={`mb-1.5 shrink-0 rounded-full px-1 text-xl leading-none sm:text-[22px] ${
-                listening || recording ? "mic-listening text-red-500" : ""
-              }`}
-              aria-label="Microphone"
-            >
-              🎙
-            </button>
             {streaming ? (
               <button
                 type="button"
@@ -2308,77 +2174,76 @@ export default function HomePage() {
               >
                 <span className="text-base leading-none">■</span>
               </button>
-            ) : (
+            ) : input.trim() || pendingImage ? (
               <button
                 type="submit"
-                disabled={!input.trim() && !pendingImage}
-                className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white transition-transform disabled:bg-[#B9B9B9] active:scale-95 dark:bg-white dark:text-black dark:disabled:bg-[#334155]"
+                className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white transition-transform active:scale-95 dark:bg-white dark:text-black"
                 aria-label={t(lang, "send")}
               >
                 <span className="text-xl leading-none">↑</span>
               </button>
-            )}
+            ) : null}
             {/* ===== + menu: floating card above the composer,
                 ChatGPT-style — each row has a circular grey icon tile. */}
-            {plusOpen && (
+            {attachOpen && (
               <>
                 <button
                   type="button"
                   aria-label="Close menu"
-                  onClick={() => setPlusOpen(false)}
+                  onClick={() => setAttachOpen(false)}
                   className="fixed inset-0 z-20 cursor-default"
                 />
-                <div className="absolute bottom-full left-2 z-30 mb-2 w-64 max-w-[86vw] rounded-3xl border border-[var(--card-border)] bg-[var(--card)] p-2 text-start shadow-lg">
+                <div className="absolute bottom-full left-2 z-30 mb-2 w-64 max-w-[86vw] rounded-3xl border border-[var(--card-border)] bg-[var(--card)] p-3 text-start shadow-lg">
                   <button
                     type="button"
                     onClick={() => {
-                      setPlusOpen(false);
+                      setAttachOpen(false);
                       cameraInputRef.current?.click();
                     }}
-                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xl dark:bg-slate-700">📷</span>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] text-xl dark:bg-slate-700">📷</span>
                     {t(lang, "camera")}
                   </button>
                   <button
                     type="button"
                     onClick={() => {
-                      setPlusOpen(false);
+                      setAttachOpen(false);
                       photoInputRef.current?.click();
                     }}
-                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xl dark:bg-slate-700">🖼</span>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] text-xl dark:bg-slate-700">🖼</span>
                     {t(lang, "photos")}
                   </button>
                   <button
                     type="button"
                     onClick={() => {
-                      setPlusOpen(false);
+                      setAttachOpen(false);
                       fileInputRef.current?.click();
                     }}
-                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xl dark:bg-slate-700">📁</span>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] text-xl dark:bg-slate-700">📁</span>
                     {t(lang, "files")}
                   </button>
                   <button
                     type="button"
                     onClick={() => {
-                      setPlusOpen(false);
+                      setAttachOpen(false);
                       void openScreenShare();
                     }}
-                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xl dark:bg-slate-700">🖥</span>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] text-xl dark:bg-slate-700">🖥</span>
                     {t(lang, "screenShare")}
                   </button>
                   <button
                     type="button"
                     onClick={() => setThinkHarder((v) => !v)}
-                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-start text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xl dark:bg-slate-700">🧠</span>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] text-xl dark:bg-slate-700">🧠</span>
                     <span>
                       {t(lang, "thinkHarder")}
                       {thinkHarder ? " ✓" : ""}
@@ -2387,21 +2252,21 @@ export default function HomePage() {
                   <button
                     type="button"
                     onClick={() => {
-                      setPlusOpen(false);
+                      setAttachOpen(false);
                       startListening();
                     }}
-                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xl dark:bg-slate-700">🎙</span>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] text-xl dark:bg-slate-700">🎙</span>
                     {t(lang, "listening")}
                   </button>
                   <button
                     type="button"
                     onClick={() => {
-                      setPlusOpen(false);
+                      setAttachOpen(false);
                       setLiveCallOpen(true);
                     }}
-                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
                     <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#2457FF] text-xl text-white">🌊</span>
                     {t(lang, "liveCall")}
@@ -2451,7 +2316,7 @@ export default function HomePage() {
 
       {/* ===== Full-screen live call ===== */}
       {liveCallOpen && (
-        <LiveCall lang={lang} onClose={onLiveCallClose} onNote={showNotice} />
+        <LiveCall lang={lang} onClose={onLiveCallClose} onNote={showNotice} onOpenMenu={() => setSidebarOpen(true)} />
       )}
     </div>
   );
