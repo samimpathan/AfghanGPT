@@ -6,9 +6,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useLang } from "@/lib/i18n";
 import { store, uid, type StudioImage } from "@/lib/store";
 import { Btn, Card, Field, Select, Spinner, Textarea } from "@/components/ui";
+
+/** Solid brand button — the shared Btn primary is a gradient; studios use a flat brand colour. */
+const SOLID = "!bg-none !bg-[var(--brand2)]";
 
 const RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4"] as const;
 
@@ -148,10 +152,14 @@ export default function ImageStudioPage() {
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 px-3 py-4 sm:px-4">
-      <div>
+      <header className="space-y-1">
+        <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
+          <span aria-hidden className="inline-block rtl:rotate-180">←</span>
+          {t("backToChat")}
+        </Link>
         <h1 className="text-xl font-bold sm:text-2xl">{t("image")}</h1>
-        <p className="text-sm text-[var(--muted)]">Describe an image and the AI will generate it. Images are saved on this device only.</p>
-      </div>
+        <p className="text-sm text-[var(--muted)]">{t("imageSubtitle")}</p>
+      </header>
 
       <Card>
         <div className="space-y-3">
@@ -180,7 +188,7 @@ export default function ImageStudioPage() {
               </Select>
             </Field>
           </div>
-          <Btn onClick={handleGenerate} disabled={generating || !prompt.trim()} className="w-full">
+          <Btn onClick={handleGenerate} disabled={generating || !prompt.trim()} className={`w-full ${SOLID}`}>
             {generating ? "Generating…" : t("generate")}
           </Btn>
           {generating && <Spinner label="Generating your image…" />}
@@ -194,12 +202,12 @@ export default function ImageStudioPage() {
 
       {current && (
         <Card>
-          <p className="mb-2 text-sm font-semibold">Generated image</p>
+          <p className="mb-2 text-sm font-semibold">{t("imageGenerated")}</p>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={current.dataUrl} alt={current.prompt} className="w-full rounded-xl border border-[var(--card-border)]" />
           <p className="mt-2 break-words text-xs text-[var(--muted)]" dir="auto">{current.prompt} · {current.ratio}</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <a href={current.dataUrl} download={downloadName(current)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-white transition active:scale-95">
+            <a href={current.dataUrl} download={downloadName(current)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--brand2)] px-4 py-2.5 text-sm font-semibold text-white transition active:scale-95">
               {t("download")}
             </a>
             <Btn variant="outline" onClick={handleSaveCurrent} disabled={savedCurrent}>
@@ -211,7 +219,7 @@ export default function ImageStudioPage() {
       )}
 
       <Card>
-        <h2 className="mb-1 text-base font-semibold">Image tools</h2>
+        <h2 className="mb-1 text-base font-semibold">{t("imageTools")}</h2>
         <p className="mb-3 text-xs text-[var(--muted)]">Only Variations actually processes an image. The other two are honest placeholders until a service is connected.</p>
         <div className="space-y-3">
           <div className="rounded-xl border border-[var(--card-border)] p-3">
@@ -241,7 +249,7 @@ export default function ImageStudioPage() {
       </Card>
 
       <Card>
-        <h2 className="mb-3 text-base font-semibold">History ({history.length})</h2>
+        <h2 className="mb-3 text-base font-semibold">{t("imageHistory")} ({history.length})</h2>
         {history.length === 0 ? (
           <p className="text-sm text-[var(--muted)]">No images yet. Generate one above and save it to see it here.</p>
         ) : (

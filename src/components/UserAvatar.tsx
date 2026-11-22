@@ -2,14 +2,20 @@
  * UserAvatar — the user's own avatar, like Muse shows it.
  * If the user set a profile photo (Settings → Profile photo, stored
  * as a downscaled data URL in settings.avatarDataUrl), show that
- * photo as a circle. Otherwise generate an avatar from their name:
- * initials (first letters of the first two words, or the first two
- * letters) in white/dark text on a deterministic colour picked from
- * the name. Guests (no name, no email) get a neutral grey "?" —
- * never a fake photo, never another person's photo.
+ * photo as a circle. Otherwise, for a LOGGED-IN user, `fallbackPhoto`
+ * (the developer photo "/avatar.jpg", passed by the caller) is used
+ * as the default avatar — never for guests, who keep the neutral
+ * grey "?". If no photo at all, generate initials (first letters of
+ * the first two words, or the first two letters) in white/dark text
+ * on a deterministic colour picked from the name. If a photo fails
+ * to load, fall back to initials — an uploaded photo is never
+ * replaced by the fallback photo.
  * The AI's avatar (Samim's real photo, /avatar.jpg) is separate and
  * is NOT touched by this component.
  */
+"use client";
+
+import { useEffect, useState } from "react";
 
 const PALETTE: { bg: string; fg: string }[] = [
   { bg: "#2457FF", fg: "#FFFFFF" },
@@ -46,25 +52,38 @@ export default function UserAvatar({
   name,
   email,
   photoUrl,
+  fallbackPhoto,
   size = 32,
   className = "",
 }: {
   name?: string | null;
   email?: string | null;
   photoUrl?: string | null;
+  /** Default photo for a LOGGED-IN user with no uploaded photo
+   * (pass "/avatar.jpg"). Callers must NOT pass this for guests. */
+  fallbackPhoto?: string | null;
   size?: number;
   className?: string;
 }) {
+  const [imgFailed, setImgFailed] = useState(false);
+  // A newly chosen photo retries loading (e.g. changed in Settings).
+  useEffect(() => {
+    setImgFailed(false);
+  }, [photoUrl, fallbackPhoto]);
   const style = { width: size, height: size, fontSize: Math.max(10, Math.round(size * 0.38)) };
-  if (photoUrl) {
+  // An uploaded photo always wins; the fallback only applies when
+  // there is no uploaded photo at all.
+  const src = !imgFailed ? (photoUrl ?? fallbackPhoto ?? null) : null;
+  if (src) {
     return (
       <img
-        src={photoUrl}
+        src={src}
         alt={name ?? email ?? "User"}
         width={size}
         height={size}
         style={style}
-        className={`shrink-0 rounded-full object-cover ${className}`}
+        onError={() => setImgFailed(true)}
+        className={`shrink-0 rounded-full object-cover ring-1 ring-black/5 dark:ring-white/10 ${className}`}
       />
     );
   }

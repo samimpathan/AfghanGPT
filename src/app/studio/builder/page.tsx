@@ -10,10 +10,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useLang } from "@/lib/i18n";
 import { store, uid, type ProjectFile, type StudioProject } from "@/lib/store";
 import { chatJson, downloadFileSpec } from "@/lib/client";
 import { Btn, Card, Field, Input, Select, Spinner, Textarea, Badge } from "@/components/ui";
+
+/** Solid brand button — the shared Btn primary is a gradient; studios use a flat brand colour. */
+const SOLID = "!bg-none !bg-[var(--brand2)]";
 
 type GenSpec = {
   name?: string;
@@ -275,21 +279,28 @@ export default function BuilderPage() {
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-xl font-bold">{t("builder")}</h1>
-        <span className="ms-auto" />
-        {project && (
-          <>
-            <Btn size="sm" variant="outline" onClick={exportZip} disabled={exporting}>
-              {exporting ? "Exporting…" : "Download ZIP"}
-            </Btn>
-            <Btn size="sm" onClick={saveProject}>
-              {t("save")}
-            </Btn>
-          </>
-        )}
-      </div>
+    <div className="mx-auto w-full max-w-5xl space-y-4 px-3 py-4 sm:px-4">
+      <header className="space-y-1">
+        <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
+          <span aria-hidden className="inline-block rtl:rotate-180">←</span>
+          {t("backToChat")}
+        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-xl font-bold sm:text-2xl">{t("builder")}</h1>
+          <span className="ms-auto" />
+          {project && (
+            <>
+              <Btn size="sm" variant="outline" onClick={exportZip} disabled={exporting}>
+                {exporting ? "Exporting…" : "Download ZIP"}
+              </Btn>
+              <Btn size="sm" onClick={saveProject} className={SOLID}>
+                {t("save")}
+              </Btn>
+            </>
+          )}
+        </div>
+        <p className="text-sm text-[var(--muted)]">{t("builderSubtitle")}</p>
+      </header>
 
       {notice && (
         <button
@@ -303,7 +314,7 @@ export default function BuilderPage() {
 
       {/* Step 1 — describe */}
       <Card className="space-y-3">
-        <h2 className="text-sm font-bold">Step 1 — Describe your app</h2>
+        <h2 className="text-sm font-bold">{t("builderStep1")}</h2>
         <Textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
@@ -323,7 +334,7 @@ export default function BuilderPage() {
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Btn onClick={generate} disabled={generating}>
+          <Btn onClick={generate} disabled={generating} className={SOLID}>
             {generating ? "Generating…" : "Generate app"}
           </Btn>
           {generating && <Spinner label="The AI is building your files…" />}
@@ -346,7 +357,7 @@ export default function BuilderPage() {
           {/* Step 2 — edit + preview */}
           <Card className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-sm font-bold">Step 2 — Edit &amp; preview</h2>
+              <h2 className="text-sm font-bold">{t("builderStep2")}</h2>
               <span className="text-sm text-[var(--muted)]">{project.name}</span>
               {project.description && <Badge tone="cyan">{project.description.slice(0, 60)}</Badge>}
             </div>
@@ -417,14 +428,15 @@ export default function BuilderPage() {
 
           {/* Step 3 — modify with words */}
           <Card className="space-y-3">
-            <h2 className="text-sm font-bold">Step 3 — Modify with words</h2>
+            <h2 className="text-sm font-bold">{t("builderStep3")}</h2>
             <div className="flex gap-2">
               <Input
                 value={modifyInput}
                 onChange={(e) => setModifyInput(e.target.value)}
                 placeholder="e.g. Add a dark-mode toggle and a search box"
+                className="min-w-0 flex-1"
               />
-              <Btn onClick={modify} disabled={modifying}>
+              <Btn onClick={modify} disabled={modifying} className={`shrink-0 ${SOLID}`}>
                 {modifying ? "Applying…" : "Apply change"}
               </Btn>
             </div>
@@ -475,7 +487,7 @@ export default function BuilderPage() {
             href="https://vercel.com/new"
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-500 px-4 py-2.5 text-sm font-semibold text-white active:scale-95"
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--brand2)] px-4 py-2.5 text-sm font-semibold text-white transition active:scale-95"
           >
             Open Vercel ↗
           </a>

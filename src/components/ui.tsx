@@ -16,10 +16,11 @@ type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 
 export function Btn({ variant = "primary", size = "md", className = "", ...rest }: BtnProps) {
   const base =
-    "inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition active:scale-95 disabled:opacity-50 disabled:pointer-events-none";
+    "inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2457FF] active:scale-95 disabled:opacity-50 disabled:pointer-events-none";
   const sizes = size === "sm" ? "px-3 py-1.5 text-sm" : "px-4 py-2.5 text-sm";
   const variants: Record<string, string> = {
-    primary: "text-white bg-gradient-to-r from-violet-600 via-blue-600 to-cyan-500 hover:opacity-90",
+    // Solid brand colour — no gradients in the core design system.
+    primary: "text-white bg-[#2457FF] hover:bg-[#1a46d6] dark:bg-[#3b82f6] dark:hover:bg-[#2563eb]",
     ghost: "bg-transparent hover:bg-black/5 dark:hover:bg-white/10",
     danger: "bg-red-600 text-white hover:bg-red-700",
     outline: "border border-[var(--card-border)] hover:bg-black/5 dark:hover:bg-white/5",
@@ -31,7 +32,7 @@ export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
   return (
     <input
       {...props}
-      className={`w-full rounded-xl border border-[var(--card-border)] bg-transparent px-3 py-2.5 text-sm outline-none focus:border-violet-500 ${props.className ?? ""}`}
+      className={`w-full rounded-xl border border-[var(--card-border)] bg-transparent px-3 py-2.5 text-sm outline-none transition duration-150 focus:border-[#2457FF] focus:ring-2 focus:ring-[#2457FF]/25 ${props.className ?? ""}`}
     />
   );
 }
@@ -40,7 +41,7 @@ export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return (
     <textarea
       {...props}
-      className={`w-full rounded-xl border border-[var(--card-border)] bg-transparent px-3 py-2.5 text-sm outline-none focus:border-violet-500 ${props.className ?? ""}`}
+      className={`w-full rounded-xl border border-[var(--card-border)] bg-transparent px-3 py-2.5 text-sm outline-none transition duration-150 focus:border-[#2457FF] focus:ring-2 focus:ring-[#2457FF]/25 ${props.className ?? ""}`}
     />
   );
 }
@@ -49,7 +50,7 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
   return (
     <select
       {...props}
-      className={`w-full rounded-xl border border-[var(--card-border)] bg-[var(--card)] px-3 py-2.5 text-sm outline-none focus:border-violet-500 ${props.className ?? ""}`}
+      className={`w-full rounded-xl border border-[var(--card-border)] bg-[var(--card)] px-3 py-2.5 text-sm outline-none transition duration-150 focus:border-[#2457FF] focus:ring-2 focus:ring-[#2457FF]/25 ${props.className ?? ""}`}
     />
   );
 }

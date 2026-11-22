@@ -12,6 +12,13 @@
   --brand: #7c3aed;
   --brand2: #2457ff;
   --accent: #00d4ff;
+  /* Core-chat surfaces — minimal, flat, no gradients. */
+  --surface: #f7f7f8;
+  --surface-hover: #ececec;
+  --border-subtle: #e5e5e5;
+  --bubble-user: #ececec;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.08);
 }
 
 .dark {
@@ -23,12 +30,45 @@
   --brand: #8b5cf6;
   --brand2: #3b82f6;
   --accent: #00d4ff;
+  /* Dark chat surfaces stay in the Samim #111B30 family; the user
+     bubble uses the ChatGPT-style #2F2F2F, the column #212121. */
+  --surface: #212121;
+  --surface-hover: #2f2f2f;
+  --border-subtle: #2f2f2f;
+  --bubble-user: #2f2f2f;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 16px rgba(0, 0, 0, 0.45);
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
   color: var(--foreground);
   background: var(--background);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Subtle, consistent transitions (150–200ms) for interactive elements. */
+a,
+button,
+input,
+select,
+textarea {
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease,
+    transform 150ms ease,
+    box-shadow 150ms ease;
+}
+
+/* Visible keyboard focus everywhere — never remove the ring. */
+:focus-visible {
+  outline: 2px solid var(--brand2);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
 }
 
 /* Safety net: the page must never scroll sideways on a phone. */
@@ -129,7 +169,49 @@ body {
   animation: live-orb 0.9s infinite ease-in-out;
 }
 
+/* Messages fade + slide in gently as they arrive / stream. */
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.msg-in {
+  animation: msg-in 180ms ease-out;
+}
+
+/* Skeleton shimmer for loading placeholders. */
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+.skeleton-shimmer {
+  background: linear-gradient(
+    90deg,
+    rgba(128, 128, 128, 0.12) 25%,
+    rgba(128, 128, 128, 0.22) 50%,
+    rgba(128, 128, 128, 0.12) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite linear;
+}
+
 /* Chat scrollbars */
+.chat-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+.dark .chat-scroll {
+  scrollbar-color: #334155 transparent;
+}
 .chat-scroll::-webkit-scrollbar {
   width: 6px;
 }
@@ -141,10 +223,46 @@ body {
   background: #334155;
 }
 
+/* Composer + drawer scrollbars: thin, subtle, same treatment. */
+.composer-scroll,
+.drawer-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+.dark .composer-scroll,
+.dark .drawer-scroll {
+  scrollbar-color: #334155 transparent;
+}
+.composer-scroll::-webkit-scrollbar,
+.drawer-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+.composer-scroll::-webkit-scrollbar-thumb,
+.drawer-scroll::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+.dark .composer-scroll::-webkit-scrollbar-thumb,
+.dark .drawer-scroll::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+
+/* Composer card: soft focus ring when the textarea is focused. */
+.composer-card:focus-within {
+  border-color: var(--brand2);
+  box-shadow: 0 0 0 1px var(--brand2);
+}
+
+/* Smooth composer grow/shrink (height is set inline by JS). */
+.composer-textarea {
+  transition: height 150ms ease;
+}
+
 /* Markdown inside assistant messages */
 .md-body {
   line-height: 1.7;
   overflow-wrap: anywhere;
+  font-size: 15px;
 }
 .md-body p,
 .md-body li {
@@ -154,11 +272,17 @@ body {
   unicode-bidi: isolate;
 }
 .md-body p {
-  margin: 0.5rem 0;
+  margin: 0.6rem 0;
+}
+.md-body p:first-child {
+  margin-top: 0;
+}
+.md-body p:last-child {
+  margin-bottom: 0;
 }
 .md-body ul,
 .md-body ol {
-  margin: 0.5rem 0;
+  margin: 0.6rem 0;
   padding-inline-start: 1.4rem;
 }
 .md-body ul {
@@ -167,11 +291,18 @@ body {
 .md-body ol {
   list-style: decimal;
 }
+.md-body li {
+  margin: 0.25rem 0;
+}
+.md-body li::marker {
+  color: var(--muted);
+}
 .md-body h1,
 .md-body h2,
 .md-body h3 {
   font-weight: 700;
-  margin: 0.8rem 0 0.4rem;
+  line-height: 1.35;
+  margin: 1rem 0 0.5rem;
 }
 .md-body h1 {
   font-size: 1.25rem;
@@ -185,31 +316,52 @@ body {
 .md-body a {
   color: #2457ff;
   text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.dark .md-body a {
+  color: #7aa5ff;
 }
 .md-body table {
   border-collapse: collapse;
-  margin: 0.5rem 0;
+  margin: 0.75rem 0;
   width: 100%;
+  font-size: 14px;
+  display: block;
+  overflow-x: auto;
 }
 .md-body th,
 .md-body td {
-  border: 1px solid #cbd5e1;
-  padding: 0.35rem 0.6rem;
+  border: 1px solid var(--card-border);
+  padding: 0.45rem 0.7rem;
   text-align: start;
+}
+.md-body th {
+  background: var(--surface);
+  font-weight: 700;
 }
 .md-body blockquote {
   border-inline-start: 3px solid #2457ff;
   padding-inline-start: 0.8rem;
-  margin: 0.5rem 0;
+  margin: 0.6rem 0;
   color: #64748b;
 }
-
-/* Studio gradient text + card glow (merged studio pages). */
-.studio-gradient {
-  background: linear-gradient(135deg, #8b5cf6, #2457ff 55%, #00d4ff);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+.dark .md-body blockquote {
+  color: var(--muted);
+}
+.md-body hr {
+  border: none;
+  border-top: 1px solid var(--border-subtle);
+  margin: 1rem 0;
+}
+/* Inline code: subtle pill, readable in both themes. */
+.md-body code:not(pre code) {
+  background: rgba(128, 128, 128, 0.16);
+  border-radius: 0.375rem;
+  padding: 0.1rem 0.35rem;
+  font-size: 0.875em;
+}
+.md-body pre {
+  margin: 0.6rem 0;
 }
 
 .studio-card {

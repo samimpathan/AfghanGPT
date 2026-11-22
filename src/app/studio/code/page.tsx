@@ -9,6 +9,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useLang } from "@/lib/i18n";
 import { store, uid, type ProjectFile, type StudioProject } from "@/lib/store";
 import { chatText, downloadFileSpec } from "@/lib/client";
@@ -129,6 +130,9 @@ function buildSrcDoc(files: ProjectFile[]): string | null {
   }
   return out;
 }
+
+/** Solid brand button — the shared Btn primary is a gradient; studios use a flat brand colour. */
+const SOLID = "!bg-none !bg-[var(--brand2)]";
 
 type AiAction = "explain" | "generate" | "bugs" | "optimise";
 
@@ -364,20 +368,27 @@ export default function CodeStudioPage() {
   const nonWebNote = activeFile && !WEB_LANGS.includes(activeLang) && !hasWebFile;
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-xl font-bold">{t("coding")}</h1>
-        <span className="ms-auto" />
-        <Btn size="sm" variant="outline" onClick={() => setShowPreview((v) => !v)} disabled={!hasWebFile}>
-          {showPreview ? "Hide preview" : "Live Preview"}
-        </Btn>
-        <Btn size="sm" variant="outline" onClick={exportZip} disabled={exporting}>
-          {exporting ? "Exporting…" : "Export ZIP"}
-        </Btn>
-        <Btn size="sm" onClick={saveProject}>
-          {t("save")}
-        </Btn>
-      </div>
+    <div className="mx-auto w-full max-w-5xl space-y-4 px-3 py-4 sm:px-4">
+      <header className="space-y-1">
+        <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
+          <span aria-hidden className="inline-block rtl:rotate-180">←</span>
+          {t("backToChat")}
+        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-xl font-bold sm:text-2xl">{t("coding")}</h1>
+          <span className="ms-auto" />
+          <Btn size="sm" variant="outline" onClick={() => setShowPreview((v) => !v)} disabled={!hasWebFile}>
+            {showPreview ? "Hide preview" : "Live Preview"}
+          </Btn>
+          <Btn size="sm" variant="outline" onClick={exportZip} disabled={exporting}>
+            {exporting ? "Exporting…" : "Export ZIP"}
+          </Btn>
+          <Btn size="sm" onClick={saveProject} className={SOLID}>
+            {t("save")}
+          </Btn>
+        </div>
+        <p className="text-sm text-[var(--muted)]">{t("codeSubtitle")}</p>
+      </header>
 
       {notice && (
         <button
@@ -410,7 +421,7 @@ export default function CodeStudioPage() {
       <div className="grid gap-3 lg:grid-cols-[260px_minmax(0,1fr)]">
         {/* File tree */}
         <Card className="space-y-3">
-          <h2 className="text-sm font-bold">Files</h2>
+          <h2 className="text-sm font-bold">{t("codeFiles")}</h2>
           <div className="space-y-1">
             {files.map((f) => (
               <div
@@ -541,13 +552,13 @@ export default function CodeStudioPage() {
           <div className="space-y-2 border-t border-[var(--card-border)] pt-3">
             <div className="flex flex-wrap gap-2">
               <Btn size="sm" variant="outline" onClick={() => runAi("explain")} disabled={aiBusy || !activeFile}>
-                Explain code
+                {t("codeExplain")}
               </Btn>
               <Btn size="sm" variant="outline" onClick={() => runAi("bugs")} disabled={aiBusy || !activeFile}>
-                Find bugs
+                {t("codeFindBugs")}
               </Btn>
               <Btn size="sm" variant="outline" onClick={() => runAi("optimise")} disabled={aiBusy || !activeFile}>
-                Optimise
+                {t("codeOptimise")}
               </Btn>
             </div>
             <div className="flex gap-2">
@@ -555,9 +566,10 @@ export default function CodeStudioPage() {
                 value={genPrompt}
                 onChange={(e) => setGenPrompt(e.target.value)}
                 placeholder="Describe code to generate, e.g. a function that sorts numbers…"
+                className="min-w-0 flex-1"
               />
-              <Btn size="sm" onClick={() => runAi("generate")} disabled={aiBusy}>
-                Generate code
+              <Btn size="sm" onClick={() => runAi("generate")} disabled={aiBusy} className={`shrink-0 ${SOLID}`}>
+                {t("codeGenerateCode")}
               </Btn>
             </div>
             <p className="text-xs text-[var(--muted)]">
@@ -571,7 +583,7 @@ export default function CodeStudioPage() {
                   <span className="text-sm font-bold">{aiResult.title}</span>
                   {aiResult.mode && <Badge tone={aiResult.mode === "gemini" ? "green" : "amber"}>{aiResult.mode}</Badge>}
                   {aiAction === null && aiResult.title === "Optimised code" && (
-                    <Btn size="sm" className="ms-auto" onClick={applyOptimised}>
+                    <Btn size="sm" className={`ms-auto ${SOLID}`} onClick={applyOptimised}>
                       Apply to file
                     </Btn>
                   )}
@@ -586,7 +598,7 @@ export default function CodeStudioPage() {
       {/* Live preview */}
       {showPreview && (
         <Card className="space-y-3">
-          <h2 className="text-sm font-bold">Live preview</h2>
+          <h2 className="text-sm font-bold">{t("codeLivePreview")}</h2>
           {srcDoc ? (
             <iframe
               title="Live preview"

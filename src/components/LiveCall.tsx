@@ -406,6 +406,11 @@ export default function LiveCall({
       stopVideo();
       return;
     }
+    // Honest check first: getDisplayMedia is not in every browser.
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      onNote?.(t(lang, "liveScreenUnsupported"));
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
       stopVideo();
@@ -519,15 +524,29 @@ export default function LiveCall({
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[#080D1B] text-white">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 pt-4">
-        <p className="text-sm font-bold">
-          {phase === "live" ? t(lang, "liveCall") : t(lang, "voiceMode")}
-        </p>
+      {/* Header — title + live / screen-sharing status pills */}
+      <div className="flex items-center justify-between gap-3 px-4 pt-4">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <p className="text-sm font-bold">
+            {phase === "live" ? t(lang, "liveCall") : t(lang, "voiceMode")}
+          </p>
+          {phase === "live" && (
+            <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-red-500/25 px-2.5 py-1 text-[11px] font-bold text-red-300">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-red-400" />
+              {t(lang, "liveNow")}
+            </span>
+          )}
+          {screenOn && (
+            <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-[#2457FF]/30 px-2.5 py-1 text-[11px] font-bold text-sky-300">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-[#00D4FF]" />
+              {t(lang, "liveScreenSharing")}
+            </span>
+          )}
+        </div>
         <button
           type="button"
           onClick={endCall}
-          className="rounded-full bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
+          className="shrink-0 rounded-full bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
           aria-label={t(lang, "close")}
         >
           ✕
@@ -607,69 +626,99 @@ export default function LiveCall({
 
         {/* Camera / screen preview — what the AI sees */}
         {(cameraOn || screenOn) && (
-          <div className="mt-4 w-full max-w-md">
+          <div className="relative mt-4 w-full max-w-md">
             <video
               ref={videoElRef}
               autoPlay
               muted
               playsInline
-              className="max-h-44 w-full rounded-2xl bg-black object-cover"
+              className="max-h-44 w-full rounded-2xl bg-black object-cover ring-1 ring-white/20"
             />
-            <p className="mt-1 text-center text-[11px] text-slate-400">
-              {screenOn ? t(lang, "screenShare") : t(lang, "camera")} • AI {t(lang, "liveListening")}
+            {screenOn && (
+              <span className="absolute start-2 top-2 flex items-center gap-1.5 rounded-full bg-red-500 px-2.5 py-1 text-[11px] font-bold text-white shadow">
+                <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
+                {t(lang, "liveScreenSharing")}
+              </span>
+            )}
+            <p className="mt-1.5 text-center text-[11px] text-slate-400">
+              {screenOn ? t(lang, "liveScreenPreview") : t(lang, "liveCameraPreview")}
             </p>
           </div>
         )}
       </div>
 
-      {/* Controls */}
+      {/* Controls — labelled round buttons, Gemini-style */}
       <div className="px-4 pb-8">
-        <div className="mx-auto flex max-w-md items-center justify-center gap-4">
-          <button
-            type="button"
-            onClick={toggleMic}
-            disabled={fallbackBusy}
-            className={`flex h-14 w-14 items-center justify-center rounded-full text-2xl transition-transform active:scale-95 disabled:opacity-40 ${
-              phase === "fallback"
-                ? fallbackListening
-                  ? "bg-red-500 text-white mic-listening"
-                  : "bg-white text-black"
+        <div className="mx-auto flex max-w-md items-start justify-center gap-3 sm:gap-4">
+          <div className="flex flex-col items-center gap-1.5">
+            <button
+              type="button"
+              onClick={toggleMic}
+              disabled={fallbackBusy}
+              className={`flex h-14 w-14 items-center justify-center rounded-full text-2xl transition-transform active:scale-95 disabled:opacity-40 ${
+                phase === "fallback"
+                  ? fallbackListening
+                    ? "bg-red-500 text-white mic-listening"
+                    : "bg-white text-black"
+                  : micOn
+                    ? "bg-white text-black"
+                    : "bg-red-500 text-white"
+              }`}
+              aria-label={micOn ? t(lang, "liveMicOn") : t(lang, "liveMicOff")}
+            >
+              {phase === "fallback" ? (fallbackListening ? "■" : "🎙") : micOn ? "🎙" : "🔇"}
+            </button>
+            <span className="max-w-16 text-center text-[10px] leading-tight text-slate-400">
+              {phase === "fallback" && fallbackListening
+                ? t(lang, "stopRecording")
                 : micOn
-                  ? "bg-white text-black"
-                  : "bg-red-500 text-white"
-            }`}
-            aria-label={micOn ? t(lang, "liveMicOn") : t(lang, "liveMicOff")}
-          >
-            {phase === "fallback" ? (fallbackListening ? "■" : "🎙") : micOn ? "🎙" : "🔇"}
-          </button>
-          <button
-            type="button"
-            onClick={toggleCamera}
-            className={`flex h-14 w-14 items-center justify-center rounded-full text-2xl transition-transform active:scale-95 ${
-              cameraOn ? "bg-[#2457FF] text-white" : "bg-white/10 text-white"
-            }`}
-            aria-label={cameraOn ? t(lang, "cameraOff") : t(lang, "cameraOn")}
-          >
-            📷
-          </button>
-          <button
-            type="button"
-            onClick={toggleScreen}
-            className={`flex h-14 w-14 items-center justify-center rounded-full text-2xl transition-transform active:scale-95 ${
-              screenOn ? "bg-[#2457FF] text-white" : "bg-white/10 text-white"
-            }`}
-            aria-label={screenOn ? t(lang, "screenOff") : t(lang, "screenOn")}
-          >
-            🖥
-          </button>
-          <button
-            type="button"
-            onClick={endCall}
-            className="flex h-14 w-14 items-center justify-center rounded-full bg-red-500 text-2xl text-white transition-transform active:scale-95"
-            aria-label={t(lang, "endCall")}
-          >
-            📞
-          </button>
+                  ? t(lang, "liveMicOn")
+                  : t(lang, "liveMicOff")}
+            </span>
+          </div>
+          <div className="flex flex-col items-center gap-1.5">
+            <button
+              type="button"
+              onClick={toggleCamera}
+              className={`flex h-14 w-14 items-center justify-center rounded-full text-2xl transition-transform active:scale-95 ${
+                cameraOn ? "bg-[#2457FF] text-white" : "bg-white/10 text-white"
+              }`}
+              aria-label={cameraOn ? t(lang, "cameraOff") : t(lang, "cameraOn")}
+            >
+              📷
+            </button>
+            <span className="max-w-16 text-center text-[10px] leading-tight text-slate-400">
+              {cameraOn ? t(lang, "cameraOff") : t(lang, "cameraOn")}
+            </span>
+          </div>
+          <div className="flex flex-col items-center gap-1.5">
+            <button
+              type="button"
+              onClick={toggleScreen}
+              className={`flex h-14 w-14 items-center justify-center rounded-full text-2xl transition-transform active:scale-95 ${
+                screenOn ? "bg-[#2457FF] text-white" : "bg-white/10 text-white"
+              }`}
+              aria-label={screenOn ? t(lang, "screenOff") : t(lang, "screenOn")}
+            >
+              🖥
+            </button>
+            <span className="max-w-16 text-center text-[10px] leading-tight text-slate-400">
+              {screenOn ? t(lang, "screenOff") : t(lang, "screenOn")}
+            </span>
+          </div>
+          <div className="flex flex-col items-center gap-1.5">
+            <button
+              type="button"
+              onClick={endCall}
+              className="flex h-14 w-14 items-center justify-center rounded-full bg-red-500 text-2xl text-white transition-transform active:scale-95"
+              aria-label={t(lang, "endCall")}
+            >
+              📞
+            </button>
+            <span className="max-w-16 text-center text-[10px] leading-tight text-slate-400">
+              {t(lang, "endCall")}
+            </span>
+          </div>
         </div>
         <p className="mt-3 text-center text-[11px] text-slate-400">
           {phase === "fallback"

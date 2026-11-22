@@ -8,6 +8,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useLang } from "@/lib/i18n";
 import { store, uid } from "@/lib/store";
 import { chatText, downloadFileSpec, downloadText } from "@/lib/client";
@@ -53,6 +54,9 @@ const LENGTH_GUIDE: Record<string, string> = {
   Medium: "about 300–500 words",
   Long: "about 700–1000 words",
 };
+
+/** Solid brand button — the shared Btn primary is a gradient; studios use a flat brand colour. */
+const SOLID = "!bg-none !bg-[var(--brand2)]";
 
 function safeName(s: string, fallback: string): string {
   const clean = s.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-").slice(0, 50);
@@ -185,13 +189,15 @@ export default function WritingStudioPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4">
-      <header>
-        <h1 className="text-2xl font-bold">✎ {t("writing")}</h1>
-        <p className="mt-1 text-sm text-[var(--muted)]">
-          Pick a template, describe your topic, and the AI writes it for you — articles, emails, CVs, translations and more.
-        </p>
-        <p className="mt-2 rounded-xl bg-cyan-500/10 px-3 py-2 text-xs text-cyan-700 dark:text-cyan-300">
+    <div className="mx-auto w-full max-w-3xl space-y-4 px-3 py-4 sm:px-4">
+      <header className="space-y-1">
+        <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
+          <span aria-hidden className="inline-block rtl:rotate-180">←</span>
+          {t("backToChat")}
+        </Link>
+        <h1 className="text-xl font-bold sm:text-2xl">{t("writing")}</h1>
+        <p className="text-sm text-[var(--muted)]">{t("writeSubtitle")}</p>
+        <p className="rounded-xl border border-[var(--card-border)] px-3 py-2 text-xs text-[var(--muted)]">
           How it works: the text is written live by Gemini through /api/chat using the server key — no key is ever in this page.
           If the server key is not set, the chat API answers with an offline/busy note instead, and that note is shown honestly.
         </p>
@@ -260,7 +266,7 @@ export default function WritingStudioPage() {
             </Field>
           </div>
 
-          <Btn onClick={generate} disabled={loading || !input.trim()} className="w-full">
+          <Btn onClick={generate} disabled={loading || !input.trim()} className={`w-full ${SOLID}`}>
             {loading ? "Writing…" : `✎ ${t("generate")} — ${active.label}`}
           </Btn>
           {loading && <Spinner label="The AI is writing…" />}
@@ -309,7 +315,7 @@ export default function WritingStudioPage() {
               {t("download")} .md
             </Btn>
             <Btn size="sm" variant="outline" onClick={downloadDocx}>{t("download")} .docx</Btn>
-            <Btn size="sm" onClick={saveProject}>{saved ? "✓ Saved" : t("save")}</Btn>
+            <Btn size="sm" onClick={saveProject} className={SOLID}>{saved ? "✓ Saved" : t("save")}</Btn>
           </div>
           {saved && <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-300">Saved as a project (kind “doc”) in this device’s local storage.</p>}
         </Card>

@@ -53,45 +53,53 @@ export default function SharePage({ params }: { params: { id: string } }) {
   }, [params.id]);
 
   return (
-    <div className="min-h-dvh bg-white px-4 py-8 dark:bg-slate-950 dark:text-slate-100">
-      <div className="mx-auto max-w-2xl">
-        <p className="text-xs font-bold text-slate-500">
-          Samim AI • {t(lang, "sharedChat")}
-        </p>
+    <div className="min-h-dvh bg-[var(--background)] px-3 py-4 text-[var(--foreground)] sm:px-4">
+      <div className="mx-auto max-w-2xl space-y-4">
+        <header className="space-y-1">
+          <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
+            <span aria-hidden className="inline-block rtl:rotate-180">←</span>
+            Samim AI
+          </Link>
+          <p className="text-xs font-bold text-[var(--muted)]">
+            Samim AI • {t(lang, "sharedChat")}
+          </p>
+        </header>
         {state === "loading" && (
-          <p className="mt-6 text-sm text-slate-500">{t(lang, "loading")}</p>
+          <p className="mt-6 text-sm text-[var(--muted)]">{t(lang, "loading")}</p>
         )}
         {state === "missing" && (
           <div className="mt-6">
-            <p className="text-sm text-slate-500">{t(lang, "sharedNotFound")}</p>
-            <Link href="/" className="mt-4 inline-block text-sm font-bold text-[#2457FF] hover:underline">
-              ← Samim AI
+            <p className="text-sm text-[var(--muted)]">{t(lang, "sharedNotFound")}</p>
+            <Link href="/" className="mt-4 inline-flex items-center gap-1.5 text-sm font-bold text-[var(--brand2)] hover:underline">
+              <span aria-hidden className="inline-block rtl:rotate-180">←</span>
+              Samim AI
             </Link>
           </div>
         )}
         {state === "found" && (
           <div className="mt-4">
-            <h1 className="text-xl font-bold">{title || t(lang, "sharedChat")}</h1>
-            <p className="mt-1 text-xs text-slate-500">{t(lang, "sharedBy")}</p>
+            <h1 className="text-xl font-bold sm:text-2xl">{title || t(lang, "sharedChat")}</h1>
+            <p className="mt-1 text-xs text-[var(--muted)]">{t(lang, "sharedBy")}</p>
             <div className="mt-6 flex flex-col gap-4">
               {messages.map((m, i) => (
                 <div
                   key={i}
                   className={
                     m.role === "user"
-                      ? "self-end rounded-2xl bg-slate-200 px-4 py-2.5 text-sm dark:bg-slate-800"
-                      : "rounded-2xl bg-slate-100 px-4 py-2.5 text-sm dark:bg-slate-900"
+                      ? "max-w-[85%] self-end rounded-2xl bg-[#ECECEC] px-4 py-2.5 text-sm dark:bg-[#2F2F2F]"
+                      : "max-w-[85%] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] px-4 py-2.5 text-sm"
                   }
                 >
-                  <p className="mb-1 text-[11px] font-bold text-slate-500">
+                  <p className="mb-1 text-[11px] font-bold text-[var(--muted)]">
                     {m.role === "user" ? "You" : "Samim AI"}
                   </p>
-                  <p className="whitespace-pre-wrap break-words">{m.content}</p>
+                  <p className="bidi-plaintext whitespace-pre-wrap break-words">{m.content}</p>
                 </div>
               ))}
             </div>
-            <Link href="/" className="mt-8 inline-block text-sm font-bold text-[#2457FF] hover:underline">
-              ← Samim AI
+            <Link href="/" className="mt-8 inline-flex items-center gap-1.5 text-sm font-bold text-[var(--brand2)] hover:underline">
+              <span aria-hidden className="inline-block rtl:rotate-180">←</span>
+              Samim AI
             </Link>
           </div>
         )}

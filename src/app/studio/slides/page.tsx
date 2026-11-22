@@ -8,10 +8,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useLang } from "@/lib/i18n";
 import { chatJson, downloadFileSpec } from "@/lib/client";
 import { store } from "@/lib/store";
 import { Btn, Card, Field, Input, Select, Spinner, Textarea } from "@/components/ui";
+
+/** Solid brand button — the shared Btn primary is a gradient; studios use a flat brand colour. */
+const SOLID = "!bg-none !bg-[var(--brand2)]";
 
 const STORAGE_KEY = "samim-slides";
 
@@ -239,10 +243,14 @@ export default function SlidesPage() {
 
   return (
     <div className="mx-auto w-full max-w-3xl space-y-4 px-3 py-4 sm:px-4">
-      <div>
+      <header className="space-y-1">
+        <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
+          <span aria-hidden className="inline-block rtl:rotate-180">←</span>
+          {t("backToChat")}
+        </Link>
         <h1 className="text-xl font-bold sm:text-2xl">{t("slides")}</h1>
-        <p className="text-sm text-[var(--muted)]">Generate an outline with AI, edit every slide, preview it live, then export a real PPTX or PDF.</p>
-      </div>
+        <p className="text-sm text-[var(--muted)]">{t("slidesSubtitle")}</p>
+      </header>
 
       <Card>
         <div className="space-y-3">
@@ -282,7 +290,7 @@ export default function SlidesPage() {
               </Select>
             </Field>
           </div>
-          <Btn onClick={handleGenerate} disabled={generating || !topic.trim()} className="w-full">
+          <Btn onClick={handleGenerate} disabled={generating || !topic.trim()} className={`w-full ${SOLID}`}>
             {generating ? "Generating outline…" : "Generate outline"}
           </Btn>
           {generating && <Spinner label="Asking the AI for an outline…" />}
@@ -335,7 +343,7 @@ export default function SlidesPage() {
         )}
         <div className="mt-3 flex items-center justify-between gap-2">
           <Btn variant="outline" size="sm" onClick={() => setCurrent((c) => Math.max(0, c - 1))} disabled={current === 0}>
-            ← Previous
+            <span aria-hidden className="inline-block rtl:rotate-180">←</span> Previous
           </Btn>
           <div className="flex gap-1.5">
             {deck.slides.map((_, i) => (
@@ -350,7 +358,7 @@ export default function SlidesPage() {
             ))}
           </div>
           <Btn variant="outline" size="sm" onClick={() => setCurrent((c) => Math.min(deck.slides.length - 1, c + 1))} disabled={current >= deck.slides.length - 1}>
-            Next →
+            Next <span aria-hidden className="inline-block rtl:rotate-180">→</span>
           </Btn>
         </div>
       </Card>
@@ -398,7 +406,7 @@ export default function SlidesPage() {
           The exported PPTX uses the selected theme colours.
         </p>
         <div className="flex flex-wrap gap-2">
-          <Btn onClick={() => handleExport("pptx")} disabled={exporting !== null}>
+          <Btn onClick={() => handleExport("pptx")} disabled={exporting !== null} className={SOLID}>
             {exporting === "pptx" ? "Exporting PPTX…" : "Export PPTX"}
           </Btn>
           <Btn variant="outline" onClick={() => handleExport("pdf")} disabled={exporting !== null}>

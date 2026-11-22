@@ -136,14 +136,25 @@ function downscaleImage(file: File): Promise<string> {
   });
 }
 
-/** Three animated dots, like the typing indicator in the video. */
+/** Three animated dots + the AI avatar + shimmer lines while generating. */
 function TypingDots() {
   return (
-    <span className="flex items-center gap-1.5 px-1 py-2">
-      <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[#555555] dark:bg-slate-300" />
-      <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[#555555] dark:bg-slate-300" />
-      <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[#555555] dark:bg-slate-300" />
-    </span>
+    <div className="msg-in flex min-w-0 items-start gap-3">
+      <img
+        src="/avatar.jpg"
+        alt=""
+        className="mt-1 h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-black/5 dark:ring-[#263550]"
+      />
+      <div className="min-w-0 flex-1">
+        <span className="flex items-center gap-1.5 px-1 py-2">
+          <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[#555555] dark:bg-slate-300" />
+          <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[#555555] dark:bg-slate-300" />
+          <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[#555555] dark:bg-slate-300" />
+        </span>
+        <div className="skeleton-shimmer mt-1 h-3 w-3/4 rounded-full" />
+        <div className="skeleton-shimmer mt-2 h-3 w-1/2 rounded-full" />
+      </div>
+    </div>
   );
 }
 
@@ -160,6 +171,7 @@ export default function HomePage() {
   const [streaming, setStreaming] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const [modelMode, setModelMode] = useState<ModelMode>("auto");
   const [notice, setNotice] = useState<string | null>(null);
@@ -269,6 +281,27 @@ export default function HomePage() {
       }
     }
   }, [sidebarOpen]);
+
+  // The photo/name may have changed in Settings (another tab or a
+  // return from /settings) — re-read them on focus / visibility, so
+  // the header avatar updates without a reload.
+  useEffect(() => {
+    const refreshProfile = () => {
+      try {
+        const s = store.settings();
+        setUserPhoto(s.avatarDataUrl || null);
+        if (s.displayName) setUserName(s.displayName);
+      } catch {
+        // ignore
+      }
+    };
+    window.addEventListener("focus", refreshProfile);
+    document.addEventListener("visibilitychange", refreshProfile);
+    return () => {
+      window.removeEventListener("focus", refreshProfile);
+      document.removeEventListener("visibilitychange", refreshProfile);
+    };
+  }, []);
 
   // Auth session + load history.
   useEffect(() => {
@@ -405,6 +438,7 @@ export default function HomePage() {
 
   const pickProvider = (id: ProviderId) => {
     setProvider(id);
+    setModelPickerOpen(false);
     try {
       const s = store.settings();
       store.saveSettings({ ...s, provider: id });
@@ -412,6 +446,17 @@ export default function HomePage() {
       // ignore
     }
   };
+
+  /** Providers actually configured — the model picker shows ONLY
+   * these; unconfigured providers are never offered as working. */
+  const readyProviders = providerOptions.filter((p) => p.status === "ready");
+
+  /** Sign out (same action as Settings → Log out). The auth listener
+   * clears the session state, so the guest session starts empty. */
+  const doSignOut = useCallback(async () => {
+    setUserMenuOpen(false);
+    if (supabase) await supabase.auth.signOut();
+  }, []);
 
   // Pins are in-memory only — never written to any storage.
   const togglePin = useCallback((id: string) => {
@@ -1196,10 +1241,10 @@ export default function HomePage() {
   const chatItem = (c: LocalChat) => (
     <div
       key={c.id}
-      className={`group mb-1 rounded-xl px-2 py-2 text-sm ${
+      className={`group mb-1 rounded-xl px-2 py-2 text-sm transition duration-150 ${
         c.id === activeId
-          ? "bg-slate-200 dark:bg-slate-800"
-          : "hover:bg-slate-100 dark:hover:bg-slate-800"
+          ? "bg-[var(--surface-hover)]"
+          : "hover:bg-[var(--surface)]"
       }`}
     >
       {editingId === c.id ? (
@@ -1281,8 +1326,8 @@ export default function HomePage() {
             className="absolute inset-0 bg-black/35"
           />
           <aside
-            className={`absolute inset-y-0 left-0 flex flex-col overflow-y-auto bg-white shadow-xl dark:bg-[#0D1426] ${
-              drawerCollapsed ? "w-16" : "w-72"
+            className={`absolute inset-y-0 left-0 flex flex-col overflow-y-auto border-e border-[var(--border-subtle)] bg-[var(--card)] shadow-md ${
+              drawerCollapsed ? "w-16" : "w-72 max-w-[85vw]"
             }`}
           >
             {drawerCollapsed ? (
@@ -1412,7 +1457,7 @@ export default function HomePage() {
                 </Link>
               </p>
             )}
-            <div className="chat-scroll mt-2 flex-1 overflow-y-auto px-2 pb-2">
+            <div className="drawer-scroll chat-scroll mt-2 flex-1 overflow-y-auto px-2 pb-2">
               {savedImages.length > 0 && (
                 <div className="mb-2">
                   <p className="px-2 pb-1 pt-1 text-xs font-bold text-slate-500">
@@ -1477,12 +1522,13 @@ export default function HomePage() {
                 </div>
               )}
             </div>
-            <div className="border-t border-slate-200 p-3 dark:border-slate-800">
+            <div className="border-t border-[var(--border-subtle)] p-3">
               {userEmail ? (
                 <a href="/about" className="flex items-center gap-2">
                   {/* The USER's avatar (photo or initials) — like Muse.
-                      Samim's photo stays in the header/empty state. */}
-                  <UserAvatar name={userName} email={userEmail} photoUrl={userPhoto} size={32} />
+                      Logged-in users without a photo get /avatar.jpg as
+                      the default; guests never do (see UserAvatar). */}
+                  <UserAvatar name={userName} email={userEmail} photoUrl={userPhoto} fallbackPhoto="/avatar.jpg" size={32} />
                   <span className="min-w-0 flex-1 truncate text-sm font-bold">
                     {userName ?? userEmail}
                   </span>
@@ -1517,12 +1563,12 @@ export default function HomePage() {
       )}
 
       {/* ===== Header: hamburger | model picker | avatar + new chat + ••• ===== */}
-      <header className="relative min-w-0 px-3 pt-2 sm:px-5">
+      <header className="sticky top-0 z-30 min-w-0 border-b border-[var(--border-subtle)] bg-white px-3 py-2 dark:bg-[#080D1B] sm:px-5">
         <div dir="ltr" className="flex items-center justify-between gap-2">
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
-            className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#E3E3E3] bg-white transition-transform active:scale-95 sm:h-12 sm:w-12 dark:border-[#263550] dark:bg-[#111B30]"
+            className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--card-border)] bg-[var(--card)] transition duration-150 hover:bg-[var(--surface)] active:scale-95"
             aria-label="Menu"
           >
             <span className="text-2xl leading-none text-[#222222] dark:text-[#EAF2FF]">≡</span>
@@ -1534,8 +1580,9 @@ export default function HomePage() {
             <button
               type="button"
               onClick={() => setModelPickerOpen((v) => !v)}
-              className="flex max-w-full items-center gap-1 rounded-full px-3 py-2 text-base font-bold transition-transform active:scale-95"
+              className="flex max-w-full items-center gap-1 rounded-full px-3 py-2 text-base font-bold transition duration-150 hover:bg-[var(--surface)] active:scale-95"
               aria-label={t(lang, "modelPicker")}
+              aria-expanded={modelPickerOpen}
             >
               <span className="truncate">{modelLabel}</span>
               <span className="text-xs text-slate-500">▾</span>
@@ -1548,13 +1595,13 @@ export default function HomePage() {
                   onClick={() => setModelPickerOpen(false)}
                   className="fixed inset-0 z-20 cursor-default"
                 />
-                <div className="absolute left-1/2 top-full z-30 mt-1 w-56 -translate-x-1/2 rounded-2xl border border-[#E3E3E3] bg-white p-2 shadow-lg dark:border-[#263550] dark:bg-[#111B30]">
+                <div className="absolute left-1/2 top-full z-30 mt-1 w-64 max-w-[90vw] -translate-x-1/2 rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md">
                   {(["auto", "fast", "smart"] as ModelMode[]).map((m) => (
                     <button
                       key={m}
                       type="button"
                       onClick={() => pickModel(m)}
-                      className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                      className="block w-full rounded-xl px-3 py-2 text-start text-sm transition duration-150 hover:bg-[var(--surface)]"
                     >
                       {m === "auto"
                         ? t(lang, "modelAuto")
@@ -1564,35 +1611,120 @@ export default function HomePage() {
                       {modelMode === m ? " ✓" : ""}
                     </button>
                   ))}
+                  <div className="my-1 border-t border-[var(--border-subtle)]" />
+                  <p className="px-2 pb-1 pt-1 text-xs font-semibold text-slate-500">
+                    {t(lang, "provider")}
+                  </p>
+                  {/* ONLY providers that are actually configured are
+                      offered here — never an unconfigured one. */}
+                  {readyProviders.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => pickProvider(p.id)}
+                      className="block w-full rounded-xl px-3 py-2 text-start text-sm transition duration-150 hover:bg-[var(--surface)]"
+                    >
+                      {p.name}
+                      {provider === p.id ? " ✓" : ""}
+                    </button>
+                  ))}
+                  {readyProviders.length === 0 && (
+                    <p className="px-3 py-2 text-xs text-slate-500">
+                      {t(lang, "providerNeedsKey")}
+                    </p>
+                  )}
+                  <Link
+                    href="/settings"
+                    onClick={() => setModelPickerOpen(false)}
+                    className="block rounded-xl px-3 py-2 text-sm text-[#2457FF] transition duration-150 hover:bg-[var(--surface)]"
+                  >
+                    ⚙ {t(lang, "settings")}
+                  </Link>
                 </div>
               </>
             )}
           </div>
 
-          <div dir="ltr" className="flex shrink-0 items-center gap-1.5">
-            {/* AVATAR FIX (v3.2): plain <a href="/about">, pointer-events
-                auto, z-10, real tap target — the user reported the
-                header avatar did nothing. Verified: /about renders,
-                and no element covers this anchor in the new header
-                (the ••• overlay only exists while its menu is open). */}
-            <a
-              href="/about"
-              aria-label={t(lang, "about")}
-              className="pointer-events-auto relative z-10 flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform active:scale-90 sm:h-12 sm:w-12"
+          <div dir="ltr" className="relative flex shrink-0 items-center gap-1.5">
+            {/* The USER's avatar (top-right): uploaded photo, else
+                /avatar.jpg for logged-in users, else grey "?" guest.
+                Opens a small menu — Settings, About, Sign out. */}
+            <button
+              type="button"
+              onClick={() => setUserMenuOpen((v) => !v)}
+              className="flex h-10 w-10 shrink-0 cursor-pointer items-center justify-center rounded-full transition duration-150 hover:opacity-80 active:scale-90"
+              aria-label={userName ?? userEmail ?? t(lang, "about")}
+              aria-expanded={userMenuOpen}
             >
-              <Image
-                src="/avatar.jpg"
-                alt="Samim AI"
-                width={44}
-                height={44}
-                className="rounded-full object-cover ring-2 ring-white/80 dark:ring-[#263550]"
-                priority
+              <UserAvatar
+                name={userName}
+                email={userEmail}
+                photoUrl={userPhoto}
+                fallbackPhoto={userEmail ? "/avatar.jpg" : undefined}
+                size={40}
               />
-            </a>
+            </button>
+            {userMenuOpen && (
+              <>
+                <button
+                  type="button"
+                  aria-label="Close menu"
+                  onClick={() => setUserMenuOpen(false)}
+                  className="fixed inset-0 z-20 cursor-default"
+                />
+                <div className="absolute end-0 top-full z-30 mt-1 w-56 rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md">
+                  {userEmail && (
+                    <p className="truncate px-3 py-2 text-xs text-slate-500">
+                      {userName ?? userEmail}
+                    </p>
+                  )}
+                  <Link
+                    href="/settings"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="block rounded-xl px-3 py-2 text-sm transition duration-150 hover:bg-[var(--surface)]"
+                  >
+                    ⚙ {t(lang, "settings")}
+                  </Link>
+                  <Link
+                    href="/about"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="block rounded-xl px-3 py-2 text-sm transition duration-150 hover:bg-[var(--surface)]"
+                  >
+                    ℹ {t(lang, "about")}
+                  </Link>
+                  {userEmail ? (
+                    <button
+                      type="button"
+                      onClick={() => void doSignOut()}
+                      className="block w-full rounded-xl px-3 py-2 text-start text-sm text-red-600 transition duration-150 hover:bg-[var(--surface)] dark:text-red-400"
+                    >
+                      ↩ {t(lang, "logout")}
+                    </button>
+                  ) : (
+                    <>
+                      <Link
+                        href="/login"
+                        onClick={() => setUserMenuOpen(false)}
+                        className="block rounded-xl px-3 py-2 text-sm font-bold text-[#2457FF] transition duration-150 hover:bg-[var(--surface)]"
+                      >
+                        {t(lang, "login")}
+                      </Link>
+                      <Link
+                        href="/register"
+                        onClick={() => setUserMenuOpen(false)}
+                        className="block rounded-xl px-3 py-2 text-sm transition duration-150 hover:bg-[var(--surface)]"
+                      >
+                        {t(lang, "register")}
+                      </Link>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
             <button
               type="button"
               onClick={newChat}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#E3E3E3] bg-white text-xl transition-transform active:scale-95 sm:h-12 sm:w-12 dark:border-[#263550] dark:bg-[#111B30]"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--card-border)] bg-[var(--card)] text-xl transition duration-150 hover:bg-[var(--surface)] active:scale-95"
               aria-label={t(lang, "newChat")}
             >
               ✎
@@ -1600,7 +1732,7 @@ export default function HomePage() {
             <button
               type="button"
               onClick={() => setMoreOpen((v) => !v)}
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#E3E3E3] bg-white transition-transform active:scale-95 sm:h-12 sm:w-12 dark:border-[#263550] dark:bg-[#111B30]"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--card-border)] bg-[var(--card)] transition duration-150 hover:bg-[var(--surface)] active:scale-95"
               aria-label="More options"
             >
               <span className="text-xl leading-none tracking-[2px] text-[#222222] dark:text-[#EAF2FF]">•••</span>
@@ -1617,7 +1749,7 @@ export default function HomePage() {
               onClick={() => setMoreOpen(false)}
               className="fixed inset-0 z-20 cursor-default"
             />
-            <div className="absolute right-4 top-full z-30 mt-1 w-60 rounded-2xl border border-[#E3E3E3] bg-white p-2 shadow-lg dark:border-[#263550] dark:bg-[#111B30]">
+            <div className="absolute end-4 top-full z-30 mt-1 w-60 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md">
               <button
                 type="button"
                 onClick={() => {
@@ -1858,7 +1990,7 @@ export default function HomePage() {
                 className="mx-auto rounded-full object-cover ring-2 ring-white/80 dark:ring-[#263550]"
               />
             </a>
-            <div className="mt-3 inline-block max-w-full rounded-2xl bg-white px-3.5 py-1.5 shadow-md dark:bg-[#111B30] dark:shadow-none dark:ring-1 dark:ring-[#263550]">
+            <div className="mt-3 inline-block max-w-full rounded-2xl bg-[var(--card)] px-3.5 py-1.5 shadow-sm ring-1 ring-black/5 dark:ring-[#263550]">
               <span className="block truncate text-base text-black dark:text-[#EAF2FF]">
                 {userName ?? t(lang, "appName")}
                 {isAdmin && (
@@ -1873,7 +2005,7 @@ export default function HomePage() {
                 ? t(lang, "helloName").replace("{name}", userName)
                 : t(lang, "welcomeTitle")}
             </h1>
-            <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">
+            <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
               {t(lang, "welcomeText")}
             </p>
             <div className="mt-6 grid gap-2 text-start sm:grid-cols-2">
@@ -1882,18 +2014,18 @@ export default function HomePage() {
                   key={s}
                   type="button"
                   onClick={() => send(s)}
-                  className="rounded-2xl border border-slate-300 px-4 py-3 text-sm hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
+                  className="rounded-2xl border border-[var(--card-border)] bg-[var(--card)] px-4 py-3 text-sm leading-relaxed shadow-sm transition duration-150 hover:bg-[var(--surface)]"
                 >
                   {s}
                 </button>
               ))}
             </div>
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-wrap justify-center gap-2">
               {visibleStudios.map((s) => (
                 <Link
                   key={s.href}
                   href={s.href}
-                  className="rounded-full border border-slate-300 px-3 py-1.5 text-xs font-bold hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
+                  className="rounded-full border border-[var(--card-border)] bg-[var(--card)] px-3 py-1.5 text-xs font-bold shadow-sm transition duration-150 hover:bg-[var(--surface)]"
                 >
                   {s.icon} {t(lang, s.key)}
                 </Link>
@@ -1920,7 +2052,7 @@ export default function HomePage() {
                 key={m.id}
                 msg={m}
                 lang={lang}
-                userAvatar={{ name: userName, email: userEmail, photoUrl: userPhoto }}
+                userAvatar={{ name: userName, email: userEmail, photoUrl: userPhoto, fallbackPhoto: userEmail ? "/avatar.jpg" : undefined }}
                 isLastAssistant={
                   m.role === "assistant" && i === messages.length - 1 && !streaming
                 }
@@ -1951,7 +2083,7 @@ export default function HomePage() {
       </div>
 
       {/* ===== Bottom input ===== */}
-      <div className="min-w-0 w-full px-2.5 pb-2.5 pt-1 sm:px-3.5">
+      <div className="min-w-0 w-full px-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] pt-1 sm:px-3.5">
         {notice && (
           <p className="mx-auto mb-2 max-w-3xl rounded-full bg-slate-900 px-4 py-2 text-center text-xs text-white dark:bg-slate-100 dark:text-slate-900">
             {notice}
@@ -2021,7 +2153,7 @@ export default function HomePage() {
               e.target.value = "";
             }}
           />
-          <div className="relative flex min-w-0 flex-1 items-end rounded-3xl bg-[#F0F0F0] px-2 py-1.5 sm:px-3 dark:bg-[#111B30]">
+          <div className="composer-card relative flex min-w-0 flex-1 items-end rounded-3xl border border-[var(--border-subtle)] bg-[#F0F0F0] px-2 py-1.5 shadow-sm sm:px-3 dark:bg-[#111B30]">
             <button
               type="button"
               onClick={() => setPlusOpen((v) => !v)}
@@ -2048,7 +2180,7 @@ export default function HomePage() {
                 }
               }}
               placeholder={t(lang, "askPlaceholder")}
-              className="bidi-plaintext max-h-[120px] min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-2 text-base leading-6 text-[#111111] outline-none placeholder:text-[#9A9A9A] sm:text-[17px] dark:text-[#EAF2FF]"
+              className="composer-scroll composer-textarea bidi-plaintext max-h-[120px] min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-2 text-base leading-6 text-[#111111] outline-none placeholder:text-[#9A9A9A] sm:text-[17px] dark:text-[#EAF2FF]"
             />
             <button
               type="button"
@@ -2096,7 +2228,7 @@ export default function HomePage() {
                   onClick={() => setPlusOpen(false)}
                   className="fixed inset-0 z-20 cursor-default"
                 />
-                <div className="absolute bottom-full left-2 z-30 mb-2 w-60 rounded-2xl border border-slate-200 bg-white p-2 text-start shadow-lg dark:border-[#263550] dark:bg-[#111B30]">
+                <div className="absolute bottom-full left-2 z-30 mb-2 w-60 rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 text-start shadow-md">
                   <button
                     type="button"
                     onClick={() => {

@@ -8,11 +8,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useLang } from "@/lib/i18n";
 import { chatText } from "@/lib/client";
 import { store } from "@/lib/store";
 import Markdown from "@/components/Markdown";
 import { Card, Btn, Input, Textarea, Spinner } from "@/components/ui";
+
+/** Solid brand button — the shared Btn primary is a gradient; studios use a flat brand colour. */
+const SOLID = "!bg-none !bg-[var(--brand2)]";
 
 type Source = { title: string; url: string; snippet: string };
 
@@ -93,16 +97,20 @@ export default function ResearchPage() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl space-y-4">
-      <h1 className="text-2xl font-bold">{t("research")}</h1>
-      <p className="text-sm text-[var(--muted)]">
-        Web search (free DuckDuckGo API, no key) + AI synthesis. Facts carry source numbers; anything without a source is labelled as AI-generated, never presented as verified.
-      </p>
+    <div className="mx-auto w-full max-w-3xl space-y-4 px-3 py-4 sm:px-4">
+      <header className="space-y-1">
+        <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
+          <span aria-hidden className="inline-block rtl:rotate-180">←</span>
+          {t("backToChat")}
+        </Link>
+        <h1 className="text-xl font-bold sm:text-2xl">{t("research")}</h1>
+        <p className="text-sm text-[var(--muted)]">{t("researchSubtitle")}</p>
+      </header>
 
       <Card>
         <div className="flex flex-col gap-2 sm:flex-row">
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="e.g. What is quantum computing?" onKeyDown={(e) => e.key === "Enter" && run()} />
-          <Btn onClick={run} disabled={busy || !query.trim()}>
+          <Btn onClick={run} disabled={busy || !query.trim()} className={`w-full sm:w-auto ${SOLID}`}>
             {busy ? t("loading") : t("research")}
           </Btn>
         </div>
@@ -122,7 +130,7 @@ export default function ResearchPage() {
 
       {sources.length > 0 && (
         <Card>
-          <h2 className="mb-2 font-bold">Sources (from web search)</h2>
+          <h2 className="mb-2 font-bold">{t("researchSources")}</h2>
           <ul className="space-y-2 text-sm">
             {sources.map((s, i) => (
               <li key={i}>
@@ -138,7 +146,7 @@ export default function ResearchPage() {
 
       {report && (
         <Card>
-          <h2 className="mb-2 font-bold">Research report</h2>
+          <h2 className="mb-2 font-bold">{t("researchReport")}</h2>
           <Markdown text={report} />
           <div className="mt-3 flex gap-2">
             <Btn

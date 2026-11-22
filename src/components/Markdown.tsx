@@ -12,27 +12,27 @@ import remarkGfm from "remark-gfm";
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="my-2 overflow-hidden rounded-xl border border-white/10 bg-[#0d1426]">
-      <div className="flex items-center justify-between border-b border-white/10 px-3 py-1.5">
-        <span className="text-xs font-semibold text-cyan-300">{lang || "code"}</span>
+    <div className="my-3 overflow-hidden rounded-xl border border-[#263550] bg-[#0d1426] shadow-sm" dir="ltr">
+      <div className="flex items-center justify-between gap-2 border-b border-white/10 bg-white/[0.03] px-3 py-1.5">
+        <span className="truncate text-xs font-semibold text-cyan-300">{lang || "code"}</span>
         <button
           type="button"
-          className="rounded-lg bg-white/10 px-2 py-1 text-xs font-semibold text-white active:scale-95"
+          className="shrink-0 rounded-lg bg-white/10 px-2.5 py-1 text-xs font-semibold text-white transition hover:bg-white/20 focus-visible:outline-2 focus-visible:outline-cyan-300 active:scale-95"
           onClick={async () => {
             try {
               await navigator.clipboard.writeText(code);
               setCopied(true);
-              setTimeout(() => setCopied(false), 1200);
+              setTimeout(() => setCopied(false), 1500);
             } catch {
               /* clipboard unavailable */
             }
           }}
         >
-          {copied ? "Copied!" : "Copy"}
+          {copied ? "✓ Copied!" : "⧉ Copy"}
         </button>
       </div>
-      <pre className="!m-0 !bg-transparent !p-3">
-        <code className="!bg-transparent !p-0">{code}</code>
+      <pre className="overflow-x-auto !m-0 !bg-transparent p-3 text-[13px] leading-relaxed">
+        <code className="bg-transparent font-mono text-slate-100 !p-0">{code}</code>
       </pre>
     </div>
   );
@@ -63,7 +63,14 @@ export default function Markdown({ text }: { text: string }) {
           img({ src, alt }) {
             return (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={src} alt={alt ?? ""} className="max-w-full rounded-xl" />
+              <img src={src} alt={alt ?? ""} loading="lazy" className="max-w-full rounded-xl shadow-sm" />
+            );
+          },
+          a({ href, children }) {
+            return (
+              <a href={href} target="_blank" rel="noopener noreferrer">
+                {children}
+              </a>
             );
           },
         }}

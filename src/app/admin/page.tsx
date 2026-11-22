@@ -18,6 +18,24 @@ type Status = {
   geminiModel: string;
 };
 
+function Card({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-3xl border border-[var(--card-border)] bg-[var(--card)] p-4 shadow-sm sm:p-5">
+      <h2 className="text-sm font-bold">{title}</h2>
+      <div className="mt-3">{children}</div>
+    </section>
+  );
+}
+
+function Stat({ value, label }: { value: number | string; label: string }) {
+  return (
+    <div className="rounded-2xl bg-black/5 px-3 py-4 text-center dark:bg-white/5">
+      <p className="text-2xl font-bold">{value}</p>
+      <p className="mt-0.5 text-xs text-[var(--muted)]">{label}</p>
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const { lang } = useUi();
   const router = useRouter();
@@ -103,8 +121,8 @@ export default function AdminPage() {
 
   if (checking) {
     return (
-      <div className="flex min-h-dvh items-center justify-center bg-white dark:bg-slate-950 dark:text-slate-100">
-        <p className="text-sm text-slate-500">{t(lang, "loading")}</p>
+      <div className="flex min-h-dvh items-center justify-center px-4">
+        <p className="text-sm text-[var(--muted)]">{t(lang, "loading")}</p>
       </div>
     );
   }
@@ -113,10 +131,10 @@ export default function AdminPage() {
   // If Supabase is not configured there is no session to check.
   if (!email) {
     return (
-      <div className="flex min-h-dvh items-center justify-center bg-white px-4 dark:bg-slate-950 dark:text-slate-100">
-        <div className="text-center">
-          <p className="text-sm text-slate-500">{t(lang, "login")}</p>
-          <Link href="/login" className="mt-4 inline-block font-bold text-[#2457FF] hover:underline">
+      <div className="flex min-h-dvh items-center justify-center px-4">
+        <div className="rounded-3xl border border-[var(--card-border)] bg-[var(--card)] p-6 text-center shadow-sm">
+          <p className="text-sm text-[var(--muted)]">{t(lang, "login")}</p>
+          <Link href="/login" className="mt-4 inline-block font-bold text-[var(--brand2)] hover:underline">
             {t(lang, "login")}
           </Link>
         </div>
@@ -126,11 +144,11 @@ export default function AdminPage() {
 
   if (!isAdminEmail(email)) {
     return (
-      <div className="flex min-h-dvh items-center justify-center bg-white px-4 dark:bg-slate-950 dark:text-slate-100">
-        <div className="text-center">
+      <div className="flex min-h-dvh items-center justify-center px-4">
+        <div className="rounded-3xl border border-[var(--card-border)] bg-[var(--card)] p-6 text-center shadow-sm">
           <p className="text-lg font-bold">{t(lang, "adminOnly")}</p>
-          <Link href="/" className="mt-4 inline-block font-bold text-[#2457FF] hover:underline">
-            ← {t(lang, "backToChat")}
+          <Link href="/" className="mt-4 inline-block font-bold text-[var(--brand2)] hover:underline">
+            <span className="inline-block rtl:rotate-180">←</span> {t(lang, "backToChat")}
           </Link>
         </div>
       </div>
@@ -142,111 +160,115 @@ export default function AdminPage() {
   const geminiModel = status?.geminiModel ?? "gemini-3-flash-preview";
 
   return (
-    <div className="min-h-dvh bg-white px-4 py-8 dark:bg-slate-950 dark:text-slate-100">
-      <div className="mx-auto max-w-xl">
-        <div className="flex items-center gap-3">
-          <Image src="/avatar.jpg" alt="Samim AI" width={56} height={56} className="rounded-full object-cover" />
-          <div>
-            <h1 className="flex items-center gap-2 text-xl font-bold">
+    <div className="min-h-dvh px-4 py-6">
+      <div className="mx-auto flex max-w-xl flex-col gap-4">
+        <Link href="/" className="self-start text-sm font-bold text-[var(--brand2)] hover:underline">
+          <span className="inline-block rtl:rotate-180">←</span> {t(lang, "backToChat")}
+        </Link>
+
+        <header className="flex items-center gap-3">
+          <Image
+            src="/avatar.jpg"
+            alt="Samim AI"
+            width={56}
+            height={56}
+            className="rounded-full object-cover ring-2 ring-amber-400/50"
+          />
+          <div className="min-w-0">
+            <h1 className="flex flex-wrap items-center gap-2 text-xl font-bold">
               {t(lang, "adminDashboard")}
               <span className="rounded-full bg-amber-400 px-2.5 py-0.5 text-xs font-bold text-black">
                 {t(lang, "admin")}
               </span>
             </h1>
-            <p className="text-sm text-slate-500">
-              {name || "عبدالصمیم نیازی"} • {email}
+            <p className="truncate text-sm text-[var(--muted)]">
+              {name || "عبدالصمیم نیازی"} • <span dir="ltr">{email}</span>
             </p>
           </div>
-        </div>
+        </header>
 
-        <div className="mt-6 flex flex-col gap-5 rounded-2xl border border-slate-200 p-4 dark:border-slate-800">
-          <div>
-            <h2 className="text-sm font-bold">{t(lang, "appStatus")}</h2>
-            <div className="mt-2 flex flex-col gap-2 text-sm">
-              <div className="flex items-center justify-between gap-4">
-                <span>Supabase</span>
-                <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-800">
-                  {supabaseOk ? t(lang, "connected") : t(lang, "notConfigured")}
+        <Card title={t(lang, "appStatus")}>
+          <div className="flex flex-col gap-2 text-sm">
+            <div className="flex items-center justify-between gap-4">
+              <span className="font-bold">Supabase</span>
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-bold ${
+                  supabaseOk ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : "bg-black/5 dark:bg-white/10"
+                }`}
+              >
+                {supabaseOk ? t(lang, "connected") : t(lang, "notConfigured")}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span className="min-w-0 font-bold">
+                Gemini • <span className="break-all font-normal text-[var(--muted)]">{geminiModel}</span>
+              </span>
+              <span
+                className={`shrink-0 rounded-full px-3 py-1 text-xs font-bold ${
+                  geminiOnline ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : "bg-black/5 dark:bg-white/10"
+                }`}
+              >
+                {geminiOnline ? t(lang, "online") : t(lang, "offline")}
+              </span>
+            </div>
+          </div>
+        </Card>
+
+        <Card title={t(lang, "accountInfo")}>
+          <div className="grid grid-cols-2 gap-2">
+            <Stat value={totalChats ?? "—"} label={t(lang, "totalChats")} />
+            <Stat value={totalMessages ?? "—"} label={t(lang, "totalMessages")} />
+          </div>
+          <p className="mt-3 text-xs leading-relaxed text-[var(--muted)]">{t(lang, "adminNote")}</p>
+        </Card>
+
+        <Card title={t(lang, "studioCounts")}>
+          <div className="grid grid-cols-2 gap-2">
+            <Stat value={studioCounts.chats} label={t(lang, "totalChats")} />
+            <Stat value={studioCounts.projects} label={t(lang, "totalProjects")} />
+            <Stat value={studioCounts.images} label={t(lang, "totalImages")} />
+            <Stat value={studioCounts.workflows} label={t(lang, "totalWorkflows")} />
+          </div>
+          <p className="mt-3 text-xs text-[var(--muted)]">
+            {t(lang, "studioFeatures")} • {studioCounts.runs} {t(lang, "adminRuns")}
+          </p>
+        </Card>
+
+        <Card title={t(lang, "providers")}>
+          <div className="flex flex-col gap-3 text-sm">
+            {providerInfos({
+              geminiConfigured: geminiOnline,
+              openaiKey: !!store.settings().openaiKey.trim(),
+              anthropicKey: !!store.settings().anthropicKey.trim(),
+              deepseekKey: !!store.settings().deepseekKey.trim(),
+              grokKey: !!store.settings().grokKey.trim(),
+              qwenKey: !!store.settings().qwenKey.trim(),
+              openRouterKey: !!store.settings().openRouterKey.trim(),
+              huggingFaceKey: !!store.settings().hfKey.trim(),
+            }).map((p) => (
+              <div key={p.id} className="flex items-center justify-between gap-4">
+                <span className="min-w-0">
+                  <span className="font-bold">{p.name}</span>
+                  <span className="block break-words text-xs text-[var(--muted)]">{p.models.join(", ")}</span>
+                </span>
+                <span
+                  className={`shrink-0 rounded-full px-3 py-1 text-xs font-bold ${
+                    p.status === "ready" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : "bg-black/5 dark:bg-white/10"
+                  }`}
+                >
+                  {p.status === "ready" ? t(lang, "configured") : t(lang, "providerNeedsKey")}
                 </span>
               </div>
-              <div className="flex items-center justify-between gap-4">
-                <span>
-                  Gemini • {geminiModel}
-                </span>
-                <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-800">
-                  {geminiOnline ? t(lang, "online") : t(lang, "offline")}
-                </span>
-              </div>
-            </div>
+            ))}
           </div>
+          <p className="mt-3 text-xs leading-relaxed text-[var(--muted)]">{t(lang, "limitsNote")}</p>
+        </Card>
 
-          <div>
-            <h2 className="text-sm font-bold">{t(lang, "accountInfo")}</h2>
-            <div className="mt-2 grid grid-cols-2 gap-2 text-center">
-              <div className="rounded-2xl bg-slate-100 px-3 py-4 dark:bg-slate-800">
-                <p className="text-2xl font-bold">{totalChats ?? "—"}</p>
-                <p className="text-xs text-slate-500">{t(lang, "totalChats")}</p>
-              </div>
-              <div className="rounded-2xl bg-slate-100 px-3 py-4 dark:bg-slate-800">
-                <p className="text-2xl font-bold">{totalMessages ?? "—"}</p>
-                <p className="text-xs text-slate-500">{t(lang, "totalMessages")}</p>
-              </div>
-            </div>
-            <p className="mt-2 text-xs text-slate-500">
-              {t(lang, "adminNote")}
-            </p>
-          </div>
-
-          <div>
-            <h2 className="text-sm font-bold">{t(lang, "studioCounts")}</h2>
-            <div className="mt-2 grid grid-cols-2 gap-2 text-center">
-              {[
-                { label: t(lang, "totalChats"), value: studioCounts.chats },
-                { label: t(lang, "totalProjects"), value: studioCounts.projects },
-                { label: t(lang, "totalImages"), value: studioCounts.images },
-                { label: t(lang, "totalWorkflows"), value: studioCounts.workflows },
-              ].map((c) => (
-                <div key={c.label} className="rounded-2xl bg-slate-100 px-3 py-3 dark:bg-slate-800">
-                  <p className="text-xl font-bold">{c.value}</p>
-                  <p className="text-xs text-slate-500">{c.label}</p>
-                </div>
-              ))}
-            </div>
-            <p className="mt-2 text-xs text-slate-500">
-              {t(lang, "studioFeatures")} • {studioCounts.runs} runs
-            </p>
-          </div>
-
-          <div>
-            <h2 className="text-sm font-bold">{t(lang, "providers")}</h2>
-            <div className="mt-2 flex flex-col gap-2 text-sm">
-              {providerInfos({
-                geminiConfigured: geminiOnline,
-                openaiKey: !!store.settings().openaiKey.trim(),
-                anthropicKey: !!store.settings().anthropicKey.trim(),
-                deepseekKey: !!store.settings().deepseekKey.trim(),
-                grokKey: !!store.settings().grokKey.trim(),
-                qwenKey: !!store.settings().qwenKey.trim(),
-                openRouterKey: !!store.settings().openRouterKey.trim(),
-                huggingFaceKey: !!store.settings().hfKey.trim(),
-              }).map((p) => (
-                <div key={p.id} className="flex items-center justify-between gap-4">
-                  <span>
-                    {p.name}
-                    <span className="block text-xs text-slate-500">{p.models.join(", ")}</span>
-                  </span>
-                  <span className="rounded-full bg-slate-100 px-3 py-1 dark:bg-slate-800">
-                    {p.status === "ready" ? t(lang, "configured") : t(lang, "providerNeedsKey")}
-                  </span>
-                </div>
-              ))}
-            </div>
-            <p className="mt-2 text-xs text-slate-500">{t(lang, "limits")}: Gemini free tier — limited requests/day &amp; per minute. Rate limit on /api/chat: 30/min per IP.</p>
-          </div>
-
-          <div>
-            <h2 className="text-sm font-bold">{t(lang, "studioFeatures")}</h2>
-            <div className="mt-2 flex flex-col gap-2 text-sm">
+        <Card title={t(lang, "studioFeatures")}>
+          {Object.keys(features).length === 0 ? (
+            <p className="text-sm text-[var(--muted)]">{t(lang, "empty")}</p>
+          ) : (
+            <div className="flex flex-col gap-2 text-sm">
               {Object.keys(features).map((f) => (
                 <label key={f} className="flex items-center justify-between gap-4">
                   <span className="capitalize">{f}</span>
@@ -254,70 +276,65 @@ export default function AdminPage() {
                     type="checkbox"
                     checked={features[f] !== false}
                     onChange={() => toggleFeature(f)}
-                    className="h-5 w-5 accent-[#2457FF]"
+                    className="h-5 w-5 shrink-0 accent-[var(--brand2)]"
                   />
                 </label>
               ))}
             </div>
-          </div>
+          )}
+        </Card>
 
-          <div>
-            <h2 className="text-sm font-bold">{t(lang, "errorLog")}</h2>
-            {logs.length === 0 ? (
-              <p className="mt-2 text-sm text-slate-500">{t(lang, "empty")}</p>
-            ) : (
-              <ul className="mt-2 space-y-1 text-sm">
-                {logs.slice(0, 30).map((l, i) => (
-                  <li key={i} className="rounded-lg bg-slate-100 px-2 py-1.5 dark:bg-slate-800">
-                    <span className="text-xs text-slate-500">
-                      {new Date(l.ts).toLocaleString()} — {l.where}
-                    </span>
-                    <span className="block break-words">{l.message}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+        <Card title={t(lang, "errorLog")}>
+          {logs.length === 0 ? (
+            <p className="text-sm text-[var(--muted)]">{t(lang, "empty")}</p>
+          ) : (
+            <ul className="space-y-1.5 text-sm">
+              {logs.slice(0, 30).map((l, i) => (
+                <li key={i} className="rounded-xl bg-black/5 px-2.5 py-2 dark:bg-white/5">
+                  <span className="text-xs text-[var(--muted)]">
+                    {new Date(l.ts).toLocaleString()} — {l.where}
+                  </span>
+                  <span className="block break-words">{l.message}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
 
-          <div>
-            <h2 className="text-sm font-bold">{t(lang, "users")}</h2>
-            <p className="mt-2 text-sm text-slate-500">{t(lang, "usersNote")}</p>
-          </div>
+        <Card title={t(lang, "users")}>
+          <p className="text-sm leading-relaxed text-[var(--muted)]">{t(lang, "usersNote")}</p>
+        </Card>
 
-          <div className="flex flex-col gap-2">
-            <a
-              href="https://supabase.com/dashboard/project/kmofyrkgwpgqztcggtaq/sql/new"
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-xl bg-[#2457FF] px-3 py-2.5 text-center text-sm font-bold text-white"
-            >
-              {t(lang, "openSupabase")} ↗
-            </a>
-            <a
-              href="https://vercel.com/samimpatan8-8864/samim-ai/settings/environment-variables"
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-xl border border-slate-300 px-3 py-2.5 text-center text-sm font-bold hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
-            >
-              {t(lang, "openVercel")} ↗
-            </a>
-            <a
-              href="https://github.com/samimpathan/SamimAI"
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-xl border border-slate-300 px-3 py-2.5 text-center text-sm font-bold hover:bg-slate-100 dark:border-slate-700 dark:hover:bg-slate-800"
-            >
-              {t(lang, "openGithub")} ↗
-            </a>
-          </div>
+        <div className="flex flex-col gap-2">
+          <a
+            href="https://supabase.com/dashboard/project/kmofyrkgwpgqztcggtaq/sql/new"
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-xl bg-[var(--brand2)] px-3 py-2.5 text-center text-sm font-bold text-white"
+          >
+            {t(lang, "openSupabase")} ↗
+          </a>
+          <a
+            href="https://vercel.com/samimpatan8-8864/samim-ai/settings/environment-variables"
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-xl border border-[var(--card-border)] bg-[var(--card)] px-3 py-2.5 text-center text-sm font-bold"
+          >
+            {t(lang, "openVercel")} ↗
+          </a>
+          <a
+            href="https://github.com/samimpathan/SamimAI"
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-xl border border-[var(--card-border)] bg-[var(--card)] px-3 py-2.5 text-center text-sm font-bold"
+          >
+            {t(lang, "openGithub")} ↗
+          </a>
         </div>
 
-        <p className="mt-4 text-xs text-slate-400">
-          {t(lang, "admin")} • {ADMIN_EMAIL} • Samim AI
+        <p className="text-xs text-[var(--muted)]">
+          {t(lang, "admin")} • <span dir="ltr">{ADMIN_EMAIL}</span> • Samim AI
         </p>
-        <Link href="/" className="mt-6 inline-block text-sm text-[#2457FF] hover:underline">
-          ← {t(lang, "backToChat")}
-        </Link>
       </div>
     </div>
   );

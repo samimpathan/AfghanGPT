@@ -10,6 +10,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useLang } from "@/lib/i18n";
 import {
   store,
@@ -21,6 +22,9 @@ import {
 import { chatJson, chatText, downloadFileSpec, type ApiChatMsg } from "@/lib/client";
 import type { FileSpec } from "@/lib/filegen";
 import { Btn, Card, Field, Input, Select, Spinner, Textarea, Badge } from "@/components/ui";
+
+/** Solid brand button — the shared Btn primary is a gradient; studios use a flat brand colour. */
+const SOLID = "!bg-none !bg-[var(--brand2)]";
 
 type StepKind = WorkflowStep["kind"];
 
@@ -321,14 +325,21 @@ export default function WorkflowsPage() {
   };
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-xl font-bold">{t("workflows")}</h1>
-        <span className="ms-auto" />
-        <Btn size="sm" onClick={saveWorkflow}>
-          Save workflow
-        </Btn>
-      </div>
+    <div className="mx-auto w-full max-w-5xl space-y-4 px-3 py-4 sm:px-4">
+      <header className="space-y-1">
+        <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
+          <span aria-hidden className="inline-block rtl:rotate-180">←</span>
+          {t("backToChat")}
+        </Link>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-xl font-bold sm:text-2xl">{t("workflows")}</h1>
+          <span className="ms-auto" />
+          <Btn size="sm" onClick={saveWorkflow} className={SOLID}>
+            Save workflow
+          </Btn>
+        </div>
+        <p className="text-sm text-[var(--muted)]">{t("workflowsSubtitle")}</p>
+      </header>
 
       {notice && (
         <button
@@ -343,7 +354,7 @@ export default function WorkflowsPage() {
       <div className="grid gap-3 lg:grid-cols-2">
         {/* Builder */}
         <Card className="space-y-3">
-          <h2 className="text-sm font-bold">Build a workflow</h2>
+          <h2 className="text-sm font-bold">{t("workflowsBuild")}</h2>
           <div className="flex flex-wrap gap-2">
             <Input
               value={wfName}
@@ -389,7 +400,7 @@ export default function WorkflowsPage() {
                     value={step.label}
                     onChange={(e) => updateStep(step.id, { label: e.target.value })}
                     placeholder="Step label"
-                    className="!w-auto flex-1"
+                    className="!w-auto min-w-0 flex-1"
                   />
                   <div className="flex gap-1">
                     <button
@@ -436,7 +447,7 @@ export default function WorkflowsPage() {
 
           {/* Saved workflows */}
           <div className="border-t border-[var(--card-border)] pt-3">
-            <h3 className="mb-2 text-sm font-bold">Saved workflows</h3>
+            <h3 className="mb-2 text-sm font-bold">{t("workflowsSaved")}</h3>
             <div className="space-y-1">
               {savedWfs.map((w) => (
                 <div key={w.id} className="group flex items-center gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-black/5 dark:hover:bg-white/5">
@@ -460,7 +471,7 @@ export default function WorkflowsPage() {
 
         {/* Run */}
         <Card className="space-y-3">
-          <h2 className="text-sm font-bold">Run</h2>
+          <h2 className="text-sm font-bold">{t("workflowsRun")}</h2>
           <Field label="Workflow input">
             <Textarea
               value={runInput}
@@ -469,7 +480,7 @@ export default function WorkflowsPage() {
               placeholder="Paste or type the text this workflow should process…"
             />
           </Field>
-          <Btn onClick={runWorkflow} disabled={running}>
+          <Btn onClick={runWorkflow} disabled={running} className={SOLID}>
             {running ? "Running…" : "Run workflow"}
           </Btn>
           {running && <Spinner label="Running steps in order…" />}
@@ -524,7 +535,7 @@ export default function WorkflowsPage() {
       {/* Run history */}
       <Card className="space-y-3">
         <div className="flex items-center gap-2">
-          <h2 className="text-sm font-bold">Run history</h2>
+          <h2 className="text-sm font-bold">{t("workflowsHistory")}</h2>
           <span className="ms-auto" />
           <Btn size="sm" variant="danger" onClick={clearHistory} disabled={history.length === 0}>
             Clear history

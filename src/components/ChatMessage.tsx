@@ -44,9 +44,9 @@ function loadReactions(): Record<string, "like" | "dislike"> {
 }
 
 const actionBtn =
-  "rounded-full px-2 py-1 text-xs text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800 disabled:opacity-40";
+  "rounded-full px-2 py-1 text-xs text-slate-500 transition duration-150 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-[#2457FF] dark:text-slate-400 dark:hover:bg-slate-800 disabled:opacity-40";
 const actionBtnActive =
-  "rounded-full bg-slate-200 px-2 py-1 text-xs font-bold text-slate-800 dark:bg-slate-700 dark:text-white";
+  "rounded-full bg-slate-200 px-2 py-1 text-xs font-bold text-slate-800 transition duration-150 dark:bg-slate-700 dark:text-white";
 
 function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -212,9 +212,9 @@ function CodeBlock({
   const isWeb = WEB_LANGS.has(lower);
   const isNoteLang = NOTE_LANGS.has(lower);
   return (
-    <div className="my-2 overflow-hidden rounded-lg border border-slate-700 bg-slate-900 text-slate-100" dir="ltr">
-      <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-800 px-3 py-1.5 text-xs">
-        <span>{codeLang || "code"}</span>
+    <div className="my-2 overflow-hidden rounded-xl border border-[#263550] bg-[#0d1426] text-slate-100 shadow-sm" dir="ltr">
+      <div className="flex flex-wrap items-center justify-between gap-2 bg-white/[0.04] px-3 py-1.5 text-xs">
+        <span className="font-semibold text-cyan-300">{codeLang || "code"}</span>
         <span className="flex gap-2">
           {(isWeb || isNoteLang) && (
             <button
@@ -223,7 +223,7 @@ function CodeBlock({
                 if (isWeb) setShowPreview((v) => !v);
                 else setShowNote((v) => !v);
               }}
-              className="rounded bg-emerald-600 px-2 py-0.5 text-white hover:bg-emerald-500"
+              className="rounded-lg bg-emerald-600 px-2.5 py-1 font-semibold text-white transition duration-150 hover:bg-emerald-500 focus-visible:outline-2 focus-visible:outline-emerald-300 active:scale-95"
             >
               ▶ {t(uiLang, "run")}
             </button>
@@ -239,13 +239,13 @@ function CodeBlock({
                 // ignore
               }
             }}
-            className="rounded bg-slate-700 px-2 py-0.5 hover:bg-slate-600"
+            className="rounded-lg bg-slate-700 px-2.5 py-1 font-semibold transition duration-150 hover:bg-slate-600 focus-visible:outline-2 focus-visible:outline-slate-300 active:scale-95"
           >
-            {done ? "✓" : "Copy code"}
+            {done ? "✓ Copied!" : "⧉ Copy code"}
           </button>
         </span>
       </div>
-      <pre className="overflow-x-auto p-3 text-sm">
+      <pre className="overflow-x-auto p-3 font-mono text-[13px] leading-relaxed">
         <code>{code}</code>
       </pre>
       {showNote && (
@@ -282,7 +282,7 @@ function FileCard({ file, lang }: { file: NonNullable<UiMessage["file"]>; lang: 
   const href = `data:${file.mime};base64,${file.base64}`;
   const isZip = file.filename.toLowerCase().endsWith(".zip");
   return (
-    <div className="my-2 flex items-center gap-3 rounded-2xl border border-slate-300 bg-slate-50 px-4 py-3 dark:border-[#263550] dark:bg-[#111B30]">
+    <div className="my-2 flex items-center gap-3 rounded-2xl border border-[var(--card-border)] bg-[var(--card)] px-4 py-3 shadow-sm">
       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#2457FF] text-xl text-white">
         {isZip ? "🗜" : "📄"}
       </span>
@@ -320,8 +320,10 @@ export default function ChatMessage({
   msg: UiMessage;
   lang: Lang;
   /** The sender's avatar (photo or generated initials) — shown next
-   * to the user's own messages, like Muse shows it. */
-  userAvatar?: { name?: string | null; email?: string | null; photoUrl?: string | null };
+   * to the user's own messages, like Muse shows it. `fallbackPhoto`
+   * is the default photo for a LOGGED-IN user with no uploaded photo
+   * ("/avatar.jpg"); never pass it for guests. */
+  userAvatar?: { name?: string | null; email?: string | null; photoUrl?: string | null; fallbackPhoto?: string | null };
   onRegenerate?: () => void;
   isLastAssistant?: boolean;
   onEditMessage?: (id: string, newText: string) => void;
@@ -394,14 +396,14 @@ export default function ChatMessage({
   if (isUser) {
     if (editing) {
       return (
-        <div className="flex min-w-0 items-start justify-end gap-2">
+        <div className="msg-in flex min-w-0 items-start justify-end gap-2">
           <div className="min-w-0 w-[82%] max-w-[82%]">
             <textarea
               dir="auto"
               value={editText}
               onChange={(e) => setEditText(e.target.value)}
               rows={3}
-              className="bidi-plaintext w-full rounded-[20px] border-2 border-[#2457FF] bg-white px-4 py-3 text-[17px] text-[#111111] outline-none dark:bg-[#111B30] dark:text-[#EAF2FF]"
+              className="bidi-plaintext w-full rounded-[20px] border-2 border-[#2457FF] bg-white px-4 py-3 text-[17px] text-[#111111] shadow-sm outline-none dark:bg-[#111B30] dark:text-[#EAF2FF]"
             />
             <div className="mt-1.5 flex justify-end gap-2">
               <button
@@ -419,7 +421,7 @@ export default function ChatMessage({
                   onEditMessage?.(msg.id, editText.trim());
                   setEditing(false);
                 }}
-                className="rounded-full bg-[#2457FF] px-3 py-1 text-xs font-bold text-white disabled:opacity-40"
+                className="rounded-full bg-[#2457FF] px-3 py-1 text-xs font-bold text-white transition duration-150 hover:bg-[#1a46d6] focus-visible:outline-2 focus-visible:outline-[#2457FF] disabled:opacity-40"
               >
                 {t(lang, "save")}
               </button>
@@ -429,6 +431,7 @@ export default function ChatMessage({
             name={userAvatar?.name}
             email={userAvatar?.email}
             photoUrl={userAvatar?.photoUrl}
+            fallbackPhoto={userAvatar?.fallbackPhoto}
             size={32}
             className="mt-1"
           />
@@ -441,17 +444,17 @@ export default function ChatMessage({
     // direction, so mixed Pashto/English text does not get jumbled.
     // The user's own avatar sits at the right end, like Muse shows it.
     return (
-      <div className="flex min-w-0 items-start justify-end gap-2">
+      <div className="msg-in flex min-w-0 items-start justify-end gap-2">
         <div className="min-w-0 max-w-[78%]">
           {msg.image && (
             <img
               src={msg.image}
               alt=""
-              className="mb-2 ml-auto block max-h-56 w-auto max-w-full rounded-2xl object-cover"
+              className="mb-2 ml-auto block max-h-56 w-auto max-w-full rounded-2xl object-cover shadow-sm"
             />
           )}
           <div
-            className="break-words rounded-[28px] bg-[#ECECEC] px-[18px] py-3 text-[17px] leading-6 text-slate-900 dark:bg-[#2F2F2F] dark:text-[#EAF2FF]"
+            className="break-words rounded-[28px] bg-[#ECECEC] px-[18px] py-3 text-[17px] leading-6 text-slate-900 shadow-sm dark:bg-[#2F2F2F] dark:text-[#EAF2FF]"
             dir="auto"
           >
             <p
@@ -498,6 +501,7 @@ export default function ChatMessage({
           name={userAvatar?.name}
           email={userAvatar?.email}
           photoUrl={userAvatar?.photoUrl}
+          fallbackPhoto={userAvatar?.fallbackPhoto}
           size={32}
           className="mt-1"
         />
@@ -510,11 +514,11 @@ export default function ChatMessage({
   // action row underneath: like/dislike, regenerate, share, copy,
   // ••• (Branch / Export / Report), speaker.
   return (
-    <div className="flex min-w-0 items-start gap-3">
+    <div className="msg-in flex min-w-0 items-start gap-3">
       <img
         src="/avatar.jpg"
         alt=""
-        className="mt-1 h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-slate-200 dark:ring-[#263550]"
+        className="mt-1 h-8 w-8 shrink-0 rounded-full object-cover ring-1 ring-black/5 dark:ring-[#263550]"
       />
       <div className="min-w-0 flex-1 break-words">
         {msg.image && (
@@ -650,7 +654,7 @@ export default function ChatMessage({
                   }}
                   className="fixed inset-0 z-20 cursor-default"
                 />
-                <div className="absolute bottom-full z-30 mb-1 w-56 rounded-2xl border border-slate-200 bg-white p-2 shadow-lg dark:border-[#263550] dark:bg-[#111B30]">
+                <div className="absolute bottom-full z-30 mb-1 w-56 rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md">
                   <button
                     type="button"
                     onClick={() => {
@@ -711,17 +715,17 @@ export default function ChatMessage({
             </>
           )}
           {msg.mode === "offline" && (
-            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs text-amber-800 dark:bg-amber-900 dark:text-amber-200">
+            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800 ring-1 ring-amber-200 dark:bg-amber-900/60 dark:text-amber-200 dark:ring-amber-800">
               {t(lang, "offlineMode")}
             </span>
           )}
           {msg.mode === "gemini" && (
-            <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200">
+            <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-900/60 dark:text-emerald-200 dark:ring-emerald-800">
               {t(lang, "onlineMode")}
             </span>
           )}
           {msg.mode === "provider" && (
-            <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs text-violet-800 dark:bg-violet-900 dark:text-violet-200">
+            <span className="rounded-full bg-violet-100 px-2.5 py-1 text-xs font-semibold text-violet-800 ring-1 ring-violet-200 dark:bg-violet-900/60 dark:text-violet-200 dark:ring-violet-800">
               {msg.provider ?? "AI"}
             </span>
           )}
