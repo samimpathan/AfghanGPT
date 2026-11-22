@@ -15,11 +15,13 @@ export type ChatMsg = {
 /**
  * Model chain for text chat. gemini-3-flash-preview is the primary model;
  * if it fails (503 high demand, 429, timeout, network error) we retry once
- * with gemini-2.0-flash before giving up. Known NOT to use for this key:
+ * with gemini-flash-lite-latest (verified working for this key 2026-11-22
+ * 17:08) before giving up. Known NOT to use for this key:
  * gemini-2.5-flash (404 "no longer available to new users"),
+ * gemini-2.0-flash and gemini-2.5-flash-lite (404),
  * gemini-3.8-flash and gemini-flash-latest (503 high demand).
  */
-const CHAT_MODELS = ["gemini-3-flash-preview", "gemini-2.0-flash"] as const;
+const CHAT_MODELS = ["gemini-3-flash-preview", "gemini-flash-lite-latest"] as const;
 const TTS_MODEL = "gemini-2.5-flash-preview-tts";
 
 function modelStreamUrl(model: string): string {
