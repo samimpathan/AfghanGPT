@@ -7,7 +7,7 @@ import ChatMessage, { type UiMessage } from "@/components/ChatMessage";
 import LiveCall from "@/components/LiveCall";
 import UserAvatar from "@/components/UserAvatar";
 import { useUi } from "@/components/Providers";
-import { t, LANGS } from "@/lib/i18n";
+import { t } from "@/lib/i18n";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { isAdminEmail } from "@/lib/admin";
 import { store } from "@/lib/store";
@@ -159,7 +159,7 @@ function TypingDots() {
 }
 
 export default function HomePage() {
-  const { lang, setLang, theme, setTheme } = useUi();
+  const { lang, theme, setTheme } = useUi();
   const [userEmail, setUserEmail] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
@@ -179,6 +179,7 @@ export default function HomePage() {
   const [recording, setRecording] = useState(false);
   const [pendingImage, setPendingImage] = useState<{ dataUrl: string } | null>(null);
   const [search, setSearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [pins, setPins] = useState<string[]>([]);
@@ -212,6 +213,24 @@ export default function HomePage() {
   const screenVideoRef = useRef<HTMLVideoElement | null>(null);
   const chatsRef = useRef<LocalChat[]>([]);
   chatsRef.current = chats;
+  /** Scroll targets for the sidebar nav (Images / Library / Explore). */
+  const studiosRef = useRef<HTMLDivElement | null>(null);
+  const libraryRef = useRef<HTMLDivElement | null>(null);
+
+  // Escape closes every open menu (avatar menu, model picker,
+  // ••• menu, + menu). Click-outside is handled by the overlay
+  // buttons on each menu already.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setUserMenuOpen(false);
+      setModelPickerOpen(false);
+      setMoreOpen(false);
+      setPlusOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const active = chats.find((c) => c.id === activeId) ?? null;
   const messages: UiMessage[] = active?.messages ?? [];
@@ -1229,14 +1248,14 @@ export default function HomePage() {
   const visibleStudios = STUDIOS.filter((s) => studioFeatures[s.feature] !== false);
 
   const modelLabel =
-    modelMode === "fast" ? t(lang, "modelFast") : modelMode === "smart" ? t(lang, "modelSmart") : t(lang, "modelAuto");
+    modelMode === "auto"
+      ? t(lang, "modelAuto")
+      : `${t(lang, "appShort")} ${modelMode === "fast" ? t(lang, "modelFast") : t(lang, "modelSmart")}`;
 
-  const suggestions = [
-    t(lang, "suggestion1"),
-    t(lang, "suggestion2"),
-    t(lang, "suggestion3"),
-    t(lang, "suggestion4"),
-  ];
+  /** The real model/mode string, shown in each message's ••• menu. */
+  const currentProviderName =
+    providerOptions.find((p) => p.id === provider)?.name ?? provider;
+  const modelUsedText = `${modelLabel} • ${currentProviderName}`;
 
   const chatItem = (c: LocalChat) => (
     <div
@@ -1369,36 +1388,24 @@ export default function HomePage() {
               </div>
             ) : (
               <>
-            <div className="flex items-center gap-2 p-3">
-              {/* AVATAR FIX (v3.2): a plain <a href="/about"> — not a
-                  framework Link — so the tap works on any phone. The
-                  /about page itself renders fine; nothing overlays
-                  this anchor (the only fixed overlays render when a
-                  menu is open, and they close on tap). */}
-              <a
-                href="/about"
-                aria-label={t(lang, "about")}
-                className="pointer-events-auto relative z-10 shrink-0 cursor-pointer rounded-full transition-transform active:scale-90"
+            {/* Title + search icon (ChatGPT-style sidebar top). */}
+            <div className="flex items-center gap-1 px-3 pt-3">
+              <p className="min-w-0 flex-1 truncate text-xl font-bold">
+                {t(lang, "appShort")}
+                {isAdmin && (
+                  <span className="ms-1 rounded-full bg-amber-400 px-2 py-0.5 align-middle text-[11px] font-bold text-black">
+                    {t(lang, "admin")}
+                  </span>
+                )}
+              </p>
+              <button
+                type="button"
+                onClick={() => setSearchOpen((v) => !v)}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg transition hover:bg-slate-100 active:scale-95 dark:hover:bg-slate-800"
+                aria-label={t(lang, "searchChats")}
               >
-                <Image
-                  src="/avatar.jpg"
-                  alt="Samim AI"
-                  width={40}
-                  height={40}
-                  className="rounded-full object-cover"
-                />
-              </a>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-bold">
-                  {t(lang, "appName")}
-                  {isAdmin && (
-                    <span className="ms-1 rounded-full bg-amber-400 px-2 py-0.5 text-[11px] font-bold text-black">
-                      {t(lang, "admin")}
-                    </span>
-                  )}
-                </p>
-                <p className="text-xs text-slate-500">Samim AI</p>
-              </div>
+                🔍
+              </button>
               <button
                 type="button"
                 onClick={() => setDrawerCollapsed(true)}
@@ -1416,23 +1423,47 @@ export default function HomePage() {
                 ✕
               </button>
             </div>
-            <div className="px-3">
+            {(searchOpen || search) && (
+              <div className="px-3 pt-2">
+                <input
+                  autoFocus={searchOpen}
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={t(lang, "searchChats")}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800"
+                />
+              </div>
+            )}
+            {/* Nav — ONLY features that really exist. Images + Library
+                scroll to the saved-images gallery below; Explore
+                scrolls to the AI Studios list. Customize is omitted
+                (no custom-instructions setting exists), Projects is
+                omitted (no central projects page exists). */}
+            <div className="flex flex-col gap-0.5 px-3 pt-2">
               <button
                 type="button"
-                onClick={newChat}
-                className="w-full rounded-xl bg-[#2457FF] px-3 py-2.5 text-sm font-bold text-white hover:bg-blue-700"
+                onClick={() => libraryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                className="flex items-center gap-3 rounded-lg px-2 py-2 text-start text-[15px] transition hover:bg-slate-100 active:scale-[0.98] dark:hover:bg-slate-800"
               >
-                + {t(lang, "newChat")}
+                <span className="text-xl leading-none">🖼</span> {t(lang, "images")}
               </button>
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={t(lang, "searchChats")}
-                className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800"
-              />
+              <button
+                type="button"
+                onClick={() => libraryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                className="flex items-center gap-3 rounded-lg px-2 py-2 text-start text-[15px] transition hover:bg-slate-100 active:scale-[0.98] dark:hover:bg-slate-800"
+              >
+                <span className="text-xl leading-none">📚</span> {t(lang, "library")}
+              </button>
+              <button
+                type="button"
+                onClick={() => studiosRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                className="flex items-center gap-3 rounded-lg px-2 py-2 text-start text-[15px] transition hover:bg-slate-100 active:scale-[0.98] dark:hover:bg-slate-800"
+              >
+                <span className="text-xl leading-none">🧩</span> {t(lang, "explore")}
+              </button>
             </div>
             {/* Studios (merged from the Samim AI studios) */}
-            <div className="px-3 pb-1 pt-2">
+            <div ref={studiosRef} className="px-3 pb-1 pt-2">
               <p className="px-1 pb-1 text-xs font-bold text-slate-500">
                 🎨 {t(lang, "studios")}
               </p>
@@ -1459,7 +1490,7 @@ export default function HomePage() {
             )}
             <div className="drawer-scroll chat-scroll mt-2 flex-1 overflow-y-auto px-2 pb-2">
               {savedImages.length > 0 && (
-                <div className="mb-2">
+                <div ref={libraryRef} className="mb-2">
                   <p className="px-2 pb-1 pt-1 text-xs font-bold text-slate-500">
                     {t(lang, "images")}
                   </p>
@@ -1481,67 +1512,63 @@ export default function HomePage() {
                   </div>
                 </div>
               )}
-              {pinnedChats.length > 0 && (
-                <div className="mb-1">
-                  <p className="px-2 pb-1 pt-1 text-xs font-bold text-slate-500">
-                    📌 {t(lang, "pinned")}
-                  </p>
-                  {pinnedChats.map(chatItem)}
-                </div>
-              )}
-              {filtered.length === 0 && (
-                <p className="px-2 py-4 text-center text-sm text-slate-500">
-                  {t(lang, "noChats")}
+              {/* Pinned — the heading is ALWAYS visible (ChatGPT-style);
+                  an empty-state line shows when nothing is pinned. */}
+              <div className="mb-1">
+                <p className="px-2 pb-1 pt-1 text-xs font-bold text-slate-500">
+                  📌 {t(lang, "pinned")}
                 </p>
-              )}
-              {folders.map((f) => (
-                <div key={f} className="mb-1">
-                  <p className="px-2 pb-1 pt-1 text-xs font-bold text-slate-500">
-                    📁 {f}
-                  </p>
-                  {otherChats.filter((c) => folderOf(c.id) === f).map(chatItem)}
-                </div>
-              ))}
-              {unfiledChats.map(chatItem)}
-              {folders.length > 0 && (
-                <p className="px-2 pb-1 text-[11px] text-slate-400">
-                  {t(lang, "foldersLocalNote")}
+                {pinnedChats.length > 0 ? (
+                  pinnedChats.map(chatItem)
+                ) : (
+                  <p className="px-2 py-1 text-xs text-slate-400">{t(lang, "noPinned")}</p>
+                )}
+              </div>
+              {/* Chats — heading ALWAYS visible; folders + unfiled
+                  chats below it, or the empty state when there are none. */}
+              <div className="mb-1">
+                <p className="px-2 pb-1 pt-1 text-xs font-bold text-slate-500">
+                  💬 {t(lang, "chats")}
                 </p>
-              )}
-              {archivedChats.length > 0 && (
-                <div className="mb-1">
-                  <button
-                    type="button"
-                    onClick={() => setShowArchived((v) => !v)}
-                    className="w-full px-2 pb-1 pt-1 text-start text-xs font-bold text-slate-500"
-                  >
-                    🗄 {t(lang, "archived")} ({archivedChats.length}){" "}
-                    {showArchived ? "▾" : "▸"}
-                  </button>
-                  {showArchived && archivedChats.map(chatItem)}
-                </div>
-              )}
+                {filtered.length === 0 ? (
+                  <p className="px-2 py-4 text-center text-sm text-slate-500">
+                    {t(lang, "noChats")}
+                  </p>
+                ) : (
+                  <>
+                    {folders.map((f) => (
+                      <div key={f} className="mb-1">
+                        <p className="px-2 pb-1 pt-1 text-xs font-bold text-slate-500">
+                          📁 {f}
+                        </p>
+                        {otherChats.filter((c) => folderOf(c.id) === f).map(chatItem)}
+                      </div>
+                    ))}
+                    {unfiledChats.map(chatItem)}
+                  </>
+                )}
+                {folders.length > 0 && (
+                  <p className="px-2 pb-1 text-[11px] text-slate-400">
+                    {t(lang, "foldersLocalNote")}
+                  </p>
+                )}
+                {archivedChats.length > 0 && (
+                  <div className="mb-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowArchived((v) => !v)}
+                      className="w-full px-2 pb-1 pt-1 text-start text-xs font-bold text-slate-500"
+                    >
+                      🗄 {t(lang, "archived")} ({archivedChats.length}){" "}
+                      {showArchived ? "▾" : "▸"}
+                    </button>
+                    {showArchived && archivedChats.map(chatItem)}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="border-t border-[var(--border-subtle)] p-3">
-              {userEmail ? (
-                <a href="/about" className="flex items-center gap-2">
-                  {/* The USER's avatar (photo or initials) — like Muse.
-                      Logged-in users without a photo get /avatar.jpg as
-                      the default; guests never do (see UserAvatar). */}
-                  <UserAvatar name={userName} email={userEmail} photoUrl={userPhoto} fallbackPhoto="/avatar.jpg" size={32} />
-                  <span className="min-w-0 flex-1 truncate text-sm font-bold">
-                    {userName ?? userEmail}
-                  </span>
-                </a>
-              ) : (
-                <span className="flex items-center gap-2">
-                  <UserAvatar name={null} email={null} photoUrl={null} size={32} />
-                  <Link href="/login" className="text-sm font-bold text-[#2457FF] hover:underline">
-                    {t(lang, "login")}
-                  </Link>
-                </span>
-              )}
-              <div className="mt-2 flex flex-wrap gap-3 text-xs">
+              <div className="flex flex-wrap gap-3 text-xs">
                 <Link href="/settings" className="text-slate-600 hover:underline dark:text-slate-300">
                   ⚙ {t(lang, "settings")}
                 </Link>
@@ -1554,7 +1581,65 @@ export default function HomePage() {
                   </Link>
                 )}
               </div>
-              <p className="mt-2 text-xs text-slate-400">{t(lang, "notMuse")}</p>
+              {/* Bottom bar (ChatGPT-style): BLUE new-chat pill + the
+                  user's avatar + blue voice button. */}
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={newChat}
+                  className="flex h-11 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-[#2457FF] px-4 text-sm font-bold text-white transition hover:bg-blue-700 active:scale-95"
+                >
+                  ✎ {t(lang, "chat")}
+                </button>
+                {userEmail ? (
+                  <a
+                    href="/about"
+                    aria-label={t(lang, "about")}
+                    className="shrink-0 rounded-full transition active:scale-90"
+                  >
+                    {/* The USER's avatar (photo or initials) — like Muse.
+                        Logged-in users without a photo get /avatar.jpg as
+                        the default; guests never do (see UserAvatar). */}
+                    <UserAvatar name={userName} email={userEmail} photoUrl={userPhoto} fallbackPhoto="/avatar.jpg" size={40} />
+                  </a>
+                ) : (
+                  <Link
+                    href="/login"
+                    aria-label={t(lang, "login")}
+                    className="shrink-0 rounded-full transition active:scale-90"
+                  >
+                    <UserAvatar name={null} email={null} photoUrl={null} size={40} />
+                  </Link>
+                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSidebarOpen(false);
+                    setLiveCallOpen(true);
+                  }}
+                  className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#2457FF] text-white transition hover:bg-blue-700 active:scale-95"
+                  aria-label={t(lang, "liveCall")}
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+                    <rect x="2.5" y="9" width="2" height="6" rx="1" fill="currentColor" />
+                    <rect x="7" y="6" width="2" height="12" rx="1" fill="currentColor" />
+                    <rect x="11.5" y="9" width="2" height="6" rx="1" fill="currentColor" />
+                    <rect x="16" y="5" width="2" height="14" rx="1" fill="currentColor" />
+                    <rect x="19.5" y="9" width="2" height="6" rx="1" fill="currentColor" />
+                  </svg>
+                </button>
+              </div>
+              {/* Name wraps onto two lines — never truncated mid-word. */}
+              {userEmail ? (
+                <p className="mt-2 break-words text-xs leading-relaxed text-slate-500">
+                  {userName ?? userEmail}
+                </p>
+              ) : (
+                <Link href="/login" className="mt-2 block text-xs font-bold text-[#2457FF] hover:underline">
+                  {t(lang, "login")}
+                </Link>
+              )}
+              <p className="mt-1 text-xs text-slate-400">{t(lang, "notMuse")}</p>
             </div>
               </>
             )}
@@ -1674,7 +1759,7 @@ export default function HomePage() {
                 />
                 <div className="absolute end-0 top-full z-30 mt-1 w-56 rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md">
                   {userEmail && (
-                    <p className="truncate px-3 py-2 text-xs text-slate-500">
+                    <p className="break-words px-3 py-2 text-xs text-slate-500">
                       {userName ?? userEmail}
                     </p>
                   )}
@@ -1803,38 +1888,38 @@ export default function HomePage() {
               <button
                 type="button"
                 disabled={!activeId}
-                onClick={() => activeId && void doDelete(activeId)}
+                onClick={() => {
+                  if (activeId) void doDelete(activeId);
+                  setMoreOpen(false);
+                }}
                 className="block w-full rounded-xl px-3 py-2 text-start text-sm text-red-600 hover:bg-slate-100 disabled:opacity-40 dark:text-red-400 dark:hover:bg-slate-800"
               >
                 🗑 {t(lang, "delete")}
               </button>
               <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
-              <p className="px-2 pb-1 pt-1 text-xs text-slate-500">🎨 {t(lang, "studios")}</p>
-              {visibleStudios.map((s) => (
-                <Link
-                  key={s.href}
-                  href={s.href}
-                  onClick={() => setMoreOpen(false)}
-                  className="block rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
-                >
-                  {s.icon} {t(lang, s.key)}
-                </Link>
-              ))}
-              <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
               <p className="px-2 pb-1 pt-1 text-xs text-slate-500">{t(lang, "provider")}</p>
-              <select
-                value={provider}
-                onChange={(e) => pickProvider(e.target.value as ProviderId)}
-                className="mx-2 mb-1 w-[calc(100%-16px)] rounded-xl border border-slate-300 bg-transparent px-2 py-2 text-sm dark:border-slate-700"
-                aria-label={t(lang, "provider")}
-              >
-                {providerOptions.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} —{" "}
+              {/* Provider buttons, NOT a <select>: a long provider line
+                  WRAPS onto two lines instead of truncating mid-word
+                  ("Google Gemini — Needs y…"). */}
+              {providerOptions.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => {
+                    pickProvider(p.id);
+                    setMoreOpen(false);
+                  }}
+                  className="block w-full rounded-xl px-3 py-2 text-start hover:bg-slate-100 dark:hover:bg-slate-800"
+                >
+                  <span className="block break-words text-sm">
+                    {p.name}
+                    {provider === p.id ? " ✓" : ""}
+                  </span>
+                  <span className="block text-xs text-slate-500">
                     {p.status === "ready" ? t(lang, "online") : t(lang, "providerNeedsKey")}
-                  </option>
-                ))}
-              </select>
+                  </span>
+                </button>
+              ))}
               <button
                 type="button"
                 onClick={() => {
@@ -1879,24 +1964,6 @@ export default function HomePage() {
               >
                 🔗 {t(lang, "shareLink")}
               </button>
-              <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
-              <p className="px-2 pb-1 pt-1 text-xs text-slate-500">{t(lang, "language")}</p>
-              <div className="flex gap-1 px-1 pb-2">
-                {LANGS.map((l) => (
-                  <button
-                    key={l.code}
-                    type="button"
-                    onClick={() => setLang(l.code)}
-                    className={`flex-1 rounded-full px-2 py-1.5 text-xs font-bold ${
-                      lang === l.code
-                        ? "bg-[#2457FF] text-white"
-                        : "bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200"
-                    }`}
-                  >
-                    {l.label}
-                  </button>
-                ))}
-              </div>
               <button
                 type="button"
                 onClick={() => {
@@ -1924,7 +1991,7 @@ export default function HomePage() {
                 </Link>
               )}
               {userEmail ? (
-                <p className="truncate px-3 py-2 text-xs text-slate-500">{userEmail}</p>
+                <p className="break-words px-3 py-2 text-xs text-slate-500">{userEmail}</p>
               ) : (
                 <>
                   <Link
@@ -2008,17 +2075,33 @@ export default function HomePage() {
             <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
               {t(lang, "welcomeText")}
             </p>
-            <div className="mt-6 grid gap-2 text-start sm:grid-cols-2">
-              {suggestions.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => send(s)}
-                  className="rounded-2xl border border-[var(--card-border)] bg-[var(--card)] px-4 py-3 text-sm leading-relaxed shadow-sm transition duration-150 hover:bg-[var(--surface)]"
-                >
-                  {s}
-                </button>
-              ))}
+            {/* Suggestion rows (ChatGPT-style empty state): every row
+                DOES something real — Learn sends a starter prompt in
+                the current language, Create an image opens Image
+                Studio, Write opens Writing Studio. */}
+            <div className="mx-auto mt-8 flex w-full max-w-md flex-col gap-1 text-start">
+              <button
+                type="button"
+                onClick={() => send(t(lang, "learnPrompt"))}
+                className="flex items-center gap-3 rounded-2xl px-3 py-3 text-[15px] transition hover:bg-[var(--surface)] active:scale-[0.98]"
+              >
+                <span className="text-xl leading-none">🎓</span>
+                {t(lang, "learnSomething")}
+              </button>
+              <Link
+                href="/studio/image"
+                className="flex items-center gap-3 rounded-2xl px-3 py-3 text-[15px] transition hover:bg-[var(--surface)] active:scale-[0.98]"
+              >
+                <span className="text-xl leading-none">🖼</span>
+                {t(lang, "createImage")}
+              </Link>
+              <Link
+                href="/studio/write"
+                className="flex items-center gap-3 rounded-2xl px-3 py-3 text-[15px] transition hover:bg-[var(--surface)] active:scale-[0.98]"
+              >
+                <span className="text-xl leading-none">✎</span>
+                {t(lang, "writeOrEdit")}
+              </Link>
             </div>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               {visibleStudios.map((s) => (
@@ -2071,6 +2154,7 @@ export default function HomePage() {
                 onNote={showNotice}
                 onBranch={branchFromMessage}
                 onExport={exportChat}
+                modelUsed={modelUsedText}
                 actionsDisabled={streaming}
               />
             ))}
@@ -2163,7 +2247,9 @@ export default function HomePage() {
               ＋
             </button>
             {/* Auto-growing composer: 1 line min, 4 lines max (~120px),
-              then scrolls internally. Enter sends, Shift+Enter = newline. */}
+              then scrolls internally with NO visible scrollbar
+              (.composer-textarea in globals.css). Enter sends,
+              Shift+Enter = newline. */}
             <textarea
               ref={composerRef}
               dir="auto"
@@ -2171,7 +2257,13 @@ export default function HomePage() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
+                // ENTER SENDS (Android fix): some Android keyboards
+                // report Enter as keyCode 13 with a vague key value,
+                // and IME composition must not send mid-word. The
+                // <form onSubmit> below is a second safety net for
+                // keyboards that submit the form instead of keydown.
+                const isEnter = e.key === "Enter" || e.keyCode === 13;
+                if (isEnter && !e.shiftKey && !e.nativeEvent.isComposing) {
                   e.preventDefault();
                   if (input.trim() || pendingImage) {
                     send(input);
@@ -2179,16 +2271,23 @@ export default function HomePage() {
                   }
                 }
               }}
-              placeholder={t(lang, "askPlaceholder")}
-              className="composer-scroll composer-textarea bidi-plaintext max-h-[120px] min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-2 text-base leading-6 text-[#111111] outline-none placeholder:text-[#9A9A9A] sm:text-[17px] dark:text-[#EAF2FF]"
+              enterKeyHint="send"
+              placeholder={t(lang, "askSamim")}
+              className="composer-textarea bidi-plaintext max-h-[120px] min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-2 text-base leading-6 text-[#111111] outline-none placeholder:text-[#9A9A9A] sm:text-[17px] dark:text-[#EAF2FF]"
             />
             <button
               type="button"
               onClick={() => setLiveCallOpen(true)}
-              className="mb-1.5 shrink-0 rounded-full px-1 text-xl leading-none sm:text-[22px]"
+              className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2457FF] text-white shadow-sm transition hover:bg-blue-700 active:scale-95"
               aria-label={t(lang, "liveCall")}
             >
-              🌊
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
+                <rect x="2.5" y="9" width="2" height="6" rx="1" fill="currentColor" />
+                <rect x="7" y="6" width="2" height="12" rx="1" fill="currentColor" />
+                <rect x="11.5" y="9" width="2" height="6" rx="1" fill="currentColor" />
+                <rect x="16" y="5" width="2" height="14" rx="1" fill="currentColor" />
+                <rect x="19.5" y="9" width="2" height="6" rx="1" fill="currentColor" />
+              </svg>
             </button>
             <button
               type="button"
@@ -2219,7 +2318,8 @@ export default function HomePage() {
                 <span className="text-xl leading-none">↑</span>
               </button>
             )}
-            {/* ===== + menu ===== */}
+            {/* ===== + menu: floating card above the composer,
+                ChatGPT-style — each row has a circular grey icon tile. */}
             {plusOpen && (
               <>
                 <button
@@ -2228,16 +2328,17 @@ export default function HomePage() {
                   onClick={() => setPlusOpen(false)}
                   className="fixed inset-0 z-20 cursor-default"
                 />
-                <div className="absolute bottom-full left-2 z-30 mb-2 w-60 rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 text-start shadow-md">
+                <div className="absolute bottom-full left-2 z-30 mb-2 w-64 max-w-[86vw] rounded-3xl border border-[var(--card-border)] bg-[var(--card)] p-2 text-start shadow-lg">
                   <button
                     type="button"
                     onClick={() => {
                       setPlusOpen(false);
                       cameraInputRef.current?.click();
                     }}
-                    className="block w-full rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    📷 {t(lang, "camera")}
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xl dark:bg-slate-700">📷</span>
+                    {t(lang, "camera")}
                   </button>
                   <button
                     type="button"
@@ -2245,9 +2346,10 @@ export default function HomePage() {
                       setPlusOpen(false);
                       photoInputRef.current?.click();
                     }}
-                    className="block w-full rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    🖼 {t(lang, "photos")}
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xl dark:bg-slate-700">🖼</span>
+                    {t(lang, "photos")}
                   </button>
                   <button
                     type="button"
@@ -2255,9 +2357,10 @@ export default function HomePage() {
                       setPlusOpen(false);
                       fileInputRef.current?.click();
                     }}
-                    className="block w-full rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    📁 {t(lang, "files")}
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xl dark:bg-slate-700">📁</span>
+                    {t(lang, "files")}
                   </button>
                   <button
                     type="button"
@@ -2265,17 +2368,21 @@ export default function HomePage() {
                       setPlusOpen(false);
                       void openScreenShare();
                     }}
-                    className="block w-full rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    🖥 {t(lang, "screenShare")}
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xl dark:bg-slate-700">🖥</span>
+                    {t(lang, "screenShare")}
                   </button>
                   <button
                     type="button"
                     onClick={() => setThinkHarder((v) => !v)}
-                    className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    🧠 {t(lang, "thinkHarder")}
-                    {thinkHarder ? " ✓" : ""}
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xl dark:bg-slate-700">🧠</span>
+                    <span>
+                      {t(lang, "thinkHarder")}
+                      {thinkHarder ? " ✓" : ""}
+                    </span>
                   </button>
                   <button
                     type="button"
@@ -2283,9 +2390,10 @@ export default function HomePage() {
                       setPlusOpen(false);
                       startListening();
                     }}
-                    className="block w-full rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    🎙 {t(lang, "listening")}
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xl dark:bg-slate-700">🎙</span>
+                    {t(lang, "listening")}
                   </button>
                   <button
                     type="button"
@@ -2293,9 +2401,10 @@ export default function HomePage() {
                       setPlusOpen(false);
                       setLiveCallOpen(true);
                     }}
-                    className="block w-full rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    🌊 {t(lang, "liveCall")}
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#2457FF] text-xl text-white">🌊</span>
+                    {t(lang, "liveCall")}
                   </button>
                 </div>
               </>

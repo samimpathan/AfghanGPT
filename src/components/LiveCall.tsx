@@ -88,6 +88,9 @@ export default function LiveCall({
   const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
   const [fallbackListening, setFallbackListening] = useState(false);
   const [fallbackBusy, setFallbackBusy] = useState(false);
+  /** Gemini live bottom sheet (Screen share / Photos / Files). */
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const liveFileInputRef = useRef<HTMLInputElement | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
@@ -522,8 +525,39 @@ export default function LiveCall({
     setMicOn((v) => !v);
   };
 
+  /** Send one picked image to the Live session as video input, so
+   * the AI can see and answer about it. Honest guard: when no Live
+   * session is open there is nowhere to send it, so say so instead
+   * of pretending it was sent. */
+  const sendLiveImage = async (file: File) => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      onNote?.(t(lang, "liveUnavailable"));
+      return;
+    }
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result));
+        reader.onerror = () => reject(new Error("read"));
+        reader.readAsDataURL(file);
+      });
+      const data = dataUrl.split(",")[1] ?? "";
+      ws.send(
+        JSON.stringify({
+          realtimeInput: {
+            mediaChunks: [{ mimeType: file.type || "image/jpeg", data }],
+          },
+        })
+      );
+      onNote?.(t(lang, "liveImageSent"));
+    } catch {
+      onNote?.(t(lang, "errorGeneric"));
+    }
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[#080D1B] text-white">
+    <div className="fixed inset-0 z-50 flex flex-col bg-[#EDEDED] text-slate-900 dark:bg-[#080D1B] dark:text-white">
       {/* Header — title + live / screen-sharing status pills */}
       <div className="flex items-center justify-between gap-3 px-4 pt-4">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -531,13 +565,13 @@ export default function LiveCall({
             {phase === "live" ? t(lang, "liveCall") : t(lang, "voiceMode")}
           </p>
           {phase === "live" && (
-            <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-red-500/25 px-2.5 py-1 text-[11px] font-bold text-red-300">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-red-400" />
+            <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-red-500/25 px-2.5 py-1 text-[11px] font-bold text-red-600 dark:text-red-300">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-red-500 dark:bg-red-400" />
               {t(lang, "liveNow")}
             </span>
           )}
           {screenOn && (
-            <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-[#2457FF]/30 px-2.5 py-1 text-[11px] font-bold text-sky-300">
+            <span className="flex shrink-0 items-center gap-1.5 rounded-full bg-[#2457FF]/20 px-2.5 py-1 text-[11px] font-bold text-sky-700 dark:bg-[#2457FF]/30 dark:text-sky-300">
               <span className="h-2 w-2 animate-pulse rounded-full bg-[#00D4FF]" />
               {t(lang, "liveScreenSharing")}
             </span>
@@ -546,40 +580,33 @@ export default function LiveCall({
         <button
           type="button"
           onClick={endCall}
-          className="shrink-0 rounded-full bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
+          className="shrink-0 rounded-full bg-black/5 px-3 py-1.5 text-sm hover:bg-black/10 dark:bg-white/10 dark:hover:bg-white/20"
           aria-label={t(lang, "close")}
         >
           ✕
         </button>
       </div>
 
-      {/* Talking avatar — pulses/moves while the AI speaks, calm while listening. */}
+      {/* BIG glowing gold orb (ChatGPT-style voice screen) with the
+          AI photo inside it — it breathes while listening and pulses
+          harder while the AI speaks. */}
       <div className="flex flex-1 flex-col items-center justify-center px-6">
         <div
-          className={`relative rounded-full ${
-            speaking ? "live-avatar-speaking" : "live-avatar-calm"
+          className={`voice-orb flex h-56 w-56 items-center justify-center rounded-full sm:h-64 sm:w-64 ${
+            speaking ? "voice-orb-speaking" : ""
           }`}
         >
           <Image
             src="/avatar.jpg"
             alt="Samim AI"
-            width={160}
-            height={160}
-            className="rounded-full object-cover ring-4 ring-white/20"
+            width={112}
+            height={112}
+            className="rounded-full object-cover ring-4 ring-white/60"
             priority
           />
-          {phase === "live" && (
-            <span
-              className={`absolute -bottom-1 -right-1 flex h-9 w-9 items-center justify-center rounded-full text-lg ${
-                speaking ? "bg-emerald-500" : "bg-[#2457FF]"
-              }`}
-            >
-              {speaking ? "🔊" : "🎙"}
-            </span>
-          )}
         </div>
         <p className="mt-5 text-lg font-bold">{t(lang, "appName")}</p>
-        <p className="mt-1 text-sm text-slate-300">
+        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
           {phase === "connecting"
             ? t(lang, "liveConnecting")
             : phase === "live"
@@ -592,16 +619,8 @@ export default function LiveCall({
                   ? t(lang, "voiceTranscribing")
                   : t(lang, "liveTapToTalk")}
         </p>
-        {/* Animated orb while the AI speaks */}
-        {speaking && (
-          <div className="mt-6 flex items-center gap-1.5" aria-hidden>
-            {[0, 1, 2, 3, 4].map((i) => (
-              <span key={i} className="live-orb-bar" style={{ animationDelay: `${i * 0.12}s` }} />
-            ))}
-          </div>
-        )}
         {errorNote && (
-          <p className="mt-4 max-w-md rounded-2xl bg-white/10 px-4 py-2.5 text-center text-xs leading-relaxed text-amber-200">
+          <p className="mt-4 max-w-md rounded-2xl bg-black/5 px-4 py-2.5 text-center text-xs leading-relaxed text-amber-800 dark:bg-white/10 dark:text-amber-200">
             {errorNote}
           </p>
         )}
@@ -611,11 +630,11 @@ export default function LiveCall({
 
         {/* Live transcript */}
         {transcript.length > 0 && (
-          <div className="chat-scroll mt-4 max-h-44 w-full max-w-md overflow-y-auto rounded-2xl bg-white/5 p-3 text-start text-sm leading-relaxed">
+          <div className="chat-scroll mt-4 max-h-44 w-full max-w-md overflow-y-auto rounded-2xl bg-black/[0.04] p-3 text-start text-sm leading-relaxed dark:bg-white/5">
             <p className="mb-1 text-xs font-bold text-slate-400">{t(lang, "liveTranscript")}</p>
             {transcript.slice(-6).map((l, i) => (
               <p key={i} dir="auto" className="bidi-plaintext mb-1">
-                <span className="font-bold text-sky-300">
+                <span className="font-bold text-sky-600 dark:text-sky-300">
                   {l.role === "user" ? t(lang, "youSaid") : t(lang, "aiSaid")}{" "}
                 </span>
                 {l.text}
@@ -632,7 +651,7 @@ export default function LiveCall({
               autoPlay
               muted
               playsInline
-              className="max-h-44 w-full rounded-2xl bg-black object-cover ring-1 ring-white/20"
+              className="max-h-44 w-full rounded-2xl bg-black object-cover ring-1 ring-black/10 dark:ring-white/20"
             />
             {screenOn && (
               <span className="absolute start-2 top-2 flex items-center gap-1.5 rounded-full bg-red-500 px-2.5 py-1 text-[11px] font-bold text-white shadow">
@@ -647,78 +666,102 @@ export default function LiveCall({
         )}
       </div>
 
-      {/* Controls — labelled round buttons, Gemini-style */}
+      {/* Bottom sheet (Gemini-style): Screen share / Photos / Files.
+          Screen share + Photos toggle the live camera/screen feeds;
+          Files sends one picked image to the Live session. */}
+      <input
+        ref={liveFileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        aria-label={t(lang, "files")}
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void sendLiveImage(f);
+          e.target.value = "";
+        }}
+      />
+      {sheetOpen && (
+        <div className="mx-auto mb-3 w-full max-w-md px-4">
+          <div className="grid grid-cols-3 gap-2 rounded-[28px] bg-white p-3 shadow-lg dark:bg-[#111B30] dark:ring-1 dark:ring-[#263550]">
+            <button
+              type="button"
+              onClick={toggleScreen}
+              className={`flex flex-col items-center justify-center gap-2 rounded-3xl px-2 py-5 text-sm font-medium transition active:scale-95 ${
+                screenOn
+                  ? "bg-[#2457FF] text-white"
+                  : "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white"
+              }`}
+            >
+              <span className="text-2xl leading-none">🖥</span>
+              {t(lang, "screenShare")}
+            </button>
+            <button
+              type="button"
+              onClick={toggleCamera}
+              className={`flex flex-col items-center justify-center gap-2 rounded-3xl px-2 py-5 text-sm font-medium transition active:scale-95 ${
+                cameraOn
+                  ? "bg-[#2457FF] text-white"
+                  : "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white"
+              }`}
+            >
+              <span className="text-2xl leading-none">📷</span>
+              {t(lang, "photos")}
+            </button>
+            <button
+              type="button"
+              onClick={() => liveFileInputRef.current?.click()}
+              className="flex flex-col items-center justify-center gap-2 rounded-3xl bg-slate-100 px-2 py-5 text-sm font-medium text-slate-900 transition active:scale-95 dark:bg-slate-800 dark:text-white"
+            >
+              <span className="text-2xl leading-none">📁</span>
+              {t(lang, "files")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bottom pill (ChatGPT-style voice screen): + opens the sheet,
+          mic toggles mute / push-to-talk, BLACK X ends the call. */}
       <div className="px-4 pb-8">
-        <div className="mx-auto flex max-w-md items-start justify-center gap-3 sm:gap-4">
-          <div className="flex flex-col items-center gap-1.5">
+        <div className="mx-auto flex max-w-md items-center gap-2">
+          <div className="flex h-14 min-w-0 flex-1 items-center gap-1 rounded-full bg-white px-2 shadow-md dark:bg-[#111B30] dark:ring-1 dark:ring-[#263550]">
+            <button
+              type="button"
+              onClick={() => setSheetOpen((v) => !v)}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-2xl leading-none text-slate-900 transition hover:bg-slate-100 active:scale-95 dark:text-white dark:hover:bg-slate-800"
+              aria-label={t(lang, "screenShare")}
+            >
+              +
+            </button>
+            <span className="min-w-0 flex-1 truncate text-sm text-slate-500">
+              {t(lang, "askSamim")}
+            </span>
             <button
               type="button"
               onClick={toggleMic}
               disabled={fallbackBusy}
-              className={`flex h-14 w-14 items-center justify-center rounded-full text-2xl transition-transform active:scale-95 disabled:opacity-40 ${
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-xl transition active:scale-95 disabled:opacity-40 ${
                 phase === "fallback"
                   ? fallbackListening
                     ? "bg-red-500 text-white mic-listening"
-                    : "bg-white text-black"
+                    : "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white"
                   : micOn
-                    ? "bg-white text-black"
+                    ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white"
                     : "bg-red-500 text-white"
               }`}
               aria-label={micOn ? t(lang, "liveMicOn") : t(lang, "liveMicOff")}
             >
               {phase === "fallback" ? (fallbackListening ? "■" : "🎙") : micOn ? "🎙" : "🔇"}
             </button>
-            <span className="max-w-16 text-center text-[10px] leading-tight text-slate-400">
-              {phase === "fallback" && fallbackListening
-                ? t(lang, "stopRecording")
-                : micOn
-                  ? t(lang, "liveMicOn")
-                  : t(lang, "liveMicOff")}
-            </span>
           </div>
-          <div className="flex flex-col items-center gap-1.5">
-            <button
-              type="button"
-              onClick={toggleCamera}
-              className={`flex h-14 w-14 items-center justify-center rounded-full text-2xl transition-transform active:scale-95 ${
-                cameraOn ? "bg-[#2457FF] text-white" : "bg-white/10 text-white"
-              }`}
-              aria-label={cameraOn ? t(lang, "cameraOff") : t(lang, "cameraOn")}
-            >
-              📷
-            </button>
-            <span className="max-w-16 text-center text-[10px] leading-tight text-slate-400">
-              {cameraOn ? t(lang, "cameraOff") : t(lang, "cameraOn")}
-            </span>
-          </div>
-          <div className="flex flex-col items-center gap-1.5">
-            <button
-              type="button"
-              onClick={toggleScreen}
-              className={`flex h-14 w-14 items-center justify-center rounded-full text-2xl transition-transform active:scale-95 ${
-                screenOn ? "bg-[#2457FF] text-white" : "bg-white/10 text-white"
-              }`}
-              aria-label={screenOn ? t(lang, "screenOff") : t(lang, "screenOn")}
-            >
-              🖥
-            </button>
-            <span className="max-w-16 text-center text-[10px] leading-tight text-slate-400">
-              {screenOn ? t(lang, "screenOff") : t(lang, "screenOn")}
-            </span>
-          </div>
-          <div className="flex flex-col items-center gap-1.5">
-            <button
-              type="button"
-              onClick={endCall}
-              className="flex h-14 w-14 items-center justify-center rounded-full bg-red-500 text-2xl text-white transition-transform active:scale-95"
-              aria-label={t(lang, "endCall")}
-            >
-              📞
-            </button>
-            <span className="max-w-16 text-center text-[10px] leading-tight text-slate-400">
-              {t(lang, "endCall")}
-            </span>
-          </div>
+          <button
+            type="button"
+            onClick={endCall}
+            className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-black text-2xl text-white shadow-md transition active:scale-95 dark:bg-white dark:text-black"
+            aria-label={t(lang, "endCall")}
+          >
+            ✕
+          </button>
         </div>
         <p className="mt-3 text-center text-[11px] text-slate-400">
           {phase === "fallback"

@@ -316,6 +316,10 @@ export default function ChatMessage({
   onBranch,
   onExport,
   actionsDisabled,
+  /** The real model/mode string used for this chat, e.g.
+   * "Samim AI Auto • Google Gemini" — shown at the foot of the
+   * message ••• menu ("Used …" line, Gemini-style). */
+  modelUsed,
 }: {
   msg: UiMessage;
   lang: Lang;
@@ -332,6 +336,7 @@ export default function ChatMessage({
   onBranch?: (msgId: string) => void;
   onExport?: () => void;
   actionsDisabled?: boolean;
+  modelUsed?: string;
 }) {
   const isUser = msg.role === "user";
   const [editing, setEditing] = useState(false);
@@ -610,17 +615,6 @@ export default function ChatMessage({
           >
             👎
           </button>
-          <CopyButton text={msg.content} lang={lang} />
-          <SpeakButton text={msg.content} lang={lang} onNote={onNote} />
-          <button
-            type="button"
-            disabled={actionsDisabled}
-            onClick={shareMessage}
-            className={actionBtn}
-            aria-label={t(lang, "shareChat")}
-          >
-            ↗ {t(lang, "shareChat")}
-          </button>
           {isLastAssistant && onRegenerate && (
             <button
               type="button"
@@ -631,6 +625,16 @@ export default function ChatMessage({
               ↻ {t(lang, "regenerate")}
             </button>
           )}
+          <button
+            type="button"
+            disabled={actionsDisabled}
+            onClick={shareMessage}
+            className={actionBtn}
+            aria-label={t(lang, "shareChat")}
+          >
+            ↗ {t(lang, "shareChat")}
+          </button>
+          <CopyButton text={msg.content} lang={lang} />
           <div className="relative">
             <button
               type="button"
@@ -702,10 +706,25 @@ export default function ChatMessage({
                       </button>
                     </div>
                   )}
+                  {/* The REAL model/mode used — never a made-up label. */}
+                  <div className="mt-1 border-t border-slate-200 px-3 pb-1 pt-2 text-xs text-slate-500 dark:border-slate-700">
+                    {t(lang, "usedModel").replace(
+                      "{model}",
+                      modelUsed ??
+                        (msg.mode === "provider"
+                          ? msg.provider ?? "AI"
+                          : msg.mode === "gemini"
+                            ? "Gemini"
+                            : msg.mode === "offline"
+                              ? t(lang, "offlineMode")
+                              : msg.mode ?? "")
+                    )}
+                  </div>
                 </div>
               </>
             )}
           </div>
+          <SpeakButton text={msg.content} lang={lang} onNote={onNote} />
           {msg.image && (
             <>
               <a href={msg.image} download="samim-ai-image.png" className={actionBtn}>

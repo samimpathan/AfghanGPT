@@ -169,6 +169,54 @@ body {
   animation: live-orb 0.9s infinite ease-in-out;
 }
 
+/* Voice-mode gold orb (ChatGPT-style voice screen): a big warm
+   gold radial glow. It breathes slowly while listening and pulses
+   harder while the AI speaks. Pure CSS design element. */
+@keyframes voice-orb-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow:
+      0 0 60px 10px rgba(250, 204, 21, 0.55),
+      0 0 120px 30px rgba(250, 204, 21, 0.25);
+  }
+  50% {
+    transform: scale(1.05);
+    box-shadow:
+      0 0 80px 18px rgba(250, 204, 21, 0.65),
+      0 0 150px 45px rgba(250, 204, 21, 0.3);
+  }
+}
+@keyframes voice-orb-speaking {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow:
+      0 0 70px 14px rgba(250, 204, 21, 0.7),
+      0 0 140px 40px rgba(250, 204, 21, 0.35);
+  }
+  50% {
+    transform: scale(1.12);
+    box-shadow:
+      0 0 110px 30px rgba(250, 204, 21, 0.85),
+      0 0 190px 60px rgba(250, 204, 21, 0.4);
+  }
+}
+.voice-orb {
+  background: radial-gradient(
+    circle at 50% 38%,
+    #fef08a 0%,
+    #fde047 28%,
+    #facc15 55%,
+    #fef9c3 82%,
+    #fefce8 100%
+  );
+  animation: voice-orb-breathe 3.2s ease-in-out infinite;
+}
+.voice-orb-speaking {
+  animation: voice-orb-speaking 1.1s ease-in-out infinite;
+}
+
 /* Messages fade + slide in gently as they arrive / stream. */
 @keyframes msg-in {
   from {
@@ -223,26 +271,34 @@ body {
   background: #334155;
 }
 
-/* Composer + drawer scrollbars: thin, subtle, same treatment. */
-.composer-scroll,
+/* Composer textarea: NO visible scrollbar, ever — it still scrolls
+   internally past 4 lines. The drawer / chat scrollbars keep their
+   thin visible treatment below; only .composer-textarea is hidden. */
+.composer-textarea {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.composer-textarea::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Drawer scrollbar: thin, subtle, same treatment. */
 .drawer-scroll {
   scrollbar-width: thin;
   scrollbar-color: #cbd5e1 transparent;
 }
-.dark .composer-scroll,
 .dark .drawer-scroll {
   scrollbar-color: #334155 transparent;
 }
-.composer-scroll::-webkit-scrollbar,
 .drawer-scroll::-webkit-scrollbar {
   width: 5px;
 }
-.composer-scroll::-webkit-scrollbar-thumb,
 .drawer-scroll::-webkit-scrollbar-thumb {
   background: #cbd5e1;
   border-radius: 999px;
 }
-.dark .composer-scroll::-webkit-scrollbar-thumb,
 .dark .drawer-scroll::-webkit-scrollbar-thumb {
   background: #334155;
 }
