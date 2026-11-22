@@ -6,6 +6,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { Icon } from "@/components/icons";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -28,7 +29,7 @@ function CodeBlock({ lang, code }: { lang: string; code: string }) {
             }
           }}
         >
-          {copied ? "✓ Copied!" : "⧉ Copy"}
+          {copied ? (<><Icon name="check" size={13} className="me-1 inline-block align-middle" />Copied!</>) : (<><Icon name="copy" size={13} className="me-1 inline-block align-middle" />Copy</>)}
         </button>
       </div>
       <pre className="overflow-x-auto !m-0 !bg-transparent p-3 text-[13px] leading-relaxed">

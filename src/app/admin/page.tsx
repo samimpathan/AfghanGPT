@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Icon } from "@/components/icons";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -148,7 +149,7 @@ export default function AdminPage() {
         <div className="rounded-3xl border border-[var(--card-border)] bg-[var(--card)] p-6 text-center shadow-sm">
           <p className="text-lg font-bold">{t(lang, "adminOnly")}</p>
           <Link href="/" className="mt-4 inline-block font-bold text-[var(--brand2)] hover:underline">
-            <span className="inline-block rtl:rotate-180">←</span> {t(lang, "backToChat")}
+            <Icon name="arrowLeft" size={16} className="me-1 inline-block align-middle rtl:rotate-180" /> {t(lang, "backToChat")}
           </Link>
         </div>
       </div>
@@ -163,7 +164,7 @@ export default function AdminPage() {
     <div className="min-h-dvh px-4 py-6">
       <div className="mx-auto flex max-w-xl flex-col gap-4">
         <Link href="/" className="self-start text-sm font-bold text-[var(--brand2)] hover:underline">
-          <span className="inline-block rtl:rotate-180">←</span> {t(lang, "backToChat")}
+          <Icon name="arrowLeft" size={16} className="me-1 inline-block align-middle rtl:rotate-180" /> {t(lang, "backToChat")}
         </Link>
 
         <header className="flex items-center gap-3">
@@ -256,7 +257,7 @@ export default function AdminPage() {
                     p.status === "ready" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : "bg-black/5 dark:bg-white/10"
                   }`}
                 >
-                  {p.status === "ready" ? t(lang, "configured") : t(lang, "providerNeedsKey")}
+                  {p.status === "ready" ? t(lang, "configured") : t(lang, "notConfigured")}
                 </span>
               </div>
             ))}
@@ -312,7 +313,7 @@ export default function AdminPage() {
             rel="noreferrer"
             className="rounded-xl bg-[var(--brand2)] px-3 py-2.5 text-center text-sm font-bold text-white"
           >
-            {t(lang, "openSupabase")} ↗
+            {t(lang, "openSupabase")} <Icon name="external" size={14} className="ms-1 inline-block align-middle" />
           </a>
           <a
             href="https://vercel.com/samimpatan8-8864/samim-ai/settings/environment-variables"
@@ -320,7 +321,7 @@ export default function AdminPage() {
             rel="noreferrer"
             className="rounded-xl border border-[var(--card-border)] bg-[var(--card)] px-3 py-2.5 text-center text-sm font-bold"
           >
-            {t(lang, "openVercel")} ↗
+            {t(lang, "openVercel")} <Icon name="external" size={14} className="ms-1 inline-block align-middle" />
           </a>
           <a
             href="https://github.com/samimpathan/SamimAI"
@@ -328,7 +329,7 @@ export default function AdminPage() {
             rel="noreferrer"
             className="rounded-xl border border-[var(--card-border)] bg-[var(--card)] px-3 py-2.5 text-center text-sm font-bold"
           >
-            {t(lang, "openGithub")} ↗
+            {t(lang, "openGithub")} <Icon name="external" size={14} className="ms-1 inline-block align-middle" />
           </a>
         </div>
 

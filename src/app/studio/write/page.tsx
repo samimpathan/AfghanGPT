@@ -8,6 +8,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Icon } from "@/components/icons";
 import Link from "next/link";
 import { useLang } from "@/lib/i18n";
 import { store, uid } from "@/lib/store";
@@ -192,7 +193,7 @@ export default function WritingStudioPage() {
     <div className="mx-auto w-full max-w-3xl space-y-4 px-3 py-4 sm:px-4">
       <header className="space-y-1">
         <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
-          <span aria-hidden className="inline-block rtl:rotate-180">←</span>
+          <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
           {t("backToChat")}
         </Link>
         <h1 className="text-xl font-bold sm:text-2xl">{t("writing")}</h1>
@@ -267,7 +268,7 @@ export default function WritingStudioPage() {
           </div>
 
           <Btn onClick={generate} disabled={loading || !input.trim()} className={`w-full ${SOLID}`}>
-            {loading ? "Writing…" : `✎ ${t("generate")} — ${active.label}`}
+            {loading ? "Writing…" : (<><Icon name="pencil" size={15} className="me-1 inline-block align-middle" />{t("generate")} — {active.label}</>)}
           </Btn>
           {loading && <Spinner label="The AI is writing…" />}
         </div>
@@ -275,7 +276,7 @@ export default function WritingStudioPage() {
 
       {notice && (
         <button type="button" onClick={() => setNotice("")} className="w-full rounded-xl bg-amber-500/15 px-3 py-2 text-start text-sm text-amber-700 dark:text-amber-300">
-          {notice} ✕
+          {notice} <Icon name="x" size={13} className="ms-1 inline-block align-middle" />
         </button>
       )}
 
@@ -315,7 +316,7 @@ export default function WritingStudioPage() {
               {t("download")} .md
             </Btn>
             <Btn size="sm" variant="outline" onClick={downloadDocx}>{t("download")} .docx</Btn>
-            <Btn size="sm" onClick={saveProject} className={SOLID}>{saved ? "✓ Saved" : t("save")}</Btn>
+            <Btn size="sm" onClick={saveProject} className={SOLID}>{saved ? (<><Icon name="check" size={14} className="me-1 inline-block align-middle" />Saved</>) : t("save")}</Btn>
           </div>
           {saved && <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-300">Saved as a project (kind “doc”) in this device’s local storage.</p>}
         </Card>

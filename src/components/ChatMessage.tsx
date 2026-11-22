@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Icon } from "@/components/icons";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { t, type Lang } from "@/lib/i18n";
@@ -71,7 +72,7 @@ function CopyButton({ text, lang }: { text: string; lang: Lang }) {
       className={actionBtn}
       aria-label={t(lang, "copy")}
     >
-      {done ? "✓ " + t(lang, "copied") : "⧉ " + t(lang, "copy")}
+      {done ? (<><Icon name="check" size={13} className="me-1 inline-block align-middle" />{t(lang, "copied")}</>) : (<><Icon name="copy" size={13} className="me-1 inline-block align-middle" />{t(lang, "copy")}</>)}
     </button>
   );
 }
@@ -99,7 +100,7 @@ function SaveImageButton({ image, lang }: { image: string; lang: Lang }) {
       }}
       className={actionBtn}
     >
-      {saved ? "✓ " + t(lang, "saved") : "♥ " + t(lang, "save")}
+      {saved ? (<><Icon name="check" size={13} className="me-1 inline-block align-middle" />{t(lang, "saved")}</>) : (<><Icon name="bookmark" size={13} className="me-1 inline-block align-middle" />{t(lang, "save")}</>)}
     </button>
   );
 }
@@ -174,7 +175,7 @@ function SpeakButton({
       className={speaking ? actionBtnActive : actionBtn}
       aria-label={t(lang, "speak")}
     >
-      {speaking ? "■ " + t(lang, "stop") : "🔊 " + t(lang, "speak")}
+      {speaking ? (<><Icon name="stop" size={13} className="me-1 inline-block align-middle" />{t(lang, "stop")}</>) : (<><Icon name="speaker" size={13} className="me-1 inline-block align-middle" />{t(lang, "speak")}</>)}
     </button>
   );
 }
@@ -225,7 +226,7 @@ function CodeBlock({
               }}
               className="rounded-lg bg-emerald-600 px-2.5 py-1 font-semibold text-white transition duration-150 hover:bg-emerald-500 focus-visible:outline-2 focus-visible:outline-emerald-300 active:scale-95"
             >
-              ▶ {t(uiLang, "run")}
+              <Icon name="play" size={13} className="me-1 inline-block align-middle" /> {t(uiLang, "run")}
             </button>
           )}
           <button
@@ -241,7 +242,7 @@ function CodeBlock({
             }}
             className="rounded-lg bg-slate-700 px-2.5 py-1 font-semibold transition duration-150 hover:bg-slate-600 focus-visible:outline-2 focus-visible:outline-slate-300 active:scale-95"
           >
-            {done ? "✓ Copied!" : "⧉ Copy code"}
+            {done ? (<><Icon name="check" size={13} className="me-1 inline-block align-middle" />{t(uiLang, "copied")}</>) : (<><Icon name="copy" size={13} className="me-1 inline-block align-middle" />{t(uiLang, "copyCode")}</>)}
           </button>
         </span>
       </div>
@@ -256,13 +257,13 @@ function CodeBlock({
       {showPreview && (
         <div className="border-t border-slate-700">
           <div className="flex items-center justify-between bg-slate-800 px-3 py-1.5 text-xs">
-            <span>Preview</span>
+            <span>{t(uiLang, "preview")}</span>
             <button
               type="button"
               onClick={() => setShowPreview(false)}
               className="rounded bg-slate-700 px-2 py-0.5 hover:bg-slate-600"
             >
-              ✕ {t(uiLang, "close")}
+              <Icon name="x" size={13} className="me-1 inline-block align-middle" /> {t(uiLang, "close")}
             </button>
           </div>
           <iframe
@@ -284,7 +285,7 @@ function FileCard({ file, lang }: { file: NonNullable<UiMessage["file"]>; lang: 
   return (
     <div className="my-2 flex items-center gap-3 rounded-2xl border border-[var(--card-border)] bg-[var(--card)] px-4 py-3 shadow-sm">
       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[#2457FF] text-xl text-white">
-        {isZip ? "🗜" : "📄"}
+        {isZip ? <Icon name="archive" size={22} /> : <Icon name="fileText" size={22} />}
       </span>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-bold">{file.filename}</p>
@@ -298,7 +299,7 @@ function FileCard({ file, lang }: { file: NonNullable<UiMessage["file"]>; lang: 
         download={file.filename}
         className="shrink-0 rounded-full bg-[#2457FF] px-4 py-2 text-xs font-bold text-white hover:bg-blue-700"
       >
-        ⬇ {t(lang, "downloadFile")}
+        <Icon name="download" size={13} className="me-1 inline-block align-middle" /> {t(lang, "downloadFile")}
       </a>
     </div>
   );
@@ -489,7 +490,7 @@ export default function ChatMessage({
               }}
               className={actionBtn}
             >
-              ✎ {t(lang, "edit")}
+              <Icon name="pencil" size={13} className="me-1 inline-block align-middle" /> {t(lang, "edit")}
             </button>
             <CopyButton text={msg.content} lang={lang} />
             <button
@@ -498,7 +499,7 @@ export default function ChatMessage({
               onClick={() => onDeleteMessage?.(msg.id)}
               className={`${actionBtn} text-red-600 dark:text-red-400`}
             >
-              🗑 {t(lang, "delete")}
+              <Icon name="trash" size={13} className="me-1 inline-block align-middle" /> {t(lang, "delete")}
             </button>
           </div>
         </div>
@@ -604,7 +605,7 @@ export default function ChatMessage({
             className={reaction === "like" ? actionBtnActive : actionBtn}
             aria-label={t(lang, "like")}
           >
-            👍
+            <Icon name="thumbsUp" size={16} />
           </button>
           <button
             type="button"
@@ -613,7 +614,7 @@ export default function ChatMessage({
             className={reaction === "dislike" ? actionBtnActive : actionBtn}
             aria-label={t(lang, "dislike")}
           >
-            👎
+            <Icon name="thumbsDown" size={16} />
           </button>
           {isLastAssistant && onRegenerate && (
             <button
@@ -622,7 +623,7 @@ export default function ChatMessage({
               className={actionBtn}
               aria-label={t(lang, "regenerate")}
             >
-              ↻ {t(lang, "regenerate")}
+              <Icon name="regenerate" size={13} className="me-1 inline-block align-middle" /> {t(lang, "regenerate")}
             </button>
           )}
           <button
@@ -632,7 +633,7 @@ export default function ChatMessage({
             className={actionBtn}
             aria-label={t(lang, "shareChat")}
           >
-            ↗ {t(lang, "shareChat")}
+            <Icon name="share" size={13} className="me-1 inline-block align-middle" /> {t(lang, "shareChat")}
           </button>
           <CopyButton text={msg.content} lang={lang} />
           <div className="relative">
@@ -645,7 +646,7 @@ export default function ChatMessage({
               className={actionBtn}
               aria-label="More actions"
             >
-              •••
+              <Icon name="dots" size={16} />
             </button>
             {moreOpen && (
               <>
@@ -667,7 +668,7 @@ export default function ChatMessage({
                     }}
                     className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    ⎇ {t(lang, "branchChat")}
+                    <Icon name="branch" size={14} className="me-2 inline-block align-middle" /> {t(lang, "branchChat")}
                   </button>
                   <button
                     type="button"
@@ -677,14 +678,14 @@ export default function ChatMessage({
                     }}
                     className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    ⬇ {t(lang, "exportChat")}
+                    <Icon name="download" size={14} className="me-2 inline-block align-middle" /> {t(lang, "exportChat")}
                   </button>
                   <button
                     type="button"
                     onClick={() => setReportOpen((v) => !v)}
                     className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    ⚑ {t(lang, "report")}
+                    <Icon name="flag" size={14} className="me-2 inline-block align-middle" /> {t(lang, "report")}
                   </button>
                   {reportOpen && (
                     <div className="mt-1 border-t border-slate-200 p-2 dark:border-slate-700">
@@ -721,7 +722,7 @@ export default function ChatMessage({
           {msg.image && (
             <>
               <a href={msg.image} download="samim-ai-image.png" className={actionBtn}>
-                ⬇ {t(lang, "download")}
+                <Icon name="download" size={13} className="me-1 inline-block align-middle" /> {t(lang, "download")}
               </a>
               <SaveImageButton image={msg.image} lang={lang} />
             </>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "@/components/icons";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -123,7 +124,7 @@ export default function SettingsPage() {
     <div className="min-h-dvh px-4 py-6">
       <div className="mx-auto flex max-w-xl flex-col gap-4">
         <Link href="/" className="self-start text-sm font-bold text-[var(--brand2)] hover:underline">
-          <span className="inline-block rtl:rotate-180">←</span> {t(lang, "backToChat")}
+          <Icon name="arrowLeft" size={16} className="me-1 inline-block align-middle rtl:rotate-180" /> {t(lang, "backToChat")}
         </Link>
 
         <header className="flex items-center gap-3">
@@ -158,7 +159,7 @@ export default function SettingsPage() {
                   aria-label={t(lang, "uploadPhoto")}
                   className="absolute -bottom-1 -end-1 flex h-7 w-7 items-center justify-center rounded-full bg-[var(--brand2)] text-sm text-white shadow"
                 >
-                  ✎
+                  <Icon name="pencil" size={14} />
                 </button>
               </div>
               <div className="min-w-0 flex-1">
@@ -222,10 +223,10 @@ export default function SettingsPage() {
             <p className="text-sm font-bold">{t(lang, "theme")}</p>
             <div className="mt-2 flex flex-wrap gap-2">
               <Pill active={theme === "light"} onClick={() => setTheme("light")}>
-                ☀ {t(lang, "light")}
+                <Icon name="sun" size={15} className="me-1 inline-block align-middle" /> {t(lang, "light")}
               </Pill>
               <Pill active={theme === "dark"} onClick={() => setTheme("dark")}>
-                ☾ {t(lang, "dark")}
+                <Icon name="moon" size={15} className="me-1 inline-block align-middle" /> {t(lang, "dark")}
               </Pill>
             </div>
           </div>

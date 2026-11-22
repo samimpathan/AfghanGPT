@@ -6,6 +6,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Icon } from "@/components/icons";
 import Link from "next/link";
 import { useLang } from "@/lib/i18n";
 import { store, uid, type StudioImage } from "@/lib/store";
@@ -154,7 +155,7 @@ export default function ImageStudioPage() {
     <div className="mx-auto w-full max-w-3xl space-y-4 px-3 py-4 sm:px-4">
       <header className="space-y-1">
         <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
-          <span aria-hidden className="inline-block rtl:rotate-180">←</span>
+          <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
           {t("backToChat")}
         </Link>
         <h1 className="text-xl font-bold sm:text-2xl">{t("image")}</h1>
@@ -211,7 +212,7 @@ export default function ImageStudioPage() {
               {t("download")}
             </a>
             <Btn variant="outline" onClick={handleSaveCurrent} disabled={savedCurrent}>
-              {savedCurrent ? "Saved to history ✓" : "Save to history"}
+              {savedCurrent ? (<>Saved to history <Icon name="check" size={14} className="ms-1 inline-block align-middle" /></>) : "Save to history"}
             </Btn>
             <Btn variant="outline" onClick={() => setViewing(current)}>View large</Btn>
           </div>

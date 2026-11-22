@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { streamGemini, generateText, generateImage, type ChatMsg, type GeminiMode } from "@/lib/gemini";
-import { getOfflineAnswer, isPashto } from "@/lib/offlineBrain";
-import { getFreeWebAnswer, detectLang } from "@/lib/freeweb";
+import { getOfflineAnswer, getOfflineTopicAnswer, isPashto } from "@/lib/offlineBrain";
+import { getFreeWebAnswer, detectLang, isFactualQuestion } from "@/lib/freeweb";
 import { isAdultRequest, ADULT_REFUSAL_PS } from "@/lib/safety";
 import { rateLimited, clientIp } from "@/lib/ratelimit";
 import {
@@ -18,11 +18,11 @@ export const dynamic = "force-dynamic";
 
 /** Photo questions need the online AI — the offline brain cannot see images. */
 const PHOTO_OFFLINE_NOTE =
-  "زه اوس عکسونه نشم لیدلی — مهرباني وکړه خپله پوښتنه په خبرو ولیکه. / I can't see photos right now — please ask with words.";
+  "زه اوس عکسونه نشم لیدلی — مهربانی وکړه خپله پوښتنه په خبرو ولیکه. / I can't see photos right now — please ask with words.";
 
 /** Image generation is not available right now — never fake an image. */
 const IMAGE_GEN_UNAVAILABLE =
-  "بښنه غواړم، د عکس جوړول اوس شتون نه لري — لږ وروسته بیا هڅه وکړه. / Sorry, image generation isn't available right now — please try again later.";
+  "بښنه غواړم، د عکس جوړول اوس شتون نه لری — لږ وروسته بیا هڅه وکړه. / Sorry, image generation isn't available right now — please try again later.";
 
 /* ================= File creation (v3.2) =================
  * The user wants REAL files (docx/xlsx/pptx/pdf/txt/md/csv/json/
@@ -89,7 +89,7 @@ async function handleFileRequest(
     // available there is nothing honest to put in the file.
     return textStream(
       pashto
-        ? "زه اوس فایل نشم جوړولی — آنلاین AI شتون نه لري. لږ وروسته بیا هڅه وکړه."
+        ? "زه اوس فایل نشم جوړولی — آنلاین AI شتون نه لری. لږ وروسته بیا هڅه وکړه."
         : "I can't make a file right now — the online AI is not available. Please try again later.",
       "offline"
     );
@@ -246,6 +246,37 @@ async function webFallback(text: string): Promise<Response | null> {
   return web ? textStream(web.text, "web") : null;
 }
 
+/** ROUND 4 — no-key fallback order (the preview has no server key,
+ * so this is the path every message takes there):
+ *   1. Conversational messages (greetings, who-are-you, small talk,
+ *      thanks, goodbyes, …) are answered by the OFFLINE BRAIN first
+ *      — they are NEVER web-searched.
+ *   2. Only a clearly factual question goes to the free-web sources.
+ *   3. Anything else gets the offline brain's honest "couldn't find
+ *      it" reply — never a loosely-related web snippet. */
+async function noKeyFallback(text: string): Promise<Response> {
+  const topic = getOfflineTopicAnswer(text);
+  if (topic !== null) return textStream(topic, "offline");
+  if (isFactualQuestion(text)) {
+    const web = await webFallback(text);
+    if (web) return web;
+  }
+  return textStream(getOfflineAnswer(text), "offline");
+}
+
+/** ROUND 4 — Gemini failed although a key IS configured: same order
+ * as noKeyFallback, but the last resort is the honest "busy" message
+ * (the key exists, so the real AI is expected to work). */
+async function geminiFailureFallback(text: string): Promise<Response> {
+  const topic = getOfflineTopicAnswer(text);
+  if (topic !== null) return textStream(topic, "offline");
+  if (isFactualQuestion(text)) {
+    const web = await webFallback(text);
+    if (web) return web;
+  }
+  return textStream(busyMessageFor(text), "busy");
+}
+
 export async function POST(req: NextRequest) {
   // Basic abuse brake: 30 chat requests per minute per IP.
   if (rateLimited(clientIp(req), 30, 60_000)) {
@@ -348,20 +379,18 @@ export async function POST(req: NextRequest) {
     return textStream(IMAGE_GEN_UNAVAILABLE, "gemini");
   }
 
-  // No key (or empty) → try the free web sources first for a real
-  // sourced answer; only then the offline brain, clearly labelled.
+  // No key (or empty) → offline brain first for conversation, web
+  // only for a clearly factual question, else the honest fallback.
   if (!apiKey) {
-    const web = await webFallback(lastText);
-    if (web) return web;
-    return textStream(getOfflineAnswer(lastText), "offline");
+    return noKeyFallback(lastText);
   }
 
   // Real Gemini, streamed. Pull the first chunk BEFORE responding, so a
   // total failure (503/429/timeout on a slow connection, even after the
-  // model fallback) can fall back to the free web sources first, and
-  // only then be reported honestly as "busy". A failure mid-stream
-  // (after chunks were already sent) just closes the stream; the
-  // partial reply stays.
+  // model fallback) falls back in the ROUND 4 order — offline brain
+  // for conversation, free web only for a factual question, then the
+  // honest "busy" message. A failure mid-stream (after chunks were
+  // already sent) just closes the stream; the partial reply stays.
   // (chatMode and system were defined above, before the JSON branch.)
   let gen: AsyncGenerator<string>;
   let first: IteratorResult<string>;
@@ -371,15 +400,11 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     // Server log only: status/message, never the key.
     console.error("Gemini failed:", e instanceof Error ? e.message : "unknown");
-    const web = await webFallback(lastText);
-    if (web) return web;
-    return textStream(busyMessageFor(lastText), "busy");
+    return geminiFailureFallback(lastText);
   }
   if (first.done) {
     console.error("Gemini failed: empty response");
-    const web = await webFallback(lastText);
-    if (web) return web;
-    return textStream(busyMessageFor(lastText), "busy");
+    return geminiFailureFallback(lastText);
   }
   try {
     const encoder = new TextEncoder();
@@ -410,8 +435,6 @@ export async function POST(req: NextRequest) {
     });
   } catch (e) {
     console.error("Gemini failed:", e instanceof Error ? e.message : "unknown");
-    const web = await webFallback(lastText);
-    if (web) return web;
-    return textStream(busyMessageFor(lastText), "busy");
+    return geminiFailureFallback(lastText);
   }
 }

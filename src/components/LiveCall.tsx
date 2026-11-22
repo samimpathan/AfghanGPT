@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Icon } from "@/components/icons";
 import Image from "next/image";
 import { t, type Lang } from "@/lib/i18n";
 import {
@@ -44,7 +45,7 @@ const LIVE_MODELS = [
   "gemini-live-2.5-flash-preview",
 ] as const;
 
-const LIVE_SYSTEM = `You are "د عبدالصمیم مرستیال" (Samim AI), the free voice AI assistant of Abdul Samim Niazai (Samim Pathan), founder of DevConnect. You are talking to the user by voice, live. Answer in the user's language — Pashto by default, otherwise the language they speak in. Keep spoken answers short and simple, like a natural conversation. You are an expert in all technology — programming, websites, mobile apps, AI, databases, networking, cybersecurity, hardware and cloud — as well as teaching English and general knowledge. If the user shows you their screen or camera, describe and help with what you see. Never claim to be Muse, ChatGPT, or Google. If the user asks for porn, adult or sexy content, do not generate it — reply only in Pashto: "دا محتوا نه لرو. نور هر رقم پوښتنه کولای شې — پروګرامینګ، ویبسایټ، انګلیسي او نور — په خوښۍ به دې مرسته وکړم."`;
+const LIVE_SYSTEM = `You are "د عبدالصمیم مرستیال" (Samim AI), the free voice AI assistant of Abdul Samim Niazai (Samim Pathan), founder of DevConnect. You are talking to the user by voice, live. Answer in the user's language — Pashto by default, otherwise the language they speak in. Keep spoken answers short and simple, like a natural conversation. You are an expert in all technology — programming, websites, mobile apps, AI, databases, networking, cybersecurity, hardware and cloud — as well as teaching English and general knowledge. If the user shows you their screen or camera, describe and help with what you see. Never claim to be Muse, ChatGPT, or Google. If the user asks for porn, adult or sexy content, do not generate it — reply only in Pashto: "دا محتوا نه لرو. نور هر رقم پوښتنه کولای شې — پروګرامینګ، ویبسایټ، انګلیسی او نور — په خوښۍ به دې مرسته وکړم."`;
 
 type Phase = "connecting" | "live" | "fallback" | "error";
 type TranscriptLine = { role: "user" | "assistant"; text: string };
@@ -650,7 +651,7 @@ export default function LiveCall({
           </p>
         )}
         <p className="mt-3 text-center text-[11px] text-slate-400">
-          📶 {t(lang, "liveNeedsWifi")}
+          <Icon name="wifi" size={14} className="me-1 inline-block align-middle" /> {t(lang, "liveNeedsWifi")}
         </p>
 
         {/* Live transcript (hidden with the sliders button). */}
@@ -720,7 +721,7 @@ export default function LiveCall({
                   : "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white"
               }`}
             >
-              <span className="text-3xl leading-none">🖥</span>
+              <Icon name="screen" size={32} />
               {t(lang, "screenShare")}
             </button>
             <button
@@ -732,7 +733,7 @@ export default function LiveCall({
                   : "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white"
               }`}
             >
-              <span className="text-3xl leading-none">📷</span>
+              <Icon name="camera" size={32} />
               {t(lang, "photos")}
             </button>
             <button
@@ -740,7 +741,7 @@ export default function LiveCall({
               onClick={() => liveFileInputRef.current?.click()}
               className="flex flex-col items-center justify-center gap-2 rounded-3xl bg-slate-100 px-2 py-6 text-sm font-medium text-slate-900 transition active:scale-95 dark:bg-slate-800 dark:text-white"
             >
-              <span className="text-3xl leading-none">📁</span>
+              <Icon name="paperclip" size={32} />
               {t(lang, "files")}
             </button>
             </div>
@@ -760,7 +761,7 @@ export default function LiveCall({
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-2xl leading-none text-slate-900 transition hover:bg-slate-100 active:scale-95 dark:text-white dark:hover:bg-slate-800"
               aria-label={t(lang, "screenShare")}
             >
-              +
+              <Icon name="plus" size={24} />
             </button>
             <span className="min-w-0 flex-1 truncate text-sm text-slate-500">
               {t(lang, "askSamim")}
@@ -781,7 +782,7 @@ export default function LiveCall({
             }`}
             aria-label={micOn ? t(lang, "liveMicOn") : t(lang, "liveMicOff")}
           >
-            {phase === "fallback" ? (fallbackListening ? "■" : "🎙") : micOn ? "🎙" : "🔇"}
+            {phase === "fallback" ? (fallbackListening ? <Icon name="stop" size={22} /> : <Icon name="mic" size={22} />) : micOn ? <Icon name="mic" size={22} /> : <Icon name="volumeOff" size={22} />}
           </button>
           <button
             type="button"
@@ -789,7 +790,7 @@ export default function LiveCall({
             className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-black text-2xl text-white shadow-md transition active:scale-95 dark:bg-white dark:text-black"
             aria-label={t(lang, "endCall")}
           >
-            ✕
+            <Icon name="x" size={24} />
           </button>
         </div>
         <p className="mt-3 text-center text-[11px] text-slate-400">

@@ -303,10 +303,21 @@ body {
   background: #334155;
 }
 
-/* Composer card: soft focus ring when the textarea is focused. */
-.composer-card:focus-within {
-  border-color: var(--brand2);
-  box-shadow: 0 0 0 1px var(--brand2);
+/* Composer card: NO border/outline/ring/shadow change on focus
+ * (ROUND 4 — the user asked for the border that appears on tap to
+ * be gone). There is deliberately NO .composer-card:focus-within
+ * rule: the pill keeps its static subtle ChatGPT-style border and
+ * soft shadow at all times; tapping it changes nothing. The
+ * textarea itself also shows no outline — see
+ * .composer-textarea:focus-visible below. */
+
+/* Composer textarea: never show an outline or ring on focus. The
+ * global :focus-visible rule above does not apply here — this rule
+ * comes later in the file, so it wins at equal specificity. */
+.composer-textarea:focus,
+.composer-textarea:focus-visible {
+  outline: none;
+  box-shadow: none;
 }
 
 /* Smooth composer grow/shrink (height is set inline by JS). */

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Icon } from "@/components/icons";
 import Link from "next/link";
 import { useUi } from "@/components/Providers";
 import { t } from "@/lib/i18n";
@@ -57,7 +58,7 @@ export default function SharePage({ params }: { params: { id: string } }) {
       <div className="mx-auto max-w-2xl space-y-4">
         <header className="space-y-1">
           <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
-            <span aria-hidden className="inline-block rtl:rotate-180">←</span>
+            <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
             Samim AI
           </Link>
           <p className="text-xs font-bold text-[var(--muted)]">
@@ -71,7 +72,7 @@ export default function SharePage({ params }: { params: { id: string } }) {
           <div className="mt-6">
             <p className="text-sm text-[var(--muted)]">{t(lang, "sharedNotFound")}</p>
             <Link href="/" className="mt-4 inline-flex items-center gap-1.5 text-sm font-bold text-[var(--brand2)] hover:underline">
-              <span aria-hidden className="inline-block rtl:rotate-180">←</span>
+              <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
               Samim AI
             </Link>
           </div>
@@ -98,7 +99,7 @@ export default function SharePage({ params }: { params: { id: string } }) {
               ))}
             </div>
             <Link href="/" className="mt-8 inline-flex items-center gap-1.5 text-sm font-bold text-[var(--brand2)] hover:underline">
-              <span aria-hidden className="inline-block rtl:rotate-180">←</span>
+              <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
               Samim AI
             </Link>
           </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import { Icon } from "@/components/icons";
 import Link from "next/link";
 import { useUi } from "@/components/Providers";
 import { t } from "@/lib/i18n";
@@ -11,7 +12,7 @@ export default function AboutPage() {
     <div className="min-h-dvh px-4 py-10">
       <div className="mx-auto max-w-2xl">
         <Link href="/" className="text-sm font-bold text-[var(--brand2)] hover:underline">
-          <span className="inline-block rtl:rotate-180">←</span> {t(lang, "backToChat")}
+          <Icon name="arrowLeft" size={16} className="me-1 inline-block align-middle rtl:rotate-180" /> {t(lang, "backToChat")}
         </Link>
 
         <div className="mt-6 rounded-3xl border border-[var(--card-border)] bg-[var(--card)] p-6 text-center shadow-sm sm:p-8">

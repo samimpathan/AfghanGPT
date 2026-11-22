@@ -25,7 +25,7 @@ const BANNED_PATTERNS = [
 ];
 
 export const ADULT_REFUSAL_PS =
-  "دا محتوا نه لرو. نور هر رقم پوښتنه کولای شې — پروګرامینګ، ویبسایټ، انګلیسي او نور — په خوښۍ به دې مرسته وکړم.";
+  "دا محتوا نه لرو. نور هر رقم پوښتنه کولای شې — پروګرامینګ، ویبسایټ، انګلیسی او نور — په خوښۍ به دې مرسته وکړم.";
 
 export function isAdultRequest(text: string): boolean {
   return BANNED_PATTERNS.some((re) => re.test(text));

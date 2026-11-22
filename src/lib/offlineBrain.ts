@@ -10,6 +10,11 @@
 export function normalize(input: string): string {
   return input
     .trim()
+    // Keyboard-proof: Pashto typed with an Arabic keyboard uses ي/ك
+    // (U+064A/U+0643) where Pashto uses ی/ک — fold them so matching
+    // works whichever keyboard the user typed with.
+    .replace(/ي/g, "ی")
+    .replace(/ك/g, "ک")
     .replace(/[؟?!.,،؛:()«»"']/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -22,8 +27,12 @@ export function isPashto(text: string): boolean {
   return /[\u0600-\u06FF\u0750-\u077F]/.test(text);
 }
 
-/** Single-string answer (multi-bubble video replies joined with blank lines). */
-export function getOfflineAnswer(rawInput: string): string {
+/** Topic answer only: returns the offline brain's reply when the
+ * message matches one of its built-in topics (greetings, who-are-you,
+ * small talk, founder, coding topics, time/date, jokes, …), or null
+ * when it has nothing specific — the caller then decides whether a
+ * web search is appropriate. Never returns the honest fallback. */
+export function getOfflineTopicAnswer(rawInput: string): string | null {
   const text = normalize(rawInput);
   const lower = text.toLowerCase();
   const english = !isPashto(rawInput) && /[a-zA-Z]/.test(rawInput);
@@ -35,7 +44,7 @@ export function getOfflineAnswer(rawInput: string): string {
       "ته څوک یی",
       "ته څوک یې",
       "ستا نوم څه دی",
-      "ستا نوم څه دي",
+      "ستا نوم څه دی",
       "نوم دې څه دی",
       "څوک یې ته",
       "who are you"
@@ -100,7 +109,7 @@ export function getOfflineAnswer(rawInput: string): string {
     has(
       text,
       "صمیم څوک دی",
-      "صمیم څوک دي",
+      "صمیم څوک دی",
       "عبدالصمیم څوک دی",
       "بنسټګر څوک دی",
       "founder څوک دی",
@@ -118,14 +127,14 @@ export function getOfflineAnswer(rawInput: string): string {
   if (has(lower, "devconnect") || has(text, "ډیوکنیکټ", "دیوکنیکټ", "ډیوکانیکټ")) {
     return english
       ? "DevConnect is Samim's app for developers — a social app like Facebook + GitHub + VS Code in one place.\n\nProjects are shared there, code is written, and there are friends, groups, pages and stories."
-      : "DevConnect د صمیم یو اپ دی — د ډیولپرانو لپاره ټولنیز اپ، لکه فیسبوک + ګیټ‌هب + VS Code په یوه ځای کې.\n\nپه کې پروژې شریکېږي، کوډ لیکل کېږي، ملګري، ګروپونه، پاڼې او کیسې شته.";
+      : "DevConnect د صمیم یو اپ دی — د ډیولپرانو لپاره ټولنیز اپ، لکه فیسبوک + ګیټ‌هب + VS Code په یوه ځای کې.\n\nپه کې پروژې شریکېږی، کوډ لیکل کېږی، ملګری، ګروپونه، پاڼې او کیسې شته.";
   }
 
   // --- Samim AI itself ---
   if (has(lower, "samim ai") || has(text, "صمیم ای ای", "دا اپ څه دی", "what is samim ai")) {
     return english
       ? "Samim AI is a free AI assistant made by Abdul Samim Niazai. Anyone can create an account and ask questions — any kind of technology: programming, websites, mobile apps, AI, databases, networking, and general knowledge.\n\nThis is not Muse or Google — it is Samim's own app."
-      : "Samim AI د عبدالصمیم نیازی وړیا AI مرستیال دی. هر څوک کولای شي اکاونټ جوړ کړي او پوښتنې وکړي — هر ډول ټکنالوژي: پروګرامینګ، ویبسایټ، موبایل اپ، AI، ډیټابیس، شبکې او عمومي معلومات.\n\nدا Muse یا Google نه دی؛ دا د صمیم خپل اپ دی.";
+      : "Samim AI د عبدالصمیم نیازی وړیا AI مرستیال دی. هر څوک کولای شی اکاونټ جوړ کړی او پوښتنې وکړی — هر ډول ټکنالوژی: پروګرامینګ، ویبسایټ، موبایل اپ، AI، ډیټابیس، شبکې او عمومی معلومات.\n\nدا Muse یا Google نه دی؛ دا د صمیم خپل اپ دی.";
   }
 
   // --- HTML: build a web page ---
@@ -133,7 +142,7 @@ export function getOfflineAnswer(rawInput: string): string {
     return (
       (english
         ? "Here is a simple HTML web page:\n\n```html\n<!DOCTYPE html>\n<html>\n<head>\n  <title>My Page</title>\n</head>\n<body>\n  <h1>Hello World!</h1>\n  <p>This is my first web page.</p>\n</body>\n</html>\n```\n\nSave it as `index.html` and open it in your browser."
-        : "دلته یو ساده HTML ویب پاڼه ده:\n\n```html\n<!DOCTYPE html>\n<html>\n<head>\n  <title>زما پاڼه</title>\n</head>\n<body>\n  <h1>سلام نړۍ!</h1>\n  <p>دا زما لومړۍ ویب پاڼه ده.</p>\n</body>\n</html>\n```\n\nدا د `index.html` په نوم خوندي کړه او په براوزر کې یې خلاص کړه.")
+        : "دلته یو ساده HTML ویب پاڼه ده:\n\n```html\n<!DOCTYPE html>\n<html>\n<head>\n  <title>زما پاڼه</title>\n</head>\n<body>\n  <h1>سلام نړۍ!</h1>\n  <p>دا زما لومړۍ ویب پاڼه ده.</p>\n</body>\n</html>\n```\n\nدا د `index.html` په نوم خوندی کړه او په براوزر کې یې خلاص کړه.")
     );
   }
 
@@ -142,7 +151,7 @@ export function getOfflineAnswer(rawInput: string): string {
     return (
       (english
         ? "CSS is used to style a web page — colours, sizes and layout.\n\n```css\nh1 {\n  color: blue;\n  text-align: center;\n}\n```\n\nThis makes every `h1` heading blue and centred."
-        : "CSS د ویب پاڼې د ښکلا لپاره کارېږي — رنګونه، اندازې او ترتیب.\n\n```css\nh1 {\n  color: blue;\n  text-align: center;\n}\n```\n\nدا هر `h1` سرلیک نیلي او په منځ کې کوي.")
+        : "CSS د ویب پاڼې د ښکلا لپاره کارېږی — رنګونه، اندازې او ترتیب.\n\n```css\nh1 {\n  color: blue;\n  text-align: center;\n}\n```\n\nدا هر `h1` سرلیک نیلی او په منځ کې کوی.")
     );
   }
 
@@ -151,7 +160,7 @@ export function getOfflineAnswer(rawInput: string): string {
     return (
       (english
         ? "JavaScript makes a web page interactive.\n\n```js\nlet name = \"Samim\";\nconsole.log(\"Hello, \" + name);\n```\n\n`let` creates a variable, and `console.log` prints the text."
-        : "JavaScript ویب پاڼه ژوندۍ کوي.\n\n```js\nlet name = \"Samim\";\nconsole.log(\"Hello, \" + name);\n```\n\n`let` یو متغیر جوړوي، او `console.log` متن ښکاره کوي.")
+        : "JavaScript ویب پاڼه ژوندۍ کوی.\n\n```js\nlet name = \"Samim\";\nconsole.log(\"Hello, \" + name);\n```\n\n`let` یو متغیر جوړوی، او `console.log` متن ښکاره کوی.")
     );
   }
 
@@ -160,7 +169,7 @@ export function getOfflineAnswer(rawInput: string): string {
     return (
       (english
         ? "A loop in Python repeats work.\n\n```python\nfor i in range(5):\n    print(i)\n```\n\nThis prints 0, 1, 2, 3, 4. `range(5)` gives the numbers 0 to 4."
-        : "په Python کې لوپ کار تکراروي.\n\n```python\nfor i in range(5):\n    print(i)\n```\n\nدا 0، 1، 2، 3، 4 چاپوي. `range(5)` له 0 څخه تر 4 پورې شمېرې ورکوي.")
+        : "په Python کې لوپ کار تکراروی.\n\n```python\nfor i in range(5):\n    print(i)\n```\n\nدا 0، 1، 2، 3، 4 چاپوی. `range(5)` له 0 څخه تر 4 پورې شمېرې ورکوی.")
     );
   }
 
@@ -169,7 +178,7 @@ export function getOfflineAnswer(rawInput: string): string {
     return (
       (english
         ? "Here is a first C++ program:\n\n```cpp\n#include <iostream>\nusing namespace std;\n\nint main() {\n  cout << \"Hello World!\";\n  return 0;\n}\n```\n\n`cout` prints text, and `main()` is where the program starts."
-        : "دلته لومړی C++ پروګرام دی:\n\n```cpp\n#include <iostream>\nusing namespace std;\n\nint main() {\n  cout << \"Hello World!\";\n  return 0;\n}\n```\n\n`cout` متن چاپوي، او `main()` هغه ځای دی چې پروګرام ترې پیلېږي.")
+        : "دلته لومړی C++ پروګرام دی:\n\n```cpp\n#include <iostream>\nusing namespace std;\n\nint main() {\n  cout << \"Hello World!\";\n  return 0;\n}\n```\n\n`cout` متن چاپوی، او `main()` هغه ځای دی چې پروګرام ترې پیلېږی.")
     );
   }
 
@@ -178,7 +187,7 @@ export function getOfflineAnswer(rawInput: string): string {
     return (
       (english
         ? "Here is a first Java program:\n\n```java\npublic class Main {\n  public static void main(String[] args) {\n    System.out.println(\"Hello World!\");\n  }\n}\n```\n\n`System.out.println` prints a line of text."
-        : "دلته لومړی Java پروګرام دی:\n\n```java\npublic class Main {\n  public static void main(String[] args) {\n    System.out.println(\"Hello World!\");\n  }\n}\n```\n\n`System.out.println` د متن یوه کرښه چاپوي.")
+        : "دلته لومړی Java پروګرام دی:\n\n```java\npublic class Main {\n  public static void main(String[] args) {\n    System.out.println(\"Hello World!\");\n  }\n}\n```\n\n`System.out.println` د متن یوه کرښه چاپوی.")
     );
   }
 
@@ -192,11 +201,11 @@ export function getOfflineAnswer(rawInput: string): string {
   }
 
   // --- English lessons ---
-  if (has(lower, "english") || has(text, "انګلیسي", "انګلیسی")) {
+  if (has(lower, "english") || has(text, "انګلیسی", "انګلیسی")) {
     return (
       (english
         ? "Here is a small English lesson — greetings:\n\n- Hello = سلام\n- Good morning = سهار مو پخیر\n- Thank you = مننه\n- Goodbye = خدای پامان\n\nTry a sentence and I will correct it for you."
-        : "دلته یو کوچنی انګلیسي درس دی — سلامونه:\n\n- Hello = سلام\n- Good morning = سهار مو پخیر\n- Thank you = مننه\n- Goodbye = خدای پامان\n\nیوه جمله ولیکه، زه به یې سم کړم.")
+        : "دلته یو کوچنی انګلیسی درس دی — سلامونه:\n\n- Hello = سلام\n- Good morning = سهار مو پخیر\n- Thank you = مننه\n- Goodbye = خدای پامان\n\nیوه جمله ولیکه، زه به یې سم کړم.")
     );
   }
 
@@ -219,11 +228,21 @@ export function getOfflineAnswer(rawInput: string): string {
   if (has(text, "څه کولای شې", "څه کولی شې", "مرسته", "مرستې ته اړتیا لرم", "help") || has(lower, "what can you do")) {
     return english
       ? "I am your assistant! I can:\n\n- Chat in Pashto, English and Dari\n- Help with any kind of technology: programming (HTML, CSS, JavaScript, Python, C++, Java), mobile apps, AI, databases, networking, cybersecurity, hardware and cloud\n- Explain how to build a website or an app\n- Teach English\n- Tell the time and date, and jokes 😊"
-      : "زه ستا مرستیال یم! زه دا کولی شم:\n\n- په پښتو، انګلیسي او دري خبرې وکړم\n- په هر ډول ټکنالوژۍ کې مرسته وکړم: پروګرامینګ (HTML، CSS، JavaScript، Python، C++، Java)، موبایل اپ، AI، ډیټابیس، شبکې، سایبر امنیت، هارډویر او کلاوډ\n- د ویبسایټ یا اپ جوړول تشریح کړم\n- انګلیسي وښیم\n- وخت او نېټه ووایم، او ټوکې وکړم 😊";
+      : "زه ستا مرستیال یم! زه دا کولی شم:\n\n- په پښتو، انګلیسی او دری خبرې وکړم\n- په هر ډول ټکنالوژۍ کې مرسته وکړم: پروګرامینګ (HTML، CSS، JavaScript، Python، C++، Java)، موبایل اپ، AI، ډیټابیس، شبکې، سایبر امنیت، هارډویر او کلاوډ\n- د ویبسایټ یا اپ جوړول تشریح کړم\n- انګلیسی وښیم\n- وخت او نېټه ووایم، او ټوکې وکړم 😊";
   }
 
+  // No built-in topic matched — the caller decides what to do next
+  // (web search for a factual question, else the honest fallback).
+  return null;
+}
+
+/** Single-string answer (multi-bubble video replies joined with blank lines). */
+export function getOfflineAnswer(rawInput: string): string {
+  const topic = getOfflineTopicAnswer(rawInput);
+  if (topic !== null) return topic;
+  const english = !isPashto(rawInput) && /[a-zA-Z]/.test(rawInput);
   // --- Fallback (honest, never mentions a key) ---
   return english
     ? "I couldn't find that on the web — try asking it differently. I can help with programming, websites, English, and other technology questions."
-    : "ما دا په انټرنیټ کې ونه موندل — هڅه وکړه چې په بل ډول یې وپوښتې. زه په پروګرامینګ، ویبسایټ، انګلیسي او نورو ټکنالوژۍ پوښتنو کې مرسته کولی شم.";
+    : "ما دا په انټرنیټ کې ونه موندل — هڅه وکړه چې په بل ډول یې وپوښتې. زه په پروګرامینګ، ویبسایټ، انګلیسی او نورو ټکنالوژۍ پوښتنو کې مرسته کولی شم.";
 }

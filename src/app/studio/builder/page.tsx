@@ -10,6 +10,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Icon } from "@/components/icons";
 import Link from "next/link";
 import { useLang } from "@/lib/i18n";
 import { store, uid, type ProjectFile, type StudioProject } from "@/lib/store";
@@ -282,7 +283,7 @@ export default function BuilderPage() {
     <div className="mx-auto w-full max-w-5xl space-y-4 px-3 py-4 sm:px-4">
       <header className="space-y-1">
         <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
-          <span aria-hidden className="inline-block rtl:rotate-180">←</span>
+          <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
           {t("backToChat")}
         </Link>
         <div className="flex flex-wrap items-center gap-2">
@@ -308,7 +309,7 @@ export default function BuilderPage() {
           className="w-full rounded-xl bg-amber-500/15 px-3 py-2 text-start text-sm text-amber-600 dark:text-amber-300"
           onClick={() => setNotice("")}
         >
-          {notice} ✕
+          {notice} <Icon name="x" size={13} className="ms-1 inline-block align-middle" />
         </button>
       )}
 
@@ -379,7 +380,7 @@ export default function BuilderPage() {
                       className="rounded px-1 text-xs text-red-500 opacity-0 group-hover:opacity-100"
                       onClick={() => deleteFile(f.path)}
                     >
-                      ✕
+                      <Icon name="x" size={13} />
                     </button>
                   </div>
                 ))}
@@ -489,7 +490,7 @@ export default function BuilderPage() {
             rel="noreferrer"
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-[var(--brand2)] px-4 py-2.5 text-sm font-semibold text-white transition active:scale-95"
           >
-            Open Vercel ↗
+            Open Vercel <Icon name="external" size={14} className="ms-1 inline-block align-middle" />
           </a>
         </Card>
 
@@ -506,7 +507,7 @@ export default function BuilderPage() {
             rel="noreferrer"
             className="text-sm font-semibold text-violet-500 underline"
           >
-            Supabase Auth docs ↗
+            Supabase Auth docs <Icon name="external" size={14} className="ms-1 inline-block align-middle" />
           </a>
         </Card>
       </div>

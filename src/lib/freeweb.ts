@@ -10,6 +10,14 @@
  * NEVER invent an answer: when no source returns anything useful,
  * getFreeWebAnswer returns null and the caller falls back to the
  * offline brain. Every returned answer carries a source note.
+ *
+ * ROUND 4: two guards stop off-topic answers (e.g. "first line /
+ * second line" once returned a snippet about the Cunard Line):
+ *   - isFactualQuestion(): only clear factual questions are ever
+ *     web-searched; greetings, small talk and vague phrases are not.
+ *   - Relevance matching: every candidate (DuckDuckGo abstract /
+ *     answer / related topic, Wikipedia summary, book result) must
+ *     contain the question's content words, or it is dropped.
  */
 
 export type FreeWebLang = "ps" | "en" | "fa" | "ar";
@@ -190,7 +198,10 @@ const STOPWORDS = new Set([
 ]);
 
 function topicWords(topic: string): string[] {
-  return topic.split(" ").filter((w) => w.length > 2 && !STOPWORDS.has(w.toLowerCase()));
+  return topic
+    .split(" ")
+    .map((w) => w.replace(/^[^a-zA-Z0-9\u0600-\u06FF\u0750-\u077F]+|[^a-zA-Z0-9\u0600-\u06FF\u0750-\u077F]+$/g, ""))
+    .filter((w) => w.length > 2 && !STOPWORDS.has(w.toLowerCase()));
 }
 
 function snippetMatches(snippet: string, title: string, words: string[]): boolean {
@@ -199,11 +210,120 @@ function snippetMatches(snippet: string, title: string, words: string[]): boolea
   return words.every((w) => hay.includes(w.toLowerCase()));
 }
 
+/** The question's key phrase ("capital of France", "wrote Hamlet",
+ * "د فرانسې پلازمېنه") — the question minus its leading question
+ * words and trailing "?", but keeping the topic words in order.
+ * A candidate that does not contain this phrase (when it has more
+ * than one word) is about a different subject that merely shares
+ * words — e.g. the magazine "Capital" shares "capital"+"France"
+ * with "capital of France" but never says "capital of France". */
+function derivePhrase(question: string): string {
+  let q = question
+    .replace(/[؟?!.،,]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+  q = q.replace(/\s+(څه دی|څه ده|څه دي|چیست|کیست|ما هو|ما هي|what is it|is it)\s*$/i, "");
+  const patterns: RegExp[] = [
+    /^(what is|what are|what was|who is|who was|where is|where are|when is|when was|define|tell me about|explain|meaning of)\s+/i,
+    /^(څه دی|څه ده|څه دي|څوک دی|څوک ده|څوک دي|چیرته دی|چیرته ده|کله دی)\s+/,
+    /^(چیست|کیست|کجاست|تعریف)\s+/,
+    /^(ما هو|ما هي|من هو|من هي|أين)\s+/,
+  ];
+  for (const p of patterns) q = q.replace(p, "");
+  q = q.replace(/^the\s+/i, "");
+  return q.trim();
+}
+
+function phraseIn(text: string, phrase: string): boolean {
+  return phrase.length > 0 && text.toLowerCase().includes(phrase);
+}
+
+/** How many of the question's content words a candidate must contain
+ * to count as on-topic: ALL of them for 1–2 words, at least two
+ * thirds for longer questions. "Capital punishment" shares only
+ * "capital" with "capital of France", so it fails; "Cunard Line"
+ * shares only "line" with "first line / second line", so it fails. */
+function requiredMatchCount(wordCount: number): number {
+  if (wordCount <= 2) return wordCount;
+  return Math.ceil((wordCount * 2) / 3);
+}
+
+/** True when a candidate text (plus its title) contains enough of
+ * the question's content words to be about the same topic. */
+function matchesTopic(text: string, title: string, words: string[]): boolean {
+  if (words.length === 0) return text.length > 20;
+  const hay = `${title} ${text}`.toLowerCase();
+  const found = words.filter((w) => hay.includes(w.toLowerCase())).length;
+  return found >= requiredMatchCount(words.length);
+}
+
+/* ================= Factual-question classifier =================
+ * Only a message that CLEARLY looks like a factual/informational
+ * question may be web-searched. Everything else — greetings, small
+ * talk, thanks, goodbyes, vague phrases, statements — goes to the
+ * offline brain, which answers honestly instead of returning a
+ * loosely-related web snippet. Default: NOT factual. */
+
+const QUESTION_WORDS = [
+  "what", "who", "whom", "whose", "where", "when", "why", "how", "which",
+  "څه", "څوک", "چیرته", "چېرته", "کله", "ولې", "څنګه", "کوم", "څومره",
+  "چه", "چی", "کی", "کجا", "چرا", "چگونه", "چطور", "کدام", "چقدر",
+  "ما", "من", "أين", "اين", "متى", "لماذا", "كيف", "ماذا", "أي", "كم",
+];
+
+/** Factual topic patterns — these make a message factual even
+ * without a leading question word ("the capital of France"). */
+const FACTUAL_PATTERNS: RegExp[] = [
+  /\bcapital of\b/i, /پلازمېنه/, /پایتخت/, /عاصمة/,
+  /\bpopulation of\b/i, /\bmeaning of\b/i, /\bdefinition of\b/i,
+  /\bdefine\b/i, /\btell me about\b/i, /\bexplain\b/i,
+  /معنی|معنا/, /تعریف/, /تشریح/,
+  /\bwho (is|was)\b/i, /\bwhat (is|are|was|were)\b/i,
+  /\bwhere (is|are|was|were)\b/i, /\bwhen (is|was|did)\b/i,
+  /\bwhy (is|are|was|do|does|did)\b/i,
+  /\bhow (many|much|long|old|far|do|does|can)\b/i,
+  /\bwho (wrote|invented|discovered|founded|created)\b/i,
+  /\b(کتاب|کتابونه)\b/i,
+];
+
+export function isFactualQuestion(text: string): boolean {
+  const q = text.trim();
+  if (q.length < 3) return false;
+  // Small talk that merely starts with a question word ("How are
+  // you?") is conversational, never factual — the offline brain
+  // answers it (the route checks the brain before this classifier).
+  if (/^how are you\b/i.test(q) || /^(څنګه یې|څنګه یی|ته څنګه یې|ته څنګه یی)/.test(q)) {
+    return false;
+  }
+  const words = topicWords(q);
+  // A factual question needs at least one real content word besides
+  // the question word itself ("what?" alone is not factual).
+  if (words.length === 0) return false;
+  if (FACTUAL_PATTERNS.some((re) => re.test(q))) return true;
+  const first = q
+    .replace(/^[^a-zA-Z0-9\u0600-\u06FF\u0750-\u077F]+/, "")
+    .split(/\s+/)[0]
+    ?.toLowerCase();
+  if (first && QUESTION_WORDS.includes(first)) return true;
+  // A "?" plus a question word anywhere ("Paris — what is it?").
+  if (/[؟?]/.test(q)) {
+    const lower = q.toLowerCase();
+    if (QUESTION_WORDS.some((w) => lower.includes(w))) return true;
+  }
+  return false;
+}
+
 function isBookQuestion(question: string): boolean {
   return /book|کتاب/i.test(question);
 }
 
-async function duckDuckGo(question: string, lang: FreeWebLang): Promise<FreeWebAnswer | null> {
+async function duckDuckGo(
+  question: string,
+  lang: FreeWebLang,
+  words: string[],
+  phrase: string
+): Promise<FreeWebAnswer | null> {
   const url =
     "https://api.duckduckgo.com/?q=" +
     encodeURIComponent(question) +
@@ -215,27 +335,49 @@ async function duckDuckGo(question: string, lang: FreeWebLang): Promise<FreeWebA
     RelatedTopics?: Array<{ Text?: string; Topics?: Array<{ Text?: string }> }>;
   } | null;
   if (!data) return null;
+  // ROUND 4: every DuckDuckGo candidate must actually be about the
+  // question's topic words — an unchecked abstract / related topic
+  // is how an off-topic snippet (e.g. Cunard Line) leaked through.
+  // When the question has a multi-word key phrase ("capital of
+  // France"), the candidate must contain that phrase: the "Capital"
+  // magazine shares the words "capital"+"France" but never says
+  // "capital of France", so it is not an answer. With no phrase
+  // (single-word question) the word match alone decides.
+  const candidates: Array<{ text: string; source: string }> = [];
   const abstract = (data.AbstractText ?? "").trim();
   if (abstract) {
-    const source = (data.AbstractSource ?? "").trim() || "DuckDuckGo";
-    return compose(abstract, source, lang);
+    candidates.push({
+      text: abstract,
+      source: (data.AbstractSource ?? "").trim() || "DuckDuckGo",
+    });
   }
   const answer = (data.Answer ?? "").trim();
-  if (answer) return compose(answer, "DuckDuckGo", lang);
+  if (answer) candidates.push({ text: answer, source: "DuckDuckGo" });
   const topics = data.RelatedTopics ?? [];
   for (const t of topics) {
     const text = (t.Text ?? "").trim();
-    if (text.length > 20) return compose(text, "DuckDuckGo", lang);
+    if (text.length > 20) candidates.push({ text, source: "DuckDuckGo" });
     const sub = t.Topics ?? [];
     for (const s of sub) {
       const st = (s.Text ?? "").trim();
-      if (st.length > 20) return compose(st, "DuckDuckGo", lang);
+      if (st.length > 20) candidates.push({ text: st, source: "DuckDuckGo" });
     }
   }
+  const onTopic = candidates.filter((c) => matchesTopic(c.text, c.source, words));
+  const withPhrase = onTopic.filter((c) => phraseIn(c.text, phrase));
+  // Multi-word phrase: only a candidate containing the phrase counts.
+  // Single-word question: the word match alone decides.
+  const best = phrase.includes(" ") ? withPhrase[0] : onTopic[0];
+  if (best) return compose(best.text, best.source, lang);
   return null;
 }
 
-async function wikipedia(question: string, lang: FreeWebLang): Promise<FreeWebAnswer | null> {
+async function wikipedia(
+  question: string,
+  lang: FreeWebLang,
+  words: string[],
+  phrase: string
+): Promise<FreeWebAnswer | null> {
   const topic = deriveTopic(question);
   const wikiLang = WIKI_LANG[lang];
   const sourceName = SOURCE_NAME[lang].wiki;
@@ -244,37 +386,55 @@ async function wikipedia(question: string, lang: FreeWebLang): Promise<FreeWebAn
     const summary = (await fetchJson(
       `https://${wikiLang}.wikipedia.org/api/rest_v1/page/summary/${title}`
     )) as { extract?: string; type?: string } | null;
-    if (summary && typeof summary.extract === "string" && summary.extract.trim()) {
+    // ROUND 4: a summary only counts when it is about the question
+    // itself — its extract must contain ALL of the question's
+    // content words ("capital" AND "France"), and a disambiguation
+    // page never counts. Otherwise fall through to search.
+    if (
+      summary &&
+      summary.type !== "disambiguation" &&
+      typeof summary.extract === "string" &&
+      summary.extract.trim() &&
+      snippetMatches(summary.extract, topic, words)
+    ) {
       return compose(summary.extract.trim(), sourceName, lang);
     }
   }
   // Fallback: search API on the same language Wikipedia, then English.
   // Scan the first few hits and take the first whose title/snippet
-  // actually contains every topic word — the top hit is often about
-  // a different subject that shares one word.
-  const words = topicWords(topic);
+  // actually contains every question word — the top hit is often about
+  // a different subject that shares one word. (Match on the QUESTION's
+  // words, not just the derived topic: for "capital of France" the
+  // topic is "France", but the answer must say "capital" too.)
+  // Search with the question's content words ("capital France") so
+  // the Paris article outranks the France article.
+  const searchText = words.length > 0 ? words.join(" ") : topic || question;
   for (const sub of [wikiLang, "en"]) {
     const data = (await fetchJson(
       `https://${sub}.wikipedia.org/w/api.php?action=query&list=search&srsearch=${encodeURIComponent(
-        topic || question
+        searchText
       )}&format=json&origin=*`
     )) as { query?: { search?: Array<{ snippet?: string; title?: string }> } } | null;
     const results = data?.query?.search ?? [];
     const matches = results
-      .slice(0, 5)
+      .slice(0, 8)
       .map((hit) => ({ title: hit.title ?? "", snippet: hit.snippet ? stripHtml(hit.snippet) : "" }))
       .filter((m) => m.snippet.length > 20 && snippetMatches(m.snippet, m.title, words));
-    // Rank the matches: a hit whose FIRST sentence already states
-    // the topic ("پاریس د فرانسې پلازمېنه دی") beats one that merely
-    // mentions the words pages later ("...د ازادې فرانسې پلازمېنه
-    // شوه"), and a short title ("پاریس") beats a long one
-    // ("د فرانسې ازادي") — the article about the thing itself.
+    // Rank the matches: a hit whose snippet actually states the
+    // question's key phrase ("The capital of France has been Paris")
+    // beats one that merely mentions the words ("Capital is a monthly
+    // French magazine…"); then a hit whose FIRST sentence already
+    // states the topic, then a short title (the article about the
+    // thing itself, e.g. "Paris" over "Capital punishment in France").
     const scored = matches
       .map((m) => {
         const first = m.snippet.split(/[.!؟]/)[0] ?? "";
         const firstStatesTopic = words.every((w) => first.toLowerCase().includes(w.toLowerCase()));
         const titleWords = m.title.split(" ").filter(Boolean).length || 99;
-        return { m, score: (firstStatesTopic ? 0 : 10) + titleWords };
+        return {
+          m,
+          score: (phraseIn(m.snippet, phrase) ? -20 : 0) + (firstStatesTopic ? 0 : 10) + titleWords,
+        };
       })
       .sort((a, b) => a.score - b.score);
     const best = scored[0]?.m;
@@ -283,7 +443,11 @@ async function wikipedia(question: string, lang: FreeWebLang): Promise<FreeWebAn
   return null;
 }
 
-async function googleBooks(question: string, lang: FreeWebLang): Promise<FreeWebAnswer | null> {
+async function googleBooks(
+  question: string,
+  lang: FreeWebLang,
+  words: string[]
+): Promise<FreeWebAnswer | null> {
   const data = (await fetchJson(
     "https://www.googleapis.com/books/v1/volumes?q=" +
       encodeURIComponent(question) +
@@ -300,6 +464,12 @@ async function googleBooks(question: string, lang: FreeWebLang): Promise<FreeWeb
   if (info.description) parts.push(stripHtml(info.description));
   const fact = parts.join(" — ");
   if (fact.length < 10) return null;
+  // ROUND 4: the book must share at least one content word with the
+  // question, or it is a random book, not an answer.
+  if (words.length > 0) {
+    const hay = fact.toLowerCase();
+    if (!words.some((w) => hay.includes(w.toLowerCase()))) return null;
+  }
   return compose(fact, SOURCE_NAME[lang].books, lang);
 }
 
@@ -307,6 +477,8 @@ async function googleBooks(question: string, lang: FreeWebLang): Promise<FreeWeb
  * Free web answer for a question. Tries DuckDuckGo, then Wikipedia,
  * and Google Books for book questions. Returns null when no source
  * has anything useful — the caller must never invent an answer.
+ * Every candidate is relevance-checked against the question's
+ * content words (see matchesTopic / snippetMatches).
  */
 export async function getFreeWebAnswer(
   question: string,
@@ -314,8 +486,14 @@ export async function getFreeWebAnswer(
 ): Promise<FreeWebAnswer | null> {
   const q = question.trim();
   if (q.length < 2) return null;
+  const words = topicWords(q);
+  const phrase = derivePhrase(q);
   if (isBookQuestion(q)) {
-    return (await googleBooks(q, lang)) ?? (await duckDuckGo(q, lang)) ?? (await wikipedia(q, lang));
+    return (
+      (await googleBooks(q, lang, words)) ??
+      (await duckDuckGo(q, lang, words, phrase)) ??
+      (await wikipedia(q, lang, words, phrase))
+    );
   }
-  return (await duckDuckGo(q, lang)) ?? (await wikipedia(q, lang));
+  return (await duckDuckGo(q, lang, words, phrase)) ?? (await wikipedia(q, lang, words, phrase));
 }

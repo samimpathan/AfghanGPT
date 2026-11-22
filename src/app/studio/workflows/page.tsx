@@ -10,6 +10,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Icon } from "@/components/icons";
 import Link from "next/link";
 import { useLang } from "@/lib/i18n";
 import {
@@ -328,7 +329,7 @@ export default function WorkflowsPage() {
     <div className="mx-auto w-full max-w-5xl space-y-4 px-3 py-4 sm:px-4">
       <header className="space-y-1">
         <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
-          <span aria-hidden className="inline-block rtl:rotate-180">←</span>
+          <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
           {t("backToChat")}
         </Link>
         <div className="flex flex-wrap items-center gap-2">
@@ -347,7 +348,7 @@ export default function WorkflowsPage() {
           className="w-full rounded-xl bg-amber-500/15 px-3 py-2 text-start text-sm text-amber-600 dark:text-amber-300"
           onClick={() => setNotice("")}
         >
-          {notice} ✕
+          {notice} <Icon name="x" size={13} className="ms-1 inline-block align-middle" />
         </button>
       )}
 
@@ -410,7 +411,7 @@ export default function WorkflowsPage() {
                       disabled={idx === 0}
                       onClick={() => moveStep(idx, -1)}
                     >
-                      ↑
+                      <Icon name="arrowUp" size={14} />
                     </button>
                     <button
                       type="button"
@@ -419,7 +420,7 @@ export default function WorkflowsPage() {
                       disabled={idx === steps.length - 1}
                       onClick={() => moveStep(idx, 1)}
                     >
-                      ↓
+                      <Icon name="arrowDown" size={14} />
                     </button>
                     <button
                       type="button"
@@ -427,7 +428,7 @@ export default function WorkflowsPage() {
                       className="rounded-lg border border-[var(--card-border)] px-2 py-1 text-xs text-red-500"
                       onClick={() => deleteStep(step.id)}
                     >
-                      ✕
+                      <Icon name="x" size={14} />
                     </button>
                   </div>
                 </div>
@@ -460,7 +461,7 @@ export default function WorkflowsPage() {
                     className="rounded px-1.5 text-xs text-red-500 opacity-0 group-hover:opacity-100"
                     onClick={() => deleteWorkflow(w.id)}
                   >
-                    ✕
+                    <Icon name="x" size={13} />
                   </button>
                 </div>
               ))}

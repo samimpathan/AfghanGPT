@@ -8,6 +8,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "@/components/icons";
 import Link from "next/link";
 import { useLang } from "@/lib/i18n";
 import { chatJson, downloadFileSpec } from "@/lib/client";
@@ -245,7 +246,7 @@ export default function SlidesPage() {
     <div className="mx-auto w-full max-w-3xl space-y-4 px-3 py-4 sm:px-4">
       <header className="space-y-1">
         <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
-          <span aria-hidden className="inline-block rtl:rotate-180">←</span>
+          <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
           {t("backToChat")}
         </Link>
         <h1 className="text-xl font-bold sm:text-2xl">{t("slides")}</h1>
@@ -343,7 +344,7 @@ export default function SlidesPage() {
         )}
         <div className="mt-3 flex items-center justify-between gap-2">
           <Btn variant="outline" size="sm" onClick={() => setCurrent((c) => Math.max(0, c - 1))} disabled={current === 0}>
-            <span aria-hidden className="inline-block rtl:rotate-180">←</span> Previous
+            <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" /> Previous
           </Btn>
           <div className="flex gap-1.5">
             {deck.slides.map((_, i) => (
@@ -358,7 +359,7 @@ export default function SlidesPage() {
             ))}
           </div>
           <Btn variant="outline" size="sm" onClick={() => setCurrent((c) => Math.min(deck.slides.length - 1, c + 1))} disabled={current >= deck.slides.length - 1}>
-            Next <span aria-hidden className="inline-block rtl:rotate-180">→</span>
+            Next <Icon name="arrowRight" size={16} className="ms-1 inline-block align-middle rtl:rotate-180" />
           </Btn>
         </div>
       </Card>
@@ -375,8 +376,8 @@ export default function SlidesPage() {
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Slide {i + 1}</span>
                 <div className="flex gap-1">
-                  <Btn variant="ghost" size="sm" onClick={() => moveSlide(i, -1)} disabled={i === 0} aria-label="Move slide up">↑</Btn>
-                  <Btn variant="ghost" size="sm" onClick={() => moveSlide(i, 1)} disabled={i === deck.slides.length - 1} aria-label="Move slide down">↓</Btn>
+                  <Btn variant="ghost" size="sm" onClick={() => moveSlide(i, -1)} disabled={i === 0} aria-label="Move slide up"><Icon name="arrowUp" size={16} /></Btn>
+                  <Btn variant="ghost" size="sm" onClick={() => moveSlide(i, 1)} disabled={i === deck.slides.length - 1} aria-label="Move slide down"><Icon name="arrowDown" size={16} /></Btn>
                   <Btn variant="ghost" size="sm" onClick={() => setCurrent(i)}>Preview</Btn>
                   <Btn variant="danger" size="sm" onClick={() => deleteSlide(i)} disabled={deck.slides.length <= 1}>{t("delete")}</Btn>
                 </div>

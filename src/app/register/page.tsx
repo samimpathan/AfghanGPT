@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Icon } from "@/components/icons";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -134,7 +135,7 @@ export default function RegisterPage() {
               {t(lang, "haveAccount")}
             </Link>
             <Link href="/" className="text-[var(--muted)] hover:underline">
-              <span className="inline-block rtl:rotate-180">←</span> {t(lang, "backToChat")}
+              <Icon name="arrowLeft" size={16} className="me-1 inline-block align-middle rtl:rotate-180" /> {t(lang, "backToChat")}
             </Link>
           </div>
         </div>

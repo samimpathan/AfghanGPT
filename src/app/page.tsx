@@ -6,8 +6,9 @@ import Link from "next/link";
 import ChatMessage, { type UiMessage } from "@/components/ChatMessage";
 import LiveCall from "@/components/LiveCall";
 import UserAvatar from "@/components/UserAvatar";
+import { Icon } from "@/components/icons";
 import { useUi } from "@/components/Providers";
-import { t } from "@/lib/i18n";
+import { t, dirOf } from "@/lib/i18n";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { isAdminEmail } from "@/lib/admin";
 import { store } from "@/lib/store";
@@ -70,14 +71,14 @@ function loadChatMeta(): Record<string, ChatMeta> {
 
 /** The 8 merged studios (from the Samim AI studios). */
 const STUDIOS = [
-  { href: "/studio/write", key: "writing", icon: "✍", feature: "writing" },
-  { href: "/studio/code", key: "coding", icon: "</>", feature: "coding" },
-  { href: "/studio/builder", key: "builder", icon: "🧩", feature: "builder" },
-  { href: "/studio/image", key: "image", icon: "🖼", feature: "image" },
-  { href: "/studio/slides", key: "slides", icon: "📊", feature: "slides" },
-  { href: "/studio/docs", key: "docs", icon: "📄", feature: "docs" },
-  { href: "/research", key: "research", icon: "🔍", feature: "research" },
-  { href: "/studio/workflows", key: "workflows", icon: "⚙", feature: "workflows" },
+  { href: "/studio/write", key: "writing", icon: "pencil", feature: "writing" },
+  { href: "/studio/code", key: "coding", icon: "code", feature: "coding" },
+  { href: "/studio/builder", key: "builder", icon: "layers", feature: "builder" },
+  { href: "/studio/image", key: "image", icon: "image", feature: "image" },
+  { href: "/studio/slides", key: "slides", icon: "presentation", feature: "slides" },
+  { href: "/studio/docs", key: "docs", icon: "fileText", feature: "docs" },
+  { href: "/research", key: "research", icon: "search", feature: "research" },
+  { href: "/studio/workflows", key: "workflows", icon: "workflow", feature: "workflows" },
 ] as const;
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 
@@ -1181,7 +1182,9 @@ export default function HomePage() {
           onClick={() => selectChat(c.id)}
           className="block w-full truncate text-start"
         >
-          {pins.includes(c.id) ? "📌 " : ""}
+          {pins.includes(c.id) && (
+            <Icon name="pin" size={14} className="me-1 inline-block align-middle" />
+          )}
           {c.title}
         </button>
       )}
@@ -1254,7 +1257,7 @@ export default function HomePage() {
                   className="rounded-full px-2 py-1 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"
                   aria-label={t(lang, "expand")}
                 >
-                  »
+                  <Icon name="chevronRight" size={20} />
                 </button>
                 <button
                   type="button"
@@ -1262,7 +1265,7 @@ export default function HomePage() {
                   className="flex h-10 w-10 items-center justify-center rounded-full bg-[#2457FF] text-lg font-bold text-white"
                   aria-label={t(lang, "newChat")}
                 >
-                  +
+                  <Icon name="plus" size={20} />
                 </button>
                 {visibleStudios.map((s) => (
                   <Link
@@ -1272,7 +1275,7 @@ export default function HomePage() {
                     className="flex h-10 w-10 items-center justify-center rounded-full text-lg hover:bg-slate-100 dark:hover:bg-slate-800"
                     aria-label={t(lang, s.key)}
                   >
-                    {s.icon}
+                    <Icon name={s.icon} size={20} />
                   </Link>
                 ))}
                 <Link
@@ -1280,7 +1283,7 @@ export default function HomePage() {
                   className="flex h-10 w-10 items-center justify-center rounded-full text-lg hover:bg-slate-100 dark:hover:bg-slate-800"
                   aria-label={t(lang, "settings")}
                 >
-                  ⚙
+                  <Icon name="settings" size={20} />
                 </Link>
               </div>
             ) : (
@@ -1301,7 +1304,7 @@ export default function HomePage() {
                 className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg transition hover:bg-slate-100 active:scale-95 dark:hover:bg-slate-800"
                 aria-label={t(lang, "searchChats")}
               >
-                🔍
+                <Icon name="search" size={20} />
               </button>
               <button
                 type="button"
@@ -1309,7 +1312,7 @@ export default function HomePage() {
                 className="rounded-full px-2 py-1 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"
                 aria-label={t(lang, "collapse")}
               >
-                «
+                <Icon name="chevronLeft" size={20} />
               </button>
               <button
                 type="button"
@@ -1317,7 +1320,7 @@ export default function HomePage() {
                 className="rounded-full px-2 py-1 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"
                 aria-label="Close menu"
               >
-                ✕
+                <Icon name="x" size={20} />
               </button>
             </div>
             {(searchOpen || search) && (
@@ -1342,27 +1345,27 @@ export default function HomePage() {
                 onClick={() => libraryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
                 className="flex items-center gap-3.5 rounded-lg px-2 py-2.5 text-start text-base transition hover:bg-slate-100 active:scale-[0.98] dark:hover:bg-slate-800"
               >
-                <span className="text-xl leading-none">🖼</span> {t(lang, "images")}
+                <Icon name="image" size={20} /> {t(lang, "images")}
               </button>
               <button
                 type="button"
                 onClick={() => libraryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
                 className="flex items-center gap-3.5 rounded-lg px-2 py-2.5 text-start text-base transition hover:bg-slate-100 active:scale-[0.98] dark:hover:bg-slate-800"
               >
-                <span className="text-xl leading-none">📚</span> {t(lang, "library")}
+                <Icon name="book" size={20} /> {t(lang, "library")}
               </button>
               <button
                 type="button"
                 onClick={() => studiosRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
                 className="flex items-center gap-3.5 rounded-lg px-2 py-2.5 text-start text-base transition hover:bg-slate-100 active:scale-[0.98] dark:hover:bg-slate-800"
               >
-                <span className="text-xl leading-none">🧩</span> {t(lang, "explore")}
+                <Icon name="compass" size={20} /> {t(lang, "explore")}
               </button>
             </div>
             {/* Studios (merged from the Samim AI studios) */}
             <div ref={studiosRef} className="px-3 pb-1 pt-2">
               <p className="px-1 pb-1 text-xs font-bold text-slate-500">
-                🎨 {t(lang, "studios")}
+                <Icon name="grid" size={16} className="me-1 inline-block align-middle" /> {t(lang, "studios")}
               </p>
               <div className="flex flex-col gap-0.5">
                 {visibleStudios.map((s) => (
@@ -1372,7 +1375,7 @@ export default function HomePage() {
                     onClick={() => setSidebarOpen(false)}
                     className="rounded-lg px-2 py-1.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    {s.icon} {t(lang, s.key)}
+                    <Icon name={s.icon} size={16} className="me-1.5 inline-block align-middle" /> {t(lang, s.key)}
                   </Link>
                 ))}
               </div>
@@ -1436,7 +1439,7 @@ export default function HomePage() {
                     {folders.map((f) => (
                       <div key={f} className="mb-1">
                         <p className="px-2 pb-1 pt-1 text-xs font-bold text-slate-500">
-                          📁 {f}
+                          <Icon name="folder" size={14} className="me-1 inline-block align-middle" /> {f}
                         </p>
                         {otherChats.filter((c) => folderOf(c.id) === f).map(chatItem)}
                       </div>
@@ -1456,8 +1459,8 @@ export default function HomePage() {
                       onClick={() => setShowArchived((v) => !v)}
                       className="w-full px-2 pb-1 pt-1 text-start text-xs font-bold text-slate-500"
                     >
-                      🗄 {t(lang, "archived")} ({archivedChats.length}){" "}
-                      {showArchived ? "▾" : "▸"}
+                      <Icon name="archive" size={14} className="me-1 inline-block align-middle" /> {t(lang, "archived")} ({archivedChats.length}){" "}
+                      <Icon name="chevronDown" size={14} className={`inline-block align-middle transition-transform ${showArchived ? "" : "-rotate-90"}`} />
                     </button>
                     {showArchived && archivedChats.map(chatItem)}
                   </div>
@@ -1467,26 +1470,26 @@ export default function HomePage() {
             <div className="border-t border-[var(--border-subtle)] p-3">
               <div className="flex flex-wrap gap-3 text-xs">
                 <Link href="/settings" className="text-slate-600 hover:underline dark:text-slate-300">
-                  ⚙ {t(lang, "settings")}
+                  <Icon name="settings" size={14} className="me-1 inline-block align-middle" /> {t(lang, "settings")}
                 </Link>
                 <Link href="/about" className="text-slate-600 hover:underline dark:text-slate-300">
-                  ℹ {t(lang, "about")}
+                  <Icon name="info" size={14} className="me-1 inline-block align-middle" /> {t(lang, "about")}
                 </Link>
                 {isAdmin && (
                   <Link href="/admin" className="font-bold text-amber-600 hover:underline dark:text-amber-400">
-                    ★ {t(lang, "admin")}
+                    <Icon name="star" size={14} className="me-1 inline-block align-middle" /> {t(lang, "admin")}
                   </Link>
                 )}
               </div>
               {/* Bottom bar (ChatGPT-style): BLUE new-chat pill + the
-                  user's avatar + blue voice button. */}
+                  user's avatar + GOLD voice button. */}
               <div className="mt-2 flex items-center gap-2">
                 <button
                   type="button"
                   onClick={newChat}
                   className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-full bg-[#2457FF] px-4 text-sm font-bold text-white transition hover:bg-blue-700 active:scale-95"
                 >
-                  ✎ {t(lang, "chat")}
+                  <Icon name="compose" size={18} className="shrink-0" /> {t(lang, "chat")}
                 </button>
                 {userEmail ? (
                   <a
@@ -1514,16 +1517,10 @@ export default function HomePage() {
                     setSidebarOpen(false);
                     setLiveCallOpen(true);
                   }}
-                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#2457FF] text-white transition hover:bg-blue-700 active:scale-95"
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#FACC15] text-black transition hover:bg-[#EAB308] active:scale-95"
                   aria-label={t(lang, "liveCall")}
                 >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-                    <rect x="2.5" y="9" width="2" height="6" rx="1" fill="currentColor" />
-                    <rect x="7" y="6" width="2" height="12" rx="1" fill="currentColor" />
-                    <rect x="11.5" y="9" width="2" height="6" rx="1" fill="currentColor" />
-                    <rect x="16" y="5" width="2" height="14" rx="1" fill="currentColor" />
-                    <rect x="19.5" y="9" width="2" height="6" rx="1" fill="currentColor" />
-                  </svg>
+                  <Icon name="waveform" size={20} />
                 </button>
               </div>
               {/* Name wraps onto two lines — never truncated mid-word. */}
@@ -1553,7 +1550,7 @@ export default function HomePage() {
             className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[var(--card-border)] bg-[var(--card)] transition duration-150 hover:bg-[var(--surface)] active:scale-95"
             aria-label="Menu"
           >
-            <span className="text-2xl leading-none text-[#222222] dark:text-[#EAF2FF]">≡</span>
+            <Icon name="menu" size={24} className="text-[#222222] dark:text-[#EAF2FF]" />
             <span className="absolute right-1 top-0.5 h-2.5 w-2.5 rounded-full bg-[#2457FF]" />
           </button>
 
@@ -1567,7 +1564,7 @@ export default function HomePage() {
               aria-expanded={modelPickerOpen}
             >
               <span className="truncate">{modelLabel}</span>
-              <span className="text-xs text-slate-500">▾</span>
+              <Icon name="chevronDown" size={14} className="text-slate-500" />
             </button>
             {modelPickerOpen && (
               <>
@@ -1590,7 +1587,7 @@ export default function HomePage() {
                         : m === "fast"
                           ? t(lang, "modelFast")
                           : t(lang, "modelSmart")}
-                      {modelMode === m ? " ✓" : ""}
+                      {modelMode === m ? <Icon name="check" size={14} className="ms-1 inline-block align-middle" /> : ""}
                     </button>
                   ))}
                   {/* One model only: "Samim AI Auto" (Auto/Fast/Smart
@@ -1601,7 +1598,7 @@ export default function HomePage() {
                     onClick={() => setModelPickerOpen(false)}
                     className="block rounded-xl px-3 py-2 text-sm text-[#2457FF] transition duration-150 hover:bg-[var(--surface)]"
                   >
-                    ⚙ {t(lang, "settings")}
+                    <Icon name="settings" size={14} className="me-1 inline-block align-middle" /> {t(lang, "settings")}
                   </Link>
                 </div>
               </>
@@ -1646,14 +1643,14 @@ export default function HomePage() {
                     onClick={() => setUserMenuOpen(false)}
                     className="block rounded-xl px-3 py-2 text-sm transition duration-150 hover:bg-[var(--surface)]"
                   >
-                    ⚙ {t(lang, "settings")}
+                    <Icon name="settings" size={14} className="me-1 inline-block align-middle" /> {t(lang, "settings")}
                   </Link>
                   <Link
                     href="/about"
                     onClick={() => setUserMenuOpen(false)}
                     className="block rounded-xl px-3 py-2 text-sm transition duration-150 hover:bg-[var(--surface)]"
                   >
-                    ℹ {t(lang, "about")}
+                    <Icon name="info" size={14} className="me-1 inline-block align-middle" /> {t(lang, "about")}
                   </Link>
                   {userEmail ? (
                     <button
@@ -1661,7 +1658,7 @@ export default function HomePage() {
                       onClick={() => void doSignOut()}
                       className="block w-full rounded-xl px-3 py-2 text-start text-sm text-red-600 transition duration-150 hover:bg-[var(--surface)] dark:text-red-400"
                     >
-                      ↩ {t(lang, "logout")}
+                      <Icon name="logout" size={16} className="me-2 inline-block align-middle" /> {t(lang, "logout")}
                     </button>
                   ) : (
                     <>
@@ -1690,10 +1687,10 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={newChat}
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-xl transition duration-150 hover:bg-[var(--surface)] active:scale-95"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition duration-150 hover:bg-[var(--surface)] active:scale-95"
                 aria-label={t(lang, "newChat")}
               >
-                ✎
+                <Icon name="compose" size={20} />
               </button>
               <span className="h-6 w-px bg-[var(--border-subtle)]" aria-hidden />
               <button
@@ -1702,7 +1699,7 @@ export default function HomePage() {
                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition duration-150 hover:bg-[var(--surface)] active:scale-95"
                 aria-label="More options"
               >
-                <span className="text-xl leading-none tracking-[2px] text-[#222222] dark:text-[#EAF2FF]">•••</span>
+                <Icon name="dots" size={20} className="text-[#222222] dark:text-[#EAF2FF]" />
               </button>
             </div>
           </div>
@@ -1726,7 +1723,7 @@ export default function HomePage() {
                 }}
                 className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
               >
-                ↗ {t(lang, "shareChat")}
+                <Icon name="share" size={16} className="me-2 inline-block align-middle" /> {t(lang, "shareChat")}
               </button>
               <button
                 type="button"
@@ -1737,7 +1734,7 @@ export default function HomePage() {
                 }}
                 className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
               >
-                📌 {isPinned ? t(lang, "unpinChat") : t(lang, "pinChat")}
+                <Icon name="pin" size={16} className="me-2 inline-block align-middle" /> {isPinned ? t(lang, "unpinChat") : t(lang, "pinChat")}
               </button>
               <button
                 type="button"
@@ -1752,21 +1749,21 @@ export default function HomePage() {
                 }}
                 className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
               >
-                ✎ {t(lang, "rename")}
+                <Icon name="pencil" size={16} className="me-2 inline-block align-middle" /> {t(lang, "rename")}
               </button>
               <Link
                 href="/about"
                 onClick={() => setMoreOpen(false)}
                 className="block rounded-xl px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
               >
-                ℹ {t(lang, "help")}
+                <Icon name="info" size={14} className="me-1 inline-block align-middle" /> {t(lang, "help")}
               </Link>
               <a
                 href="mailto:samimpatan8@gmail.com?subject=Samim%20AI%20feedback"
                 onClick={() => setMoreOpen(false)}
                 className="block rounded-xl px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
               >
-                ✉ {t(lang, "feedback")}
+                <Icon name="feedback" size={16} className="me-2 inline-block align-middle" /> {t(lang, "feedback")}
               </a>
               <button
                 type="button"
@@ -1777,7 +1774,7 @@ export default function HomePage() {
                 }}
                 className="block w-full rounded-xl px-3 py-2.5 text-start text-sm text-red-600 hover:bg-slate-100 disabled:opacity-40 dark:text-red-400 dark:hover:bg-slate-800"
               >
-                🗑 {t(lang, "delete")}
+                <Icon name="trash" size={16} className="me-2 inline-block align-middle" /> {t(lang, "delete")}
               </button>
               <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
               {/* No provider list here anymore: one model ("Samim AI
@@ -1790,8 +1787,8 @@ export default function HomePage() {
                 }}
                 className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
               >
-                🔒 {t(lang, "tempChat")}
-                {tempMode ? " ✓" : ""}
+                <Icon name="lock" size={16} className="me-2 inline-block align-middle" /> {t(lang, "tempChat")}
+                {tempMode ? <Icon name="check" size={14} className="ms-1 inline-block align-middle" /> : ""}
               </button>
               <button
                 type="button"
@@ -1802,7 +1799,7 @@ export default function HomePage() {
                 }}
                 className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
               >
-                📄 {t(lang, "exportPdf")}
+                <Icon name="fileText" size={16} className="me-2 inline-block align-middle" /> {t(lang, "exportPdf")}
               </button>
               <button
                 type="button"
@@ -1813,7 +1810,7 @@ export default function HomePage() {
                 }}
                 className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
               >
-                📝 {t(lang, "exportDocx")}
+                <Icon name="fileText" size={16} className="me-2 inline-block align-middle" /> {t(lang, "exportDocx")}
               </button>
               <button
                 type="button"
@@ -1824,7 +1821,7 @@ export default function HomePage() {
                 }}
                 className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
               >
-                🔗 {t(lang, "shareLink")}
+                <Icon name="link" size={16} className="me-2 inline-block align-middle" /> {t(lang, "shareLink")}
               </button>
               <button
                 type="button"
@@ -1834,14 +1831,14 @@ export default function HomePage() {
                 }}
                 className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
               >
-                {theme === "dark" ? "☀ " + t(lang, "light") : "🌙 " + t(lang, "dark")}
+                {theme === "dark" ? (<><Icon name="sun" size={16} className="me-2 inline-block align-middle" />{t(lang, "light")}</>) : (<><Icon name="moon" size={16} className="me-2 inline-block align-middle" />{t(lang, "dark")}</>)}
               </button>
               <Link
                 href="/settings"
                 onClick={() => setMoreOpen(false)}
                 className="block rounded-xl px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
               >
-                ⚙ {t(lang, "settings")}
+                <Icon name="settings" size={14} className="me-1 inline-block align-middle" /> {t(lang, "settings")}
               </Link>
               {isAdmin && (
                 <Link
@@ -1849,7 +1846,7 @@ export default function HomePage() {
                   onClick={() => setMoreOpen(false)}
                   className="block rounded-xl px-3 py-2 text-sm font-bold text-amber-600 hover:bg-slate-100 dark:text-amber-400 dark:hover:bg-slate-800"
                 >
-                  ★ {t(lang, "admin")}
+                  <Icon name="star" size={14} className="me-1 inline-block align-middle" /> {t(lang, "admin")}
                 </Link>
               )}
               {userEmail ? (
@@ -1896,7 +1893,7 @@ export default function HomePage() {
       )}
       {tempMode && (
         <div className="break-words bg-slate-200 px-3 py-2 text-center text-[11px] leading-relaxed text-slate-900 sm:text-xs dark:bg-slate-100 dark:text-slate-900">
-          🔒 {t(lang, "tempChatNote")}
+          <Icon name="lock" size={14} className="me-1 inline-block align-middle" /> {t(lang, "tempChatNote")}
         </div>
       )}
 
@@ -1947,21 +1944,21 @@ export default function HomePage() {
                 onClick={() => send(t(lang, "learnPrompt"))}
                 className="flex items-center gap-3 rounded-2xl px-3 py-3.5 text-base transition hover:bg-[var(--surface)] active:scale-[0.98]"
               >
-                <span className="text-xl leading-none">🎓</span>
+                <Icon name="cap" size={20} />
                 {t(lang, "learnSomething")}
               </button>
               <Link
                 href="/studio/image"
                 className="flex items-center gap-3 rounded-2xl px-3 py-3.5 text-base transition hover:bg-[var(--surface)] active:scale-[0.98]"
               >
-                <span className="text-xl leading-none">🖼</span>
+                <Icon name="image" size={20} />
                 {t(lang, "createImage")}
               </Link>
               <Link
                 href="/studio/write"
                 className="flex items-center gap-3 rounded-2xl px-3 py-3.5 text-base transition hover:bg-[var(--surface)] active:scale-[0.98]"
               >
-                <span className="text-xl leading-none">✎</span>
+                <Icon name="pencil" size={20} />
                 {t(lang, "writeOrEdit")}
               </Link>
             </div>
@@ -1972,7 +1969,7 @@ export default function HomePage() {
                   href={s.href}
                   className="rounded-full border border-[var(--card-border)] bg-[var(--card)] px-3 py-1.5 text-xs font-bold shadow-sm transition duration-150 hover:bg-[var(--surface)]"
                 >
-                  {s.icon} {t(lang, s.key)}
+                  <Icon name={s.icon} size={16} className="me-1.5 inline-block align-middle" /> {t(lang, s.key)}
                 </Link>
               ))}
             </div>
@@ -1986,7 +1983,7 @@ export default function HomePage() {
             )}
             {tempMode && (
               <p className="mt-2 rounded-xl bg-slate-900 px-3 py-2 text-xs text-white dark:bg-slate-100 dark:text-slate-900">
-                🔒 {t(lang, "tempChatNote")}
+                <Icon name="lock" size={14} className="me-1 inline-block align-middle" /> {t(lang, "tempChatNote")}
               </p>
             )}
           </div>
@@ -2037,7 +2034,7 @@ export default function HomePage() {
         )}
         {(listening || recording) && (
           <p className="mx-auto mb-2 max-w-3xl text-center text-xs font-bold text-red-500">
-            🎙 {recording ? t(lang, "recording") : t(lang, "listening")}
+            <Icon name="mic" size={14} className="me-1 inline-block align-middle" /> {recording ? t(lang, "recording") : t(lang, "listening")}
           </p>
         )}
         {pendingImage && (
@@ -2053,16 +2050,18 @@ export default function HomePage() {
               className="rounded-full bg-slate-200 px-2 py-1 text-xs dark:bg-slate-800"
               aria-label={t(lang, "close")}
             >
-              ✕
+              <Icon name="x" size={14} />
             </button>
           </div>
         )}
         <form
           dir="ltr"
           onSubmit={(e) => {
+            // ROUND 4: Enter NEVER sends — it inserts a newline (the
+            // user's phone keyboard has no Shift+Enter, so Enter-send
+            // made multi-line writing impossible). Sending happens
+            // ONLY via the ↑ send button's onClick below.
             e.preventDefault();
-            send(input);
-            setInput("");
           }}
           className="mx-auto flex w-full min-w-0 max-w-3xl items-end gap-2 sm:gap-2.5"
         >
@@ -2099,60 +2098,40 @@ export default function HomePage() {
               e.target.value = "";
             }}
           />
-          <div className="composer-card relative flex min-w-0 flex-1 items-end rounded-full border border-[var(--border-subtle)] bg-white px-2.5 py-2 shadow-sm sm:px-3 dark:bg-[#111B30]">
+          {/* ChatGPT-style pill: light-grey surface + subtle border +
+              soft shadow, so it stands out from the white page. The
+              static border never changes on focus (ROUND 4: the
+              focus ring/border is removed — see .composer-card in
+              globals.css). */}
+          <div className="composer-card relative flex min-w-0 flex-1 items-end rounded-full border border-[var(--border-subtle)] bg-[#F4F4F4] px-2.5 py-2 shadow-md sm:px-3 dark:bg-[#111B30]">
             <button
               type="button"
               onClick={() => setAttachOpen((v) => !v)}
-              className="mb-1.5 shrink-0 px-1 text-2xl leading-none text-[#111111] sm:text-[26px] dark:text-[#EAF2FF]"
+              className="mb-1.5 flex h-8 w-8 shrink-0 items-center justify-center text-[#111111] dark:text-[#EAF2FF]"
               aria-label="+"
             >
-              ＋
+              <Icon name="plus" size={24} />
             </button>
             {/* Auto-growing composer: 1 line min, exactly 4 lines max
               (112px = 16px padding + 4 x 24px line-height), then
               scrolls internally with NO visible scrollbar
-              (.composer-textarea in globals.css). Enter sends,
-              Shift+Enter = newline. */}
+              (.composer-textarea in globals.css). ROUND 4: Enter
+              inserts a real newline (default textarea behaviour, on
+              desktop AND Android) — sending is ONLY via the ↑ button.
+              The placeholder is translated (askSamim) and its
+              direction follows the UI language (dirOf(lang)): Pashto
+              / Dari / Arabic → RTL, English → LTR. */}
             <textarea
               ref={composerRef}
-              dir="auto"
+              dir={dirOf(lang)}
               rows={1}
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                // ENTER SENDS (Android fix): some Android keyboards
-                // report Enter as keyCode 13 with a vague key value,
-                // and IME composition must not send mid-word. The
-                // <form onSubmit> below is a second safety net for
-                // keyboards that submit the form instead of keydown.
-                const isEnter = e.key === "Enter" || e.keyCode === 13;
-                if (!isEnter || e.nativeEvent.isComposing) return;
-                if (e.shiftKey) {
-                  // Shift+Enter = a real newline at the caret. The
-                  // browser default is unreliable in this controlled
-                  // textarea (it inserts nothing), so insert "\n"
-                  // manually and put the caret after it.
-                  e.preventDefault();
-                  const el = e.currentTarget;
-                  const start = el.selectionStart ?? input.length;
-                  const end = el.selectionEnd ?? input.length;
-                  setInput(input.slice(0, start) + "\n" + input.slice(end));
-                  requestAnimationFrame(() => {
-                    el.setSelectionRange(start + 1, start + 1);
-                  });
-                  return;
-                }
-                e.preventDefault();
-                if (input.trim() || pendingImage) {
-                  send(input);
-                  setInput("");
-                }
-              }}
-              enterKeyHint="send"
+              enterKeyHint="enter"
               placeholder={t(lang, "askSamim")}
               className="composer-textarea bidi-plaintext max-h-[112px] min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-2 text-base leading-6 text-[#111111] outline-none placeholder:text-[#9A9A9A] sm:text-[17px] dark:text-[#EAF2FF]"
             />
-            {/* Photo 1 order inside the pill: + … mic … blue wave.
+            {/* Order inside the pill: + … mic … gold wave … ↑ send.
                 The send button appears ONLY once there is text (or a
                 photo) to send — with an empty pill the photos show
                 just mic + wave, no send arrow. While streaming the
@@ -2160,26 +2139,20 @@ export default function HomePage() {
             <button
               type="button"
               onClick={startListening}
-              className={`mb-1.5 shrink-0 rounded-full px-1 text-xl leading-none sm:text-[22px] ${
+              className={`mb-1.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
                 listening || recording ? "mic-listening text-red-500" : ""
               }`}
               aria-label="Microphone"
             >
-              🎙
+              <Icon name="mic" size={22} />
             </button>
             <button
               type="button"
               onClick={() => setLiveCallOpen(true)}
-              className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2457FF] text-white shadow-sm transition hover:bg-blue-700 active:scale-95"
+              className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#FACC15] text-black shadow-sm transition hover:bg-[#EAB308] active:scale-95"
               aria-label={t(lang, "liveCall")}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" aria-hidden>
-                <rect x="2.5" y="9" width="2" height="6" rx="1" fill="currentColor" />
-                <rect x="7" y="6" width="2" height="12" rx="1" fill="currentColor" />
-                <rect x="11.5" y="9" width="2" height="6" rx="1" fill="currentColor" />
-                <rect x="16" y="5" width="2" height="14" rx="1" fill="currentColor" />
-                <rect x="19.5" y="9" width="2" height="6" rx="1" fill="currentColor" />
-              </svg>
+              <Icon name="waveform" size={20} />
             </button>
             {streaming ? (
               <button
@@ -2188,15 +2161,21 @@ export default function HomePage() {
                 className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white transition-transform active:scale-95 dark:bg-white dark:text-black"
                 aria-label={t(lang, "stop")}
               >
-                <span className="text-base leading-none">■</span>
+                <Icon name="stop" size={16} />
               </button>
             ) : input.trim() || pendingImage ? (
               <button
-                type="submit"
+                type="button"
+                onClick={() => {
+                  if (input.trim() || pendingImage) {
+                    send(input);
+                    setInput("");
+                  }
+                }}
                 className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white transition-transform active:scale-95 dark:bg-white dark:text-black"
                 aria-label={t(lang, "send")}
               >
-                <span className="text-xl leading-none">↑</span>
+                <Icon name="arrowUp" size={20} />
               </button>
             ) : null}
             {/* ===== + menu: floating card above the composer,
@@ -2218,7 +2197,7 @@ export default function HomePage() {
                     }}
                     className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] text-xl dark:bg-slate-700">📷</span>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] dark:bg-slate-700"><Icon name="camera" size={22} /></span>
                     {t(lang, "camera")}
                   </button>
                   <button
@@ -2229,7 +2208,7 @@ export default function HomePage() {
                     }}
                     className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] text-xl dark:bg-slate-700">🖼</span>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] dark:bg-slate-700"><Icon name="image" size={22} /></span>
                     {t(lang, "photos")}
                   </button>
                   <button
@@ -2240,7 +2219,7 @@ export default function HomePage() {
                     }}
                     className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] text-xl dark:bg-slate-700">📁</span>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] dark:bg-slate-700"><Icon name="paperclip" size={22} /></span>
                     {t(lang, "files")}
                   </button>
                   <button
@@ -2251,7 +2230,7 @@ export default function HomePage() {
                     }}
                     className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] text-xl dark:bg-slate-700">🖥</span>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] dark:bg-slate-700"><Icon name="screen" size={22} /></span>
                     {t(lang, "screenShare")}
                   </button>
                   <button
@@ -2259,10 +2238,10 @@ export default function HomePage() {
                     onClick={() => setThinkHarder((v) => !v)}
                     className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-start text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] text-xl dark:bg-slate-700">🧠</span>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] dark:bg-slate-700"><Icon name="gauge" size={22} /></span>
                     <span>
                       {t(lang, "thinkHarder")}
-                      {thinkHarder ? " ✓" : ""}
+                      {thinkHarder ? <Icon name="check" size={14} className="ms-1 inline-block align-middle" /> : ""}
                     </span>
                   </button>
                   <button
@@ -2273,7 +2252,7 @@ export default function HomePage() {
                     }}
                     className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] text-xl dark:bg-slate-700">🎙</span>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] dark:bg-slate-700"><Icon name="mic" size={22} /></span>
                     {t(lang, "listening")}
                   </button>
                   <button
@@ -2284,7 +2263,7 @@ export default function HomePage() {
                     }}
                     className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
                   >
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#2457FF] text-xl text-white">🌊</span>
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#FACC15] text-black"><Icon name="waveform" size={22} /></span>
                     {t(lang, "liveCall")}
                   </button>
                 </div>
