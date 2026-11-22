@@ -12,8 +12,23 @@ export type ChatMsg = {
   image?: string;
 };
 
-const GEMINI_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse";
+/**
+ * Model chain for text chat. gemini-3-flash-preview is the primary model;
+ * if it fails (503 high demand, 429, timeout, network error) we retry once
+ * with gemini-2.0-flash before giving up. Known NOT to use for this key:
+ * gemini-2.5-flash (404 "no longer available to new users"),
+ * gemini-3.8-flash and gemini-flash-latest (503 high demand).
+ */
+const CHAT_MODELS = ["gemini-3-flash-preview", "gemini-2.0-flash"] as const;
+const TTS_MODEL = "gemini-2.5-flash-preview-tts";
+
+function modelStreamUrl(model: string): string {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`;
+}
+
+function modelUrl(model: string, action: "generateContent"): string {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:${action}`;
+}
 
 const IMAGE_MODEL_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent";
@@ -81,75 +96,213 @@ export async function generateImage(
   }
 }
 
-/** Stream Gemini reply text chunk by chunk. Throws on HTTP / network errors. */
+export type GeminiMode = "auto" | "fast" | "smart";
+
+function modePrompt(mode: GeminiMode): string {
+  if (mode === "fast") {
+    return "\nKeep answers short and concise — a few lines at most, unless code is asked for.";
+  }
+  if (mode === "smart") {
+    return "\nGive detailed, step-by-step answers with examples when useful.";
+  }
+  return "";
+}
+
+function modeTokens(mode: GeminiMode): number {
+  if (mode === "fast") return 1024;
+  if (mode === "smart") return 4096;
+  return 2048;
+}
+
+/** Stream Gemini reply text chunk by chunk, with model fallback.
+ * Tries CHAT_MODELS in order; a failed model (non-2xx, timeout, network
+ * error) is retried with the next model. Throws only when every model
+ * failed — the error message carries the last HTTP status, never the key.
+ * A failure AFTER the first chunk was already yielded is also thrown, so
+ * the caller can tell a mid-stream break from a total failure. */
 export async function* streamGemini(
   messages: ChatMsg[],
-  apiKey: string
+  apiKey: string,
+  mode: GeminiMode = "auto"
 ): AsyncGenerator<string> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60000);
+  const system = SYSTEM_PROMPT + modePrompt(mode);
+  const maxTokens = modeTokens(mode);
+  let lastError: Error | null = null;
 
-  let res: Response;
-  try {
-    res = await fetch(`${GEMINI_URL}&key=${encodeURIComponent(apiKey)}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
-        contents: toGeminiContents(messages),
-        generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
-      }),
-      signal: controller.signal,
-    });
-  } catch (e) {
-    clearTimeout(timeout);
-    throw new Error(
-      e instanceof Error && e.name === "AbortError"
-        ? "Gemini request timed out"
-        : "Could not reach Gemini"
-    );
-  } finally {
-    clearTimeout(timeout);
-  }
+  for (const model of CHAT_MODELS) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+    let res: Response;
+    try {
+      res = await fetch(`${modelStreamUrl(model)}&key=${encodeURIComponent(apiKey)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: { parts: [{ text: system }] },
+          contents: toGeminiContents(messages),
+          generationConfig: { temperature: 0.7, maxOutputTokens: maxTokens },
+        }),
+        signal: controller.signal,
+      });
+    } catch (e) {
+      clearTimeout(timeout);
+      lastError = new Error(
+        e instanceof Error && e.name === "AbortError"
+          ? `Gemini request timed out (${model})`
+          : `Could not reach Gemini (${model})`
+      );
+      continue; // try the next model
+    }
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    if (res.status === 429) throw new Error("Gemini rate limit (429) — try again in a minute");
-    if (res.status === 400 || res.status === 401 || res.status === 403)
-      throw new Error(`Gemini key problem (${res.status}) — check GEMINI_API_KEY`);
-    throw new Error(`Gemini error ${res.status}: ${body.slice(0, 200)}`);
-  }
-  if (!res.body) throw new Error("Gemini returned an empty response");
+    if (!res.ok) {
+      clearTimeout(timeout);
+      const status = res.status;
+      await res.text().catch(() => "");
+      lastError = new Error(`Gemini error ${status} (${model})`);
+      // 400/401/403 mean the key itself is bad — a different model will not help.
+      if (status === 400 || status === 401 || status === 403) break;
+      continue; // try the next model (e.g. 503/429 on the primary)
+    }
+    if (!res.body) {
+      clearTimeout(timeout);
+      lastError = new Error(`Gemini returned an empty response (${model})`);
+      continue;
+    }
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split("\n");
-      buffer = lines.pop() ?? "";
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed.startsWith("data:")) continue;
-        const data = trimmed.slice(5).trim();
-        if (!data || data === "[DONE]") continue;
-        try {
-          const json = JSON.parse(data);
-          const parts = json?.candidates?.[0]?.content?.parts as
-            | { text?: string }[]
-            | undefined;
-          for (const part of parts ?? []) {
-            if (part.text) yield part.text;
+    // This model works — stream it. A mid-stream failure throws.
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("data:")) continue;
+          const data = trimmed.slice(5).trim();
+          if (!data || data === "[DONE]") continue;
+          try {
+            const json = JSON.parse(data);
+            const parts = json?.candidates?.[0]?.content?.parts as
+              | { text?: string }[]
+              | undefined;
+            for (const part of parts ?? []) {
+              if (part.text) yield part.text;
+            }
+          } catch {
+            // Ignore one malformed SSE line and keep streaming.
           }
-        } catch {
-          // Ignore one malformed SSE line and keep streaming.
         }
       }
+      return; // success — do not try the next model
+    } finally {
+      clearTimeout(timeout);
+      reader.releaseLock();
     }
+  }
+
+  throw lastError ?? new Error("Gemini request failed");
+}
+
+/** Transcribe recorded speech with Gemini (audio as inlineData).
+ * Returns the plain transcript in the language spoken, or null on failure. */
+export async function transcribeAudio(
+  audioBase64: string,
+  mimeType: string,
+  apiKey: string
+): Promise<string | null> {
+  const prompt =
+    "Transcribe exactly what is said in this audio, in the language spoken. Return only the transcription, no explanation.";
+  for (const model of CHAT_MODELS) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000);
+    try {
+      const res = await fetch(
+        `${modelUrl(model, "generateContent")}?key=${encodeURIComponent(apiKey)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [
+                  { text: prompt },
+                  { inlineData: { mimeType, data: audioBase64 } },
+                ],
+              },
+            ],
+          }),
+          signal: controller.signal,
+        }
+      );
+      if (!res.ok) continue;
+      const json = (await res.json()) as {
+        candidates?: { content?: { parts?: { text?: string }[] } }[];
+      };
+      const text = json?.candidates?.[0]?.content?.parts
+        ?.map((p) => p.text ?? "")
+        .join("")
+        .trim();
+      return text || null;
+    } catch {
+      continue;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  return null;
+}
+
+/** Text-to-speech with Gemini TTS. Returns audio as a data URL
+ * (e.g. data:audio/wav;base64,...), or null when the model is unavailable
+ * for this key — callers must then fall back honestly, never fake audio. */
+export async function synthesizeSpeech(
+  text: string,
+  lang: string,
+  apiKey: string
+): Promise<string | null> {
+  const voiceName =
+    lang === "ps" || lang === "fa" ? "Kore" : lang === "en" ? "Puck" : "Kore";
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 60000);
+  try {
+    const res = await fetch(
+      `${modelUrl(TTS_MODEL, "generateContent")}?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text }] }],
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+              voiceConfig: { prebuiltVoiceConfig: { voiceName } },
+            },
+          },
+        }),
+        signal: controller.signal,
+      }
+    );
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      candidates?: {
+        content?: {
+          parts?: { inlineData?: { mimeType?: string; data?: string } }[];
+        };
+      }[];
+    };
+    const parts = json?.candidates?.[0]?.content?.parts ?? [];
+    const audio = parts.find((p) => p.inlineData?.data);
+    if (!audio?.inlineData?.data) return null;
+    const mime = audio.inlineData.mimeType ?? "audio/wav";
+    return `data:${mime};base64,${audio.inlineData.data}`;
+  } catch {
+    return null;
   } finally {
-    reader.releaseLock();
+    clearTimeout(timeout);
   }
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import ChatMessage, { type UiMessage } from "@/components/ChatMessage";
+import LiveCall from "@/components/LiveCall";
 import { useUi } from "@/components/Providers";
 import { t, LANGS } from "@/lib/i18n";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
@@ -23,6 +24,8 @@ import {
 import {
   createRecognizer,
   isSpeechRecognitionSupported,
+  isMediaRecorderSupported,
+  transcribeRecording,
   stopSpeaking,
   type SpeechRecognitionInstance,
 } from "@/lib/voice";
@@ -34,8 +37,13 @@ type LocalChat = {
   messages: UiMessage[];
 };
 
+type ModelMode = "auto" | "fast" | "smart";
+
 const GUEST_KEY = "samim-ai-guest-chats";
 const GUEST_ACTIVE_KEY = "samim-ai-guest-active";
+const MODEL_KEY = "samim-ai-model";
+const PINS_KEY = "samim-ai-pinned-chats";
+const SAVED_IMAGES_KEY = "samim-ai-saved-images";
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 
 function loadGuestChats(): LocalChat[] {
@@ -69,6 +77,26 @@ function loadGuestActiveId(chats: LocalChat[]): string | null {
     // ignore
   }
   return chats[0]?.id ?? null;
+}
+
+function loadPins(): string[] {
+  try {
+    const raw = localStorage.getItem(PINS_KEY);
+    const parsed = raw ? (JSON.parse(raw) as string[]) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function loadSavedImages(): string[] {
+  try {
+    const raw = localStorage.getItem(SAVED_IMAGES_KEY);
+    const parsed = raw ? (JSON.parse(raw) as string[]) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 /** Downscale a photo client-side to max 1024px (JPEG 0.8) before sending. */
@@ -122,20 +150,32 @@ export default function HomePage() {
   const [streaming, setStreaming] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [modelMode, setModelMode] = useState<ModelMode>("auto");
   const [notice, setNotice] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
+  const [recording, setRecording] = useState(false);
   const [pendingImage, setPendingImage] = useState<{ dataUrl: string } | null>(null);
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
-  const [chatTime] = useState(() =>
-    new Date().toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
-  );
+  const [pins, setPins] = useState<string[]>([]);
+  const [savedImages, setSavedImages] = useState<string[]>([]);
+  const [plusOpen, setPlusOpen] = useState(false);
+  const [thinkHarder, setThinkHarder] = useState(false);
+  const [liveCallOpen, setLiveCallOpen] = useState(false);
+  const [screenShareOpen, setScreenShareOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const photoInputRef = useRef<HTMLInputElement | null>(null);
   const recogRef = useRef<SpeechRecognitionInstance | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const recorderChunksRef = useRef<Blob[]>([]);
+  const screenStreamRef = useRef<MediaStream | null>(null);
+  const screenVideoRef = useRef<HTMLVideoElement | null>(null);
   // True once the initial load (guest storage or Supabase) has run.
   // The persist effect must NOT write before this, or it would overwrite
   // the saved guest chats with [] on first paint.
@@ -146,20 +186,38 @@ export default function HomePage() {
   const active = chats.find((c) => c.id === activeId) ?? null;
   const messages: UiMessage[] = active?.messages ?? [];
   const isAdmin = isAdminEmail(userEmail);
+  const isPinned = activeId ? pins.includes(activeId) : false;
 
   const showNotice = (text: string) => {
     setNotice(text);
     if (noticeTimer.current) clearTimeout(noticeTimer.current);
-    noticeTimer.current = setTimeout(() => setNotice(null), 3000);
+    noticeTimer.current = setTimeout(() => setNotice(null), 4000);
   };
 
   // Stop any voice input/output when leaving the page.
   useEffect(() => {
     return () => {
       recogRef.current?.abort();
+      recorderRef.current?.stop();
       stopSpeaking();
     };
   }, []);
+
+  // Load the saved model choice + pins once.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(MODEL_KEY) as ModelMode | null;
+      if (saved === "fast" || saved === "smart" || saved === "auto") setModelMode(saved);
+    } catch {
+      // ignore
+    }
+    setPins(loadPins());
+  }, []);
+
+  // Refresh the saved-images gallery whenever the drawer opens.
+  useEffect(() => {
+    if (sidebarOpen) setSavedImages(loadSavedImages());
+  }, [sidebarOpen]);
 
   // Persist guest chats locally — ONLY after the initial load has run.
   // Before this fix this effect ran on mount with chats=[] and overwrote
@@ -247,6 +305,7 @@ export default function HomePage() {
     setChats((prev) => [c, ...prev]);
     setActiveId(c.id);
     setSidebarOpen(false);
+    setMoreOpen(false);
   }, [lang]);
 
   const selectChat = useCallback(async (id: string) => {
@@ -265,6 +324,28 @@ export default function HomePage() {
         prev.map((c) => (c.id === id ? { ...c, messages: msgs } : c))
       );
     }
+  }, []);
+
+  const pickModel = (m: ModelMode) => {
+    setModelMode(m);
+    setModelPickerOpen(false);
+    try {
+      localStorage.setItem(MODEL_KEY, m);
+    } catch {
+      // ignore
+    }
+  };
+
+  const togglePin = useCallback((id: string) => {
+    setPins((prev) => {
+      const next = prev.includes(id) ? prev.filter((p) => p !== id) : [id, ...prev];
+      try {
+        localStorage.setItem(PINS_KEY, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
   }, []);
 
   const send = useCallback(
@@ -346,25 +427,33 @@ export default function HomePage() {
       const controller = new AbortController();
       abortRef.current = controller;
       setStreaming(true);
+      // "Think harder" sends this one message as Smart, whatever the picker says.
+      const mode: ModelMode = thinkHarder ? "smart" : modelMode;
       let full = "";
-      let mode: "gemini" | "offline" | "refused" = "offline";
+      let replyMode: UiMessage["mode"] = "offline";
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: history }),
+          body: JSON.stringify({ messages: history, mode }),
           signal: controller.signal,
         });
         const headerMode = res.headers.get("X-SamimAI-Mode");
-        if (headerMode === "gemini" || headerMode === "offline" || headerMode === "refused") {
-          mode = headerMode;
+        if (
+          headerMode === "gemini" ||
+          headerMode === "offline" ||
+          headerMode === "refused" ||
+          headerMode === "busy" ||
+          headerMode === "file"
+        ) {
+          replyMode = headerMode;
         }
         if (!res.ok || !res.body) throw new Error("API error");
         if (headerMode === "image") {
           // Generated image: JSON body, not a text stream.
           const data = (await res.json()) as { text?: string; image?: string };
           full = data.text ?? "";
-          mode = "gemini";
+          replyMode = "gemini";
           const image = data.image;
           setChats((prev) =>
             prev.map((c) =>
@@ -373,7 +462,29 @@ export default function HomePage() {
                     ...c,
                     messages: c.messages.map((m) =>
                       m.id === assistantId
-                        ? { ...m, content: full, mode, image }
+                        ? { ...m, content: full, mode: replyMode, image }
+                        : m
+                    ),
+                  }
+                : c
+            )
+          );
+        } else if (headerMode === "file") {
+          // Generated file: JSON body with a base64 file + summary text.
+          const data = (await res.json()) as {
+            text?: string;
+            file?: { filename: string; mime: string; size: number; base64: string };
+          };
+          full = data.text ?? "";
+          replyMode = "file";
+          setChats((prev) =>
+            prev.map((c) =>
+              c.id === chatId
+                ? {
+                    ...c,
+                    messages: c.messages.map((m) =>
+                      m.id === assistantId
+                        ? { ...m, content: full, mode: replyMode, file: data.file }
                         : m
                     ),
                   }
@@ -394,7 +505,7 @@ export default function HomePage() {
                   ? {
                       ...c,
                       messages: c.messages.map((m) =>
-                        m.id === assistantId ? { ...m, content: snapshot, mode } : m
+                        m.id === assistantId ? { ...m, content: snapshot, mode: replyMode } : m
                       ),
                     }
                   : c
@@ -413,7 +524,7 @@ export default function HomePage() {
                 ? {
                     ...c,
                     messages: c.messages.map((m) =>
-                      m.id === assistantId ? { ...m, content: full, mode } : m
+                      m.id === assistantId ? { ...m, content: full, mode: replyMode } : m
                     ),
                   }
                 : c
@@ -438,7 +549,7 @@ export default function HomePage() {
         await saveMessage(dbId, "assistant", full);
       }
     },
-    [activeId, streaming, userId, lang, pendingImage]
+    [activeId, streaming, userId, lang, pendingImage, modelMode, thinkHarder]
   );
 
   const stop = () => abortRef.current?.abort();
@@ -496,50 +607,166 @@ export default function HomePage() {
     [activeId, streaming]
   );
 
-  /** Voice input via the free Web Speech API (no key, no paid service). */
-  const startListening = useCallback(() => {
-    if (listening) {
-      recogRef.current?.stop();
-      return;
-    }
-    if (!isSpeechRecognitionSupported()) {
-      showNotice(t(lang, "micNotSupported"));
-      return;
-    }
-    const rec = createRecognizer(lang);
-    if (!rec) {
-      showNotice(t(lang, "micNotSupported"));
-      return;
-    }
-    recogRef.current = rec;
-    rec.onresult = (e) => {
-      const transcript = Array.from(e.results)
-        .filter((r) => r.isFinal)
-        .map((r) => r[0].transcript)
-        .join(" ")
-        .trim();
-      if (transcript) {
-        setInput((prev) => (prev ? prev + " " + transcript : transcript));
+  /** Branch in new chat: duplicate this chat from a message into a new chat. */
+  const branchFromMessage = useCallback(
+    async (msgId: string) => {
+      const chat = chatsRef.current.find((c) => c.id === activeId) ?? null;
+      if (!chat || streaming) return;
+      const idx = chat.messages.findIndex((m) => m.id === msgId);
+      if (idx < 0) return;
+      const branched: UiMessage[] = chat.messages.slice(0, idx + 1).map((m) => ({ ...m, id: uid() }));
+      const newC: LocalChat = { id: uid(), title: chat.title, messages: branched };
+      setChats((prev) => [newC, ...prev]);
+      setActiveId(newC.id);
+      showNotice(t(lang, "chatBranched"));
+      // Logged-in: also save the branched chat to Supabase (best effort).
+      if (userId && supabase) {
+        const row = await createChat(userId, chat.title);
+        if (row) {
+          setChats((prev) =>
+            prev.map((c) => (c.id === newC.id ? { ...c, dbId: row.id } : c))
+          );
+          for (const m of branched) await saveMessage(row.id, m.role, m.content);
+        }
       }
-    };
-    rec.onerror = (e) => {
-      setListening(false);
-      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
-        showNotice(t(lang, "micPermission"));
-      } else if (e.error === "no-speech") {
-        showNotice(t(lang, "micNoSpeech"));
-      } else {
+    },
+    [activeId, streaming, lang, userId]
+  );
+
+  /** Export the active chat as a .md download. */
+  const exportChat = useCallback(() => {
+    const chat = chatsRef.current.find((c) => c.id === activeId) ?? null;
+    if (!chat) return;
+    const lines = [`# ${chat.title}`, ""];
+    for (const m of chat.messages) {
+      lines.push(m.role === "user" ? `**You:** ${m.content}` : `**Samim AI:** ${m.content}`);
+      lines.push("");
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown; charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${chat.title.replace(/[\\/:*?"<>|]/g, "").slice(0, 60) || "samim-ai-chat"}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showNotice(t(lang, "chatExported"));
+  }, [activeId, lang]);
+
+  /** Share the active conversation (Web Share API, clipboard fallback). */
+  const shareChat = useCallback(async () => {
+    const chat = chatsRef.current.find((c) => c.id === activeId) ?? null;
+    if (!chat) return;
+    const text = [`${chat.title}`, ""];
+    for (const m of chat.messages) {
+      text.push(`${m.role === "user" ? "You" : "Samim AI"}: ${m.content}`);
+    }
+    const joined = text.join("\n");
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: chat.title, text: joined });
+        return;
+      }
+      throw new Error("no share");
+    } catch {
+      try {
+        await navigator.clipboard.writeText(joined);
+        showNotice(t(lang, "chatShared"));
+      } catch {
+        // ignore
+      }
+    }
+  }, [activeId, lang]);
+
+  /** Voice input — v3.2 fix.
+   * English: the Web Speech API fast path (Chrome supports en-US).
+   * Pashto/Dari: Chrome has no SpeechRecognition for ps-AF/fa-IR, so
+   * record with MediaRecorder and transcribe with Gemini
+   * (/api/transcribe); the transcript lands in the input box for the
+   * user to check and send. Offline (no key) -> honest note. */
+  const startListening = useCallback(() => {
+    if (listening || recording) {
+      recogRef.current?.stop();
+      recorderRef.current?.stop();
+      return;
+    }
+    if (lang === "en" && isSpeechRecognitionSupported()) {
+      const rec = createRecognizer(lang);
+      if (!rec) {
+        showNotice(t(lang, "micNotSupported"));
+        return;
+      }
+      recogRef.current = rec;
+      rec.onresult = (e) => {
+        const transcript = Array.from(e.results)
+          .filter((r) => r.isFinal)
+          .map((r) => r[0].transcript)
+          .join(" ")
+          .trim();
+        if (transcript) {
+          setInput((prev) => (prev ? prev + " " + transcript : transcript));
+        }
+      };
+      rec.onerror = (e) => {
+        setListening(false);
+        if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+          showNotice(t(lang, "micPermission"));
+        } else if (e.error === "no-speech") {
+          showNotice(t(lang, "micNoSpeech"));
+        } else {
+          showNotice(t(lang, "micNotSupported"));
+        }
+      };
+      rec.onend = () => setListening(false);
+      try {
+        rec.start();
+        setListening(true);
+      } catch {
         showNotice(t(lang, "micNotSupported"));
       }
-    };
-    rec.onend = () => setListening(false);
-    try {
-      rec.start();
-      setListening(true);
-    } catch {
-      showNotice(t(lang, "micNotSupported"));
+      return;
     }
-  }, [listening, lang]);
+    // Recorder + Gemini path (Pashto/Dari, or no SpeechRecognition).
+    if (!isMediaRecorderSupported()) {
+      showNotice(t(lang, "micNotSupported"));
+      return;
+    }
+    navigator.mediaDevices
+      .getUserMedia({ audio: true })
+      .then((stream) => {
+        const rec = new MediaRecorder(stream);
+        recorderRef.current = rec;
+        recorderChunksRef.current = [];
+        rec.ondataavailable = (e) => {
+          if (e.data.size > 0) recorderChunksRef.current.push(e.data);
+        };
+        rec.onstop = async () => {
+          stream.getTracks().forEach((tr) => tr.stop());
+          setRecording(false);
+          const blob = new Blob(recorderChunksRef.current, {
+            type: rec.mimeType || "audio/webm",
+          });
+          if (blob.size === 0) {
+            showNotice(t(lang, "micNoSpeech"));
+            return;
+          }
+          showNotice(t(lang, "voiceTranscribing"));
+          try {
+            const text = await transcribeRecording(blob);
+            if (text) setInput((prev) => (prev ? prev + " " + text : text));
+            else showNotice(t(lang, "micNoSpeech"));
+          } catch (e) {
+            if (e instanceof Error && (e as Error & { code?: string }).code === "no-key") {
+              showNotice(t(lang, "voiceNeedsOnline"));
+            } else {
+              showNotice(t(lang, "errorGeneric"));
+            }
+          }
+        };
+        rec.start();
+        setRecording(true);
+      })
+      .catch(() => showNotice(t(lang, "micPermission")));
+  }, [listening, recording, lang]);
 
   /** Attach a photo: downscale it client-side, show a thumbnail. */
   const onPhotoPicked = async (file: File | undefined) => {
@@ -555,6 +782,101 @@ export default function HomePage() {
       showNotice(t(lang, "errorGeneric"));
     }
   };
+
+  /** A text file: read its text straight into the input box. */
+  const onTextFilePicked = async (file: File | undefined) => {
+    if (!file) return;
+    if (file.type.startsWith("image/")) {
+      await onPhotoPicked(file);
+      return;
+    }
+    if (
+      file.type.startsWith("text/") ||
+      /\.(txt|md|csv|json|html|css|js|ts|py|cpp|java)$/i.test(file.name)
+    ) {
+      try {
+        const text = await file.text();
+        setInput((prev) => (prev ? prev + "\n" + text.slice(0, 5000) : text.slice(0, 5000)));
+      } catch {
+        showNotice(t(lang, "errorGeneric"));
+      }
+      return;
+    }
+    showNotice(t(lang, "fileNotSupported"));
+  };
+
+  /** Screen share (outside a call): capture the screen, show a
+   * preview, and let the user send ONE still frame to the AI as a
+   * photo question. No live call is pretended — there is no peer. */
+  const openScreenShare = async () => {
+    setPlusOpen(false);
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      screenStreamRef.current = stream;
+      setScreenShareOpen(true);
+      stream.getVideoTracks()[0]?.addEventListener("ended", closeScreenShare);
+    } catch {
+      showNotice(t(lang, "screenShareBlocked"));
+    }
+  };
+
+  const closeScreenShare = () => {
+    screenStreamRef.current?.getTracks().forEach((tr) => tr.stop());
+    screenStreamRef.current = null;
+    setScreenShareOpen(false);
+  };
+
+  const sendScreenFrame = () => {
+    const video = screenVideoRef.current;
+    if (!video || video.videoWidth === 0) {
+      showNotice(t(lang, "errorGeneric"));
+      return;
+    }
+    const canvas = document.createElement("canvas");
+    const scale = Math.min(1, 1024 / Math.max(video.videoWidth, video.videoHeight));
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      showNotice(t(lang, "errorGeneric"));
+      return;
+    }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    setPendingImage({ dataUrl: canvas.toDataURL("image/jpeg", 0.8) });
+    closeScreenShare();
+    showNotice(t(lang, "screenShareSend"));
+  };
+
+  // Attach the screen-share stream to the preview element.
+  useEffect(() => {
+    const el = screenVideoRef.current;
+    if (el && screenStreamRef.current) el.srcObject = screenStreamRef.current;
+  }, [screenShareOpen]);
+
+  /** A live call's transcript joins the current chat when it ends. */
+  const onLiveCallClose = useCallback(
+    async (lines: { role: "user" | "assistant"; text: string }[]) => {
+      setLiveCallOpen(false);
+      if (lines.length === 0) return;
+      let chat = chatsRef.current.find((c) => c.id === activeId) ?? null;
+      if (!chat) {
+        chat = { id: uid(), title: chatTitleFrom(lines[0].text), messages: [] };
+        setChats((prev) => [chat!, ...prev]);
+        setActiveId(chat.id);
+      }
+      const chatId = chat.id;
+      const newMsgs: UiMessage[] = lines.map((l) => ({ id: uid(), role: l.role, content: l.text }));
+      setChats((prev) =>
+        prev.map((c) =>
+          c.id === chatId ? { ...c, messages: [...c.messages, ...newMsgs] } : c
+        )
+      );
+      if (chat.dbId) {
+        for (const m of newMsgs) await saveMessage(chat.dbId, m.role, m.content);
+      }
+    },
+    [activeId]
+  );
 
   const doRename = async (id: string) => {
     const title = editingTitle.trim();
@@ -573,12 +895,19 @@ export default function HomePage() {
     const chat = chatsRef.current.find((c) => c.id === id);
     setChats((prev) => prev.filter((c) => c.id !== id));
     if (activeId === id) setActiveId(null);
+    setPins((prev) => prev.filter((p) => p !== id));
+    setMoreOpen(false);
     if (chat?.dbId) await deleteChatDb(chat.dbId);
   };
 
   const filtered = chats.filter((c) =>
     c.title.toLowerCase().includes(search.toLowerCase())
   );
+  const pinnedChats = filtered.filter((c) => pins.includes(c.id));
+  const otherChats = filtered.filter((c) => !pins.includes(c.id));
+
+  const modelLabel =
+    modelMode === "fast" ? t(lang, "modelFast") : modelMode === "smart" ? t(lang, "modelSmart") : t(lang, "modelAuto");
 
   const suggestions = [
     t(lang, "suggestion1"),
@@ -587,9 +916,60 @@ export default function HomePage() {
     t(lang, "suggestion4"),
   ];
 
+  const chatItem = (c: LocalChat) => (
+    <div
+      key={c.id}
+      className={`group mb-1 rounded-xl px-2 py-2 text-sm ${
+        c.id === activeId
+          ? "bg-slate-200 dark:bg-slate-800"
+          : "hover:bg-slate-100 dark:hover:bg-slate-800"
+      }`}
+    >
+      {editingId === c.id ? (
+        <input
+          autoFocus
+          value={editingTitle}
+          onChange={(e) => setEditingTitle(e.target.value)}
+          onBlur={() => doRename(c.id)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") doRename(c.id);
+            if (e.key === "Escape") setEditingId(null);
+          }}
+          className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => selectChat(c.id)}
+          className="block w-full truncate text-start"
+        >
+          {pins.includes(c.id) ? "📌 " : ""}
+          {c.title}
+        </button>
+      )}
+      <div className="mt-1 flex gap-2 text-xs text-slate-500">
+        <button type="button" onClick={() => togglePin(c.id)}>
+          {pins.includes(c.id) ? t(lang, "unpinChat") : t(lang, "pinChat")}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setEditingId(c.id);
+            setEditingTitle(c.title);
+          }}
+        >
+          {t(lang, "rename")}
+        </button>
+        <button type="button" onClick={() => doDelete(c.id)} className="text-red-500">
+          {t(lang, "delete")}
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex h-dvh w-full flex-col overflow-x-hidden bg-white text-slate-900 dark:bg-[#080D1B] dark:text-[#EAF2FF]">
-      {/* ===== Drawer (sidebar as an overlay, like the Android app) ===== */}
+      {/* ===== Drawer (ChatGPT style, RTL-aware) ===== */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-40">
           <button
@@ -600,13 +980,24 @@ export default function HomePage() {
           />
           <aside className="absolute inset-y-0 left-0 flex w-72 flex-col overflow-y-auto bg-white shadow-xl dark:bg-[#0D1426]">
             <div className="flex items-center gap-2 p-3">
-              <Image
-                src="/avatar.jpg"
-                alt="Samim AI"
-                width={40}
-                height={40}
-                className="rounded-full object-cover"
-              />
+              {/* AVATAR FIX (v3.2): a plain <a href="/about"> — not a
+                  framework Link — so the tap works on any phone. The
+                  /about page itself renders fine; nothing overlays
+                  this anchor (the only fixed overlays render when a
+                  menu is open, and they close on tap). */}
+              <a
+                href="/about"
+                aria-label={t(lang, "about")}
+                className="pointer-events-auto relative z-10 shrink-0 cursor-pointer rounded-full transition-transform active:scale-90"
+              >
+                <Image
+                  src="/avatar.jpg"
+                  alt="Samim AI"
+                  width={40}
+                  height={40}
+                  className="rounded-full object-cover"
+                />
+              </a>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-bold">
                   {t(lang, "appName")}
@@ -643,64 +1034,64 @@ export default function HomePage() {
               />
             </div>
             <div className="chat-scroll mt-2 flex-1 overflow-y-auto px-2 pb-2">
+              {savedImages.length > 0 && (
+                <div className="mb-2">
+                  <p className="px-2 pb-1 pt-1 text-xs font-bold text-slate-500">
+                    {t(lang, "images")}
+                  </p>
+                  <div className="grid grid-cols-3 gap-1 px-1">
+                    {savedImages.slice(0, 9).map((src, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => {
+                          setPendingImage({ dataUrl: src });
+                          setSidebarOpen(false);
+                        }}
+                        className="overflow-hidden rounded-lg"
+                        aria-label={t(lang, "images")}
+                      >
+                        <img src={src} alt="" className="h-16 w-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {pinnedChats.length > 0 && (
+                <div className="mb-1">
+                  <p className="px-2 pb-1 pt-1 text-xs font-bold text-slate-500">
+                    📌 {t(lang, "pinned")}
+                  </p>
+                  {pinnedChats.map(chatItem)}
+                </div>
+              )}
               {filtered.length === 0 && (
                 <p className="px-2 py-4 text-center text-sm text-slate-500">
                   {t(lang, "noChats")}
                 </p>
               )}
-              {filtered.map((c) => (
-                <div
-                  key={c.id}
-                  className={`group mb-1 rounded-xl px-2 py-2 text-sm ${
-                    c.id === activeId
-                      ? "bg-slate-200 dark:bg-slate-800"
-                      : "hover:bg-slate-100 dark:hover:bg-slate-800"
-                  }`}
-                >
-                  {editingId === c.id ? (
-                    <input
-                      autoFocus
-                      value={editingTitle}
-                      onChange={(e) => setEditingTitle(e.target.value)}
-                      onBlur={() => doRename(c.id)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") doRename(c.id);
-                        if (e.key === "Escape") setEditingId(null);
-                      }}
-                      className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
-                    />
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => selectChat(c.id)}
-                      className="block w-full truncate text-start"
-                    >
-                      {c.title}
-                    </button>
-                  )}
-                  <div className="mt-1 flex gap-2 text-xs text-slate-500">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setEditingId(c.id);
-                        setEditingTitle(c.title);
-                      }}
-                    >
-                      {t(lang, "rename")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => doDelete(c.id)}
-                      className="text-red-500"
-                    >
-                      {t(lang, "delete")}
-                    </button>
-                  </div>
-                </div>
-              ))}
+              {otherChats.map(chatItem)}
             </div>
-            <div className="border-t border-slate-200 p-3 text-xs dark:border-slate-800">
-              <div className="flex flex-wrap gap-3">
+            <div className="border-t border-slate-200 p-3 dark:border-slate-800">
+              {userEmail ? (
+                <a href="/about" className="flex items-center gap-2">
+                  <Image
+                    src="/avatar.jpg"
+                    alt="Samim AI"
+                    width={32}
+                    height={32}
+                    className="rounded-full object-cover"
+                  />
+                  <span className="min-w-0 flex-1 truncate text-sm font-bold">
+                    {userName ?? userEmail}
+                  </span>
+                </a>
+              ) : (
+                <Link href="/login" className="text-sm font-bold text-[#2457FF] hover:underline">
+                  {t(lang, "login")}
+                </Link>
+              )}
+              <div className="mt-2 flex flex-wrap gap-3 text-xs">
                 <Link href="/settings" className="text-slate-600 hover:underline dark:text-slate-300">
                   ⚙ {t(lang, "settings")}
                 </Link>
@@ -712,76 +1103,103 @@ export default function HomePage() {
                     ★ {t(lang, "admin")}
                   </Link>
                 )}
-                {userEmail ? (
-                  <span className="truncate text-slate-500">{userEmail}</span>
-                ) : (
-                  <Link href="/login" className="font-bold text-[#2457FF] hover:underline">
-                    {t(lang, "login")}
-                  </Link>
-                )}
               </div>
-              <p className="mt-2 text-slate-400">{t(lang, "notMuse")}</p>
+              <p className="mt-2 text-xs text-slate-400">{t(lang, "notMuse")}</p>
             </div>
           </aside>
         </div>
       )}
 
-      {/* ===== Top bar — exactly like the video ===== */}
+      {/* ===== Header: hamburger | model picker | avatar + new chat + ••• ===== */}
       <header className="relative min-w-0 px-3 pt-2 sm:px-5">
-        {/* dir="ltr" pins the layout: hamburger LEFT, ••• RIGHT, even in RTL Pashto */}
-        <div dir="ltr" className="flex items-start justify-between">
+        <div dir="ltr" className="flex items-center justify-between gap-2">
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
-            className="relative mt-1.5 flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#E3E3E3] bg-white transition-transform active:scale-95 sm:h-14 sm:w-14 dark:border-[#263550] dark:bg-[#111B30]"
+            className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#E3E3E3] bg-white transition-transform active:scale-95 sm:h-12 sm:w-12 dark:border-[#263550] dark:bg-[#111B30]"
             aria-label="Menu"
           >
-            <span className="text-2xl leading-none text-[#222222] sm:text-[26px] dark:text-[#EAF2FF]">≡</span>
+            <span className="text-2xl leading-none text-[#222222] dark:text-[#EAF2FF]">≡</span>
             <span className="absolute right-1 top-0.5 h-2.5 w-2.5 rounded-full bg-[#2457FF]" />
           </button>
-          {/* The avatar is a real button — tapping it opens About. */}
-          <Link
-            href="/about"
-            aria-label={t(lang, "about")}
-            className="shrink-0 rounded-full transition-transform active:scale-95"
-          >
-            <Image
-              src="/avatar.jpg"
-              alt="Samim AI"
-              width={64}
-              height={64}
-              className="rounded-full object-cover ring-2 ring-white/80 dark:ring-[#263550]"
-              priority
-            />
-          </Link>
-          <button
-            type="button"
-            onClick={() => setMoreOpen((v) => !v)}
-            className="mt-1.5 flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-[#E3E3E3] bg-white transition-transform active:scale-95 sm:h-14 sm:w-14 dark:border-[#263550] dark:bg-[#111B30]"
-            aria-label="More options"
-          >
-            <span className="text-xl leading-none tracking-[2px] text-[#222222] sm:text-[22px] dark:text-[#EAF2FF]">•••</span>
-          </button>
-        </div>
-        <div className="mt-1.5 flex min-w-0 flex-col items-center">
-          <div className="max-w-full rounded-2xl bg-white px-3.5 py-1.5 shadow-md dark:bg-[#111B30] dark:shadow-none dark:ring-1 dark:ring-[#263550]">
-            <span className="block truncate text-base text-black dark:text-[#EAF2FF]">
-              {/* Logged in: the name pill shows THAT user's name, not the assistant's. */}
-              {userName ?? t(lang, "appName")}
-              {isAdmin && (
-                <span className="ms-1 rounded-full bg-amber-400 px-2 py-0.5 text-[11px] font-bold text-black">
-                  {t(lang, "admin")}
-                </span>
-              )}
-            </span>
+
+          {/* Model picker (centre) */}
+          <div className="relative min-w-0 flex-1 flex justify-center">
+            <button
+              type="button"
+              onClick={() => setModelPickerOpen((v) => !v)}
+              className="flex max-w-full items-center gap-1 rounded-full px-3 py-2 text-base font-bold transition-transform active:scale-95"
+              aria-label={t(lang, "modelPicker")}
+            >
+              <span className="truncate">{modelLabel}</span>
+              <span className="text-xs text-slate-500">▾</span>
+            </button>
+            {modelPickerOpen && (
+              <>
+                <button
+                  type="button"
+                  aria-label="Close menu"
+                  onClick={() => setModelPickerOpen(false)}
+                  className="fixed inset-0 z-20 cursor-default"
+                />
+                <div className="absolute left-1/2 top-full z-30 mt-1 w-56 -translate-x-1/2 rounded-2xl border border-[#E3E3E3] bg-white p-2 shadow-lg dark:border-[#263550] dark:bg-[#111B30]">
+                  {(["auto", "fast", "smart"] as ModelMode[]).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => pickModel(m)}
+                      className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    >
+                      {m === "auto"
+                        ? t(lang, "modelAuto")
+                        : m === "fast"
+                          ? t(lang, "modelFast")
+                          : t(lang, "modelSmart")}
+                      {modelMode === m ? " ✓" : ""}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
-          <p className="mt-1 text-sm text-[#8A8A8A]">
-            {streaming
-              ? t(lang, "isWorking")
-              : userName
-                ? t(lang, "appShort")
-                : t(lang, "tagline")}
-          </p>
+
+          <div dir="ltr" className="flex shrink-0 items-center gap-1.5">
+            {/* AVATAR FIX (v3.2): plain <a href="/about">, pointer-events
+                auto, z-10, real tap target — the user reported the
+                header avatar did nothing. Verified: /about renders,
+                and no element covers this anchor in the new header
+                (the ••• overlay only exists while its menu is open). */}
+            <a
+              href="/about"
+              aria-label={t(lang, "about")}
+              className="pointer-events-auto relative z-10 flex h-11 w-11 shrink-0 cursor-pointer items-center justify-center rounded-full transition-transform active:scale-90 sm:h-12 sm:w-12"
+            >
+              <Image
+                src="/avatar.jpg"
+                alt="Samim AI"
+                width={44}
+                height={44}
+                className="rounded-full object-cover ring-2 ring-white/80 dark:ring-[#263550]"
+                priority
+              />
+            </a>
+            <button
+              type="button"
+              onClick={newChat}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#E3E3E3] bg-white text-xl transition-transform active:scale-95 sm:h-12 sm:w-12 dark:border-[#263550] dark:bg-[#111B30]"
+              aria-label={t(lang, "newChat")}
+            >
+              ✎
+            </button>
+            <button
+              type="button"
+              onClick={() => setMoreOpen((v) => !v)}
+              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[#E3E3E3] bg-white transition-transform active:scale-95 sm:h-12 sm:w-12 dark:border-[#263550] dark:bg-[#111B30]"
+              aria-label="More options"
+            >
+              <span className="text-xl leading-none tracking-[2px] text-[#222222] dark:text-[#EAF2FF]">•••</span>
+            </button>
+          </div>
         </div>
 
         {/* ===== ••• menu ===== */}
@@ -793,7 +1211,66 @@ export default function HomePage() {
               onClick={() => setMoreOpen(false)}
               className="fixed inset-0 z-20 cursor-default"
             />
-            <div className="absolute right-4 top-full z-30 mt-1 w-56 rounded-2xl border border-[#E3E3E3] bg-white p-2 shadow-lg dark:border-[#263550] dark:bg-[#111B30]">
+            <div className="absolute right-4 top-full z-30 mt-1 w-60 rounded-2xl border border-[#E3E3E3] bg-white p-2 shadow-lg dark:border-[#263550] dark:bg-[#111B30]">
+              <button
+                type="button"
+                onClick={() => {
+                  setMoreOpen(false);
+                  void shareChat();
+                }}
+                className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                ↗ {t(lang, "shareChat")}
+              </button>
+              <button
+                type="button"
+                disabled={!activeId}
+                onClick={() => {
+                  if (activeId) togglePin(activeId);
+                  setMoreOpen(false);
+                }}
+                className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
+              >
+                📌 {isPinned ? t(lang, "unpinChat") : t(lang, "pinChat")}
+              </button>
+              <button
+                type="button"
+                disabled={!activeId}
+                onClick={() => {
+                  if (active) {
+                    setEditingId(active.id);
+                    setEditingTitle(active.title);
+                    setSidebarOpen(true);
+                  }
+                  setMoreOpen(false);
+                }}
+                className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
+              >
+                ✎ {t(lang, "rename")}
+              </button>
+              <Link
+                href="/about"
+                onClick={() => setMoreOpen(false)}
+                className="block rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                ℹ {t(lang, "help")}
+              </Link>
+              <a
+                href="mailto:samimpatan8@gmail.com?subject=Samim%20AI%20feedback"
+                onClick={() => setMoreOpen(false)}
+                className="block rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+              >
+                ✉ {t(lang, "feedback")}
+              </a>
+              <button
+                type="button"
+                disabled={!activeId}
+                onClick={() => activeId && void doDelete(activeId)}
+                className="block w-full rounded-xl px-3 py-2 text-start text-sm text-red-600 hover:bg-slate-100 disabled:opacity-40 dark:text-red-400 dark:hover:bg-slate-800"
+              >
+                🗑 {t(lang, "delete")}
+              </button>
+              <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
               <p className="px-2 pb-1 pt-1 text-xs text-slate-500">{t(lang, "language")}</p>
               <div className="flex gap-1 px-1 pb-2">
                 {LANGS.map((l) => (
@@ -827,13 +1304,6 @@ export default function HomePage() {
                 className="block rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
               >
                 ⚙ {t(lang, "settings")}
-              </Link>
-              <Link
-                href="/about"
-                onClick={() => setMoreOpen(false)}
-                className="block rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
-              >
-                ℹ {t(lang, "about")}
               </Link>
               {isAdmin && (
                 <Link
@@ -889,18 +1359,14 @@ export default function HomePage() {
 
       {/* ===== Chat area ===== */}
       <div className="chat-scroll min-w-0 w-full flex-1 overflow-x-hidden overflow-y-auto px-[18px] py-4">
-        {/* Sticky timestamp — always fully visible and centred, never clipped. */}
-        <div className="sticky top-0 z-10 -mx-[18px] mb-4 bg-white/90 px-[18px] py-1.5 text-center dark:bg-[#080D1B]/90">
-          <span className="inline-block rounded-full bg-slate-100 px-3 py-1 text-xs text-[#8A8A8A] dark:bg-[#111B30]">
-            {chatTime}
-          </span>
-        </div>
         {messages.length === 0 ? (
           <div className="mx-auto w-full min-w-0 max-w-2xl pb-6 text-center">
-            <Link
+            {/* Empty state keeps the video identity: centred avatar + name pill.
+                The avatar is a plain <a> so the tap always works. */}
+            <a
               href="/about"
               aria-label={t(lang, "about")}
-              className="inline-block rounded-full transition-transform active:scale-95"
+              className="pointer-events-auto relative z-10 inline-block cursor-pointer rounded-full transition-transform active:scale-95"
             >
               <Image
                 src="/avatar.jpg"
@@ -909,10 +1375,15 @@ export default function HomePage() {
                 height={64}
                 className="mx-auto rounded-full object-cover ring-2 ring-white/80 dark:ring-[#263550]"
               />
-            </Link>
+            </a>
             <div className="mt-3 inline-block max-w-full rounded-2xl bg-white px-3.5 py-1.5 shadow-md dark:bg-[#111B30] dark:shadow-none dark:ring-1 dark:ring-[#263550]">
               <span className="block truncate text-base text-black dark:text-[#EAF2FF]">
                 {userName ?? t(lang, "appName")}
+                {isAdmin && (
+                  <span className="ms-1 rounded-full bg-amber-400 px-2 py-0.5 text-[11px] font-bold text-black">
+                    {t(lang, "admin")}
+                  </span>
+                )}
               </span>
             </div>
             <h1 className="mt-4 text-xl font-bold">
@@ -937,7 +1408,7 @@ export default function HomePage() {
             </div>
           </div>
         ) : (
-          <div className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-2.5">
+          <div className="mx-auto flex w-full min-w-0 max-w-3xl flex-col gap-4">
             {messages.map((m, i) => (
               <ChatMessage
                 key={m.id}
@@ -959,31 +1430,29 @@ export default function HomePage() {
                 onEditMessage={applyEdit}
                 onDeleteMessage={deleteUserMessage}
                 onNote={showNotice}
+                onBranch={branchFromMessage}
+                onExport={exportChat}
                 actionsDisabled={streaming}
               />
             ))}
             {streaming && messages[messages.length - 1]?.content === "" && (
-              <div className="flex">
-                <div className="mr-auto rounded-[28px] bg-[#EDEEF0] px-[18px] py-1.5 dark:bg-[#111B30]">
-                  <TypingDots />
-                </div>
-              </div>
+              <TypingDots />
             )}
             <div ref={bottomRef} />
           </div>
         )}
       </div>
 
-      {/* ===== Bottom input — like the video ===== */}
+      {/* ===== Bottom input ===== */}
       <div className="min-w-0 w-full px-2.5 pb-2.5 pt-1 sm:px-3.5">
         {notice && (
           <p className="mx-auto mb-2 max-w-3xl rounded-full bg-slate-900 px-4 py-2 text-center text-xs text-white dark:bg-slate-100 dark:text-slate-900">
             {notice}
           </p>
         )}
-        {listening && (
+        {(listening || recording) && (
           <p className="mx-auto mb-2 max-w-3xl text-center text-xs font-bold text-red-500">
-            🎙 {t(lang, "listening")}
+            🎙 {recording ? t(lang, "recording") : t(lang, "listening")}
           </p>
         )}
         {pendingImage && (
@@ -1015,18 +1484,40 @@ export default function HomePage() {
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
             className="hidden"
-            aria-label="Attach photo"
+            aria-label={t(lang, "files")}
             onChange={(e) => {
-              onPhotoPicked(e.target.files?.[0]);
+              void onTextFilePicked(e.target.files?.[0]);
               e.target.value = "";
             }}
           />
-          <div className="flex min-h-12 min-w-0 flex-1 items-center rounded-[32px] bg-[#F0F0F0] px-2 sm:min-h-14 sm:px-3 dark:bg-[#111B30]">
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            aria-label={t(lang, "camera")}
+            onChange={(e) => {
+              void onPhotoPicked(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            aria-label={t(lang, "photos")}
+            onChange={(e) => {
+              void onPhotoPicked(e.target.files?.[0]);
+              e.target.value = "";
+            }}
+          />
+          <div className="relative flex min-h-12 min-w-0 flex-1 items-center rounded-[32px] bg-[#F0F0F0] px-2 sm:min-h-14 sm:px-3 dark:bg-[#111B30]">
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={() => setPlusOpen((v) => !v)}
               className="shrink-0 px-1 text-2xl leading-none text-[#111111] sm:text-[26px] dark:text-[#EAF2FF]"
               aria-label="+"
             >
@@ -1041,14 +1532,103 @@ export default function HomePage() {
             />
             <button
               type="button"
+              onClick={() => setLiveCallOpen(true)}
+              className="shrink-0 rounded-full px-1 text-xl leading-none sm:text-[22px]"
+              aria-label={t(lang, "liveCall")}
+            >
+              🌊
+            </button>
+            <button
+              type="button"
               onClick={startListening}
               className={`shrink-0 rounded-full px-1 text-xl leading-none sm:text-[22px] ${
-                listening ? "mic-listening text-red-500" : ""
+                listening || recording ? "mic-listening text-red-500" : ""
               }`}
               aria-label="Microphone"
             >
               🎙
             </button>
+            {/* ===== + menu ===== */}
+            {plusOpen && (
+              <>
+                <button
+                  type="button"
+                  aria-label="Close menu"
+                  onClick={() => setPlusOpen(false)}
+                  className="fixed inset-0 z-20 cursor-default"
+                />
+                <div className="absolute bottom-full left-2 z-30 mb-2 w-60 rounded-2xl border border-slate-200 bg-white p-2 text-start shadow-lg dark:border-[#263550] dark:bg-[#111B30]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPlusOpen(false);
+                      cameraInputRef.current?.click();
+                    }}
+                    className="block w-full rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                  >
+                    📷 {t(lang, "camera")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPlusOpen(false);
+                      photoInputRef.current?.click();
+                    }}
+                    className="block w-full rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                  >
+                    🖼 {t(lang, "photos")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPlusOpen(false);
+                      fileInputRef.current?.click();
+                    }}
+                    className="block w-full rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                  >
+                    📁 {t(lang, "files")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPlusOpen(false);
+                      void openScreenShare();
+                    }}
+                    className="block w-full rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                  >
+                    🖥 {t(lang, "screenShare")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setThinkHarder((v) => !v)}
+                    className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                  >
+                    🧠 {t(lang, "thinkHarder")}
+                    {thinkHarder ? " ✓" : ""}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPlusOpen(false);
+                      startListening();
+                    }}
+                    className="block w-full rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                  >
+                    🎙 {t(lang, "listening")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPlusOpen(false);
+                      setLiveCallOpen(true);
+                    }}
+                    className="block w-full rounded-xl px-3 py-2 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                  >
+                    🌊 {t(lang, "liveCall")}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
           {streaming ? (
             <button
@@ -1062,7 +1642,7 @@ export default function HomePage() {
           ) : (
             <button
               type="submit"
-              disabled={!input.trim()}
+              disabled={!input.trim() && !pendingImage}
               className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white transition-transform disabled:bg-[#B9B9B9] active:scale-95 sm:h-12 sm:w-12 dark:bg-white dark:text-black dark:disabled:bg-[#334155]"
               aria-label={t(lang, "send")}
             >
@@ -1074,6 +1654,44 @@ export default function HomePage() {
           Samim AI • {t(lang, "notMuse")}
         </p>
       </div>
+
+      {/* ===== Screen-share preview (send one still frame to the AI) ===== */}
+      {screenShareOpen && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-black/80 p-4">
+          <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col rounded-2xl bg-white p-4 text-slate-900 dark:bg-[#0D1426] dark:text-[#EAF2FF]">
+            <p className="text-base font-bold">{t(lang, "screenShare")}</p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">{t(lang, "screenShareNote")}</p>
+            <video
+              ref={screenVideoRef}
+              autoPlay
+              muted
+              playsInline
+              className="mt-3 max-h-[55vh] w-full rounded-2xl bg-black object-contain"
+            />
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={sendScreenFrame}
+                className="flex-1 rounded-full bg-[#2457FF] px-4 py-2.5 text-sm font-bold text-white"
+              >
+                {t(lang, "screenShareSend")}
+              </button>
+              <button
+                type="button"
+                onClick={closeScreenShare}
+                className="rounded-full bg-slate-200 px-4 py-2.5 text-sm dark:bg-slate-800"
+              >
+                {t(lang, "close")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== Full-screen live call ===== */}
+      {liveCallOpen && (
+        <LiveCall lang={lang} onClose={onLiveCallClose} onNote={showNotice} />
+      )}
     </div>
   );
 }
