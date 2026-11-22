@@ -93,9 +93,65 @@ const SOURCE_LABEL: Record<FreeWebLang, string> = {
 
 function compose(fact: string, source: string, lang: FreeWebLang): FreeWebAnswer {
   return {
-    text: `${INTRO[lang]}\n\n${fact}\n\n${SOURCE_LABEL[lang]}: ${source}`,
+    text: `${INTRO[lang]}\n\n${cleanFactText(fact, lang)}\n\n${SOURCE_LABEL[lang]}: ${source}`,
     source,
   };
+}
+
+/** Bracketed Wikipedia-style markup — citation numbers, [update],
+ * [citation needed], [edit] … — never part of the answer itself.
+ * Only digits and known markup words are stripped, so a legitimate
+ * bracketed phrase in real content is left alone. */
+const MARKUP_WORDS =
+  /^(citation needed|edit|update|clarify|when|where|who|what|which|by whom|page needed|disambiguation|pronunciation|needs? citation|needs? update|verify|dubious|failed verification)$/i;
+
+function stripMarkup(s: string): string {
+  return s.replace(/\[[^\]\n]{1,40}\]/g, (m) => {
+    const inner = m.slice(1, -1).trim();
+    if (/^[\d,\s–—-]+$/.test(inner)) return "";
+    if (MARKUP_WORDS.test(inner)) return "";
+    return m;
+  });
+}
+
+const SENTENCE_END = /[.!؟?۔]/;
+
+/** Cut text at the last complete sentence within maxLen — never
+ * mid-sentence. If the first sentence alone is longer than maxLen,
+ * keep that one sentence whole instead of cutting it. */
+function truncateAtSentence(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text;
+  const head = text.slice(0, maxLen);
+  let cut = -1;
+  for (let i = head.length - 1; i >= 0; i--) {
+    if (SENTENCE_END.test(head[i]) && (i === head.length - 1 || /\s/.test(head[i + 1]))) {
+      cut = i + 1;
+      break;
+    }
+  }
+  if (cut > 0) return head.slice(0, cut).trim();
+  const first = text.match(/^[^.!؟?۔]+[.!؟?۔]/);
+  if (first) return first[0].trim();
+  return text.trim();
+}
+
+/** Clean a web-source fact before it reaches the user: strip
+ * Wikipedia markup, fix "word ," spacing, collapse whitespace,
+ * and never end mid-sentence. */
+function cleanFactText(fact: string, lang: FreeWebLang): string {
+  let s = stripMarkup(fact);
+  // An ellipsis left by a search snippet counts as a sentence end.
+  s = s.replace(/…/g, ".").replace(/\.{3,}/g, ".");
+  s = s.replace(/\s+([,.،۔؟!;:])/g, "$1");
+  s = s.replace(/\(\s*\)/g, ""); // empty parens left by a removed fragment
+  s = s.replace(/\s+/g, " ").trim();
+  s = truncateAtSentence(s, 600);
+  // End at a real sentence boundary: some sources (DuckDuckGo
+  // abstracts) end a complete sentence without a final full stop.
+  if (s && !SENTENCE_END.test(s[s.length - 1])) {
+    s += lang === "en" ? "." : "۔";
+  }
+  return s;
 }
 
 /** Strip question words so "What is the capital of France?" becomes
@@ -241,7 +297,7 @@ async function googleBooks(question: string, lang: FreeWebLang): Promise<FreeWeb
   if (!info?.title) return null;
   const parts = [info.title];
   if (info.authors?.length) parts.push(`by ${info.authors.join(", ")}`);
-  if (info.description) parts.push(stripHtml(info.description).slice(0, 400));
+  if (info.description) parts.push(stripHtml(info.description));
   const fact = parts.join(" — ");
   if (fact.length < 10) return null;
   return compose(fact, SOURCE_NAME[lang].books, lang);

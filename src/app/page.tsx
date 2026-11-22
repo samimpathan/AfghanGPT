@@ -380,13 +380,14 @@ export default function HomePage() {
   }, [messages.length, lastMessageContent]);
 
   // Auto-growing composer (ChatGPT-style): the textarea grows with
-  // the text up to 4 lines (~120px), then scrolls internally. The
-  // bar grows upward; the chat area above shrinks to make room.
+  // the text up to exactly 4 lines (112px = 16px padding + 4 x 24px),
+  // then scrolls internally. The bar grows upward; the chat area
+  // above shrinks to make room.
   useEffect(() => {
     const el = composerRef.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = Math.min(el.scrollHeight, 120) + "px";
+    el.style.height = Math.min(el.scrollHeight, 112) + "px";
   }, [input]);
 
   const newChat = useCallback(() => {
@@ -2107,8 +2108,9 @@ export default function HomePage() {
             >
               ＋
             </button>
-            {/* Auto-growing composer: 1 line min, 4 lines max (~120px),
-              then scrolls internally with NO visible scrollbar
+            {/* Auto-growing composer: 1 line min, exactly 4 lines max
+              (112px = 16px padding + 4 x 24px line-height), then
+              scrolls internally with NO visible scrollbar
               (.composer-textarea in globals.css). Enter sends,
               Shift+Enter = newline. */}
             <textarea
@@ -2124,17 +2126,31 @@ export default function HomePage() {
                 // <form onSubmit> below is a second safety net for
                 // keyboards that submit the form instead of keydown.
                 const isEnter = e.key === "Enter" || e.keyCode === 13;
-                if (isEnter && !e.shiftKey && !e.nativeEvent.isComposing) {
+                if (!isEnter || e.nativeEvent.isComposing) return;
+                if (e.shiftKey) {
+                  // Shift+Enter = a real newline at the caret. The
+                  // browser default is unreliable in this controlled
+                  // textarea (it inserts nothing), so insert "\n"
+                  // manually and put the caret after it.
                   e.preventDefault();
-                  if (input.trim() || pendingImage) {
-                    send(input);
-                    setInput("");
-                  }
+                  const el = e.currentTarget;
+                  const start = el.selectionStart ?? input.length;
+                  const end = el.selectionEnd ?? input.length;
+                  setInput(input.slice(0, start) + "\n" + input.slice(end));
+                  requestAnimationFrame(() => {
+                    el.setSelectionRange(start + 1, start + 1);
+                  });
+                  return;
+                }
+                e.preventDefault();
+                if (input.trim() || pendingImage) {
+                  send(input);
+                  setInput("");
                 }
               }}
               enterKeyHint="send"
               placeholder={t(lang, "askSamim")}
-              className="composer-textarea bidi-plaintext max-h-[120px] min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-2 text-base leading-6 text-[#111111] outline-none placeholder:text-[#9A9A9A] sm:text-[17px] dark:text-[#EAF2FF]"
+              className="composer-textarea bidi-plaintext max-h-[112px] min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-2 text-base leading-6 text-[#111111] outline-none placeholder:text-[#9A9A9A] sm:text-[17px] dark:text-[#EAF2FF]"
             />
             {/* Photo 1 order inside the pill: + … mic … blue wave.
                 The send button appears ONLY once there is text (or a
