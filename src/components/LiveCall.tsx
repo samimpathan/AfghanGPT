@@ -126,6 +126,22 @@ export default function LiveCall({
 }) {
   const [phase, setPhase] = useState<Phase>("connecting");
   const [errorNote, setErrorNote] = useState<string | null>(null);
+  /** Ref mirrors of phase/errorNote for the WS callbacks, which
+   * close over stale state. The onclose handler must know whether
+   * the session was really live and whether a diagnostic note
+   * already exists — otherwise a late close overwrites the
+   * (step: detail) suffix with the bare fallback text (FIXES #3:
+   * that overwrite is why the 07:22 test showed no suffix). */
+  const phaseRef = useRef<Phase>("connecting");
+  const errorNoteRef = useRef<string | null>(null);
+  useEffect(() => {
+    phaseRef.current = phase;
+  }, [phase]);
+  /** Set the failure note in state AND in the ref mirror. */
+  const setNote = useCallback((note: string | null) => {
+    errorNoteRef.current = note;
+    setErrorNote(note);
+  }, []);
   const [speaking, setSpeaking] = useState(false);
   const [micOn, setMicOn] = useState(true);
   const [cameraOn, setCameraOn] = useState(false);
@@ -358,6 +374,10 @@ export default function LiveCall({
    *            closed before setup; close code captured when known)
    *   setup  - the socket opened but the server rejected the setup
    *            (error message captured) or never sent setupComplete
+   * Timeouts (FIXES #3): token fetch 10s, handshake (onopen) 10s,
+   * setupComplete 15s after the socket is created. The detail
+   * always names the model and the elapsed time, so a re-test can
+   * tell a stalled handshake from a silent setup apart.
    * The mic is deliberately NOT requested here: startMic runs only
    * after this returns ok, so a socket/setup failure means no mic
    * prompt ever appears - that is expected, not a mic bug.
@@ -372,12 +392,35 @@ export default function LiveCall({
       };
   const connectWithModel = useCallback(
     async (model: string): Promise<ConnectResult> => {
+      const startedAt = Date.now();
+      const elapsed = () =>
+        `${((Date.now() - startedAt) / 1000).toFixed(1)}s`;
       // Fresh ephemeral token per attempt (tokens are single-use).
+      // FIXES #3: the fetch used to have NO timeout — a hung route
+      // or network hung this step forever (no timer exists yet at
+      // this point). 10s client-side; the route aborts at 20s.
       let tokenRes: Response;
+      let tokenTimedOut = false;
+      const tokenController = new AbortController();
+      const tokenTimer = setTimeout(() => {
+        tokenTimedOut = true;
+        tokenController.abort();
+      }, 10000);
       try {
-        tokenRes = await fetch("/api/live-token", { method: "POST" });
+        tokenRes = await fetch("/api/live-token", {
+          method: "POST",
+          signal: tokenController.signal,
+        });
       } catch {
-        return { ok: false, step: "token", detail: "token request failed" };
+        return {
+          ok: false,
+          step: "token",
+          detail: tokenTimedOut
+            ? `token request timed out after 10s (${elapsed()})`
+            : `token request failed (${elapsed()})`,
+        };
+      } finally {
+        clearTimeout(tokenTimer);
       }
       if (!tokenRes.ok) {
         let code = "";
@@ -389,13 +432,25 @@ export default function LiveCall({
         return {
           ok: false,
           step: "token",
-          detail: `HTTP ${tokenRes.status}${code ? ` ${code}` : ""}`,
+          detail: `HTTP ${tokenRes.status}${code ? ` ${code}` : ""} (${elapsed()})`,
           noKey: code === "no-key",
         };
       }
-      const { token } = (await tokenRes.json()) as { token?: string };
+      // FIXES #3: this parse used to be outside any try/catch — a
+      // 200 with an unparsable body threw out of here and left the
+      // overlay stuck on "Connecting..." forever, with no notice.
+      let token: string | undefined;
+      try {
+        ({ token } = (await tokenRes.json()) as { token?: string });
+      } catch {
+        return {
+          ok: false,
+          step: "token",
+          detail: `bad token response (${elapsed()})`,
+        };
+      }
       if (!token) {
-        return { ok: false, step: "token", detail: "empty token" };
+        return { ok: false, step: "token", detail: `empty token (${elapsed()})` };
       }
       // Ephemeral tokens go ONLY to the Constrained endpoint (see the
       // file header). The token value is "auth_tokens/<hex>" - its
@@ -408,6 +463,7 @@ export default function LiveCall({
       return await new Promise<ConnectResult>((resolve) => {
         let settled = false;
         let opened = false;
+        let openTimedOut = false;
         let serverError: string | null = null;
         let closeCode: number | null = null;
         let closeReason = "";
@@ -415,22 +471,38 @@ export default function LiveCall({
         // by onclose, which DOES carry the code - so wait up to 1s
         // for onclose before settling, instead of losing the code.
         let failTimer: ReturnType<typeof setTimeout> | null = null;
-        const ws = new WebSocket(wsUrl);
+        let ws: WebSocket;
+        try {
+          ws = new WebSocket(wsUrl);
+        } catch {
+          // An invalid URL used to reject this promise and leave
+          // the overlay stuck on "Connecting..." forever.
+          resolve({
+            ok: false,
+            step: "socket",
+            detail: `could not open socket (${model}, ${elapsed()})`,
+          });
+          return;
+        }
         wsRef.current = ws;
         const failDetail = (): string => {
+          const where = `${model}, ${elapsed()}`;
           if (!opened) {
+            if (openTimedOut) return `handshake timed out after 10s (${where})`;
             if (closeCode !== null) {
-              return `closed ${closeCode}${closeReason ? ` (${closeReason})` : ""}`;
+              return `closed ${closeCode}${closeReason ? ` (${closeReason})` : ""} (${where})`;
             }
-            return "handshake failed";
+            return `handshake failed (${where})`;
           }
-          if (serverError) return serverError.slice(0, 120);
-          return "no setupComplete in 20s";
+          if (serverError) return `${serverError.slice(0, 120)} (${where})`;
+          return `no setupComplete in 15s (${where})`;
         };
         const settle = (ok: boolean) => {
           if (settled) return;
           settled = true;
           if (failTimer) clearTimeout(failTimer);
+          clearTimeout(setupTimer);
+          clearTimeout(openTimer);
           if (!ok) {
             try {
               ws.close();
@@ -447,37 +519,51 @@ export default function LiveCall({
           }
           resolve({ ok: true });
         };
-        const setupTimer = setTimeout(() => settle(false), 20000);
+        // Handshake deadline (FIXES #3): if the socket never opens,
+        // fail fast instead of burning the whole setup budget. The
+        // setup timer below still covers the wait for setupComplete
+        // once the socket is open.
+        const openTimer = setTimeout(() => {
+          openTimedOut = true;
+          settle(false);
+        }, 10000);
+        const setupTimer = setTimeout(() => settle(false), 15000);
         ws.onopen = () => {
           opened = true;
-          ws.send(
-            JSON.stringify({
-              setup: {
-                model: `models/${model}`,
-                generationConfig: {
-                  responseModalities: ["AUDIO"],
-                  speechConfig: {
-                    voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } },
-                    // Voice language, only for codes Google lists for
-                    // the Live models (see LIVE_VOICE_LANG above).
-                    // Pashto/Dari omit it — the system instruction
-                    // + automatic detection carry the language.
-                    ...(LIVE_VOICE_LANG[lang]
-                      ? { languageCode: LIVE_VOICE_LANG[lang] }
-                      : {}),
-                  },
+          clearTimeout(openTimer);
+          const setupPayload = JSON.stringify({
+            setup: {
+              model: `models/${model}`,
+              generationConfig: {
+                responseModalities: ["AUDIO"],
+                speechConfig: {
+                  voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } },
+                  // Voice language, only for codes Google lists for
+                  // the Live models (see LIVE_VOICE_LANG above).
+                  // Pashto/Dari omit it — the system instruction
+                  // + automatic detection carry the language.
+                  ...(LIVE_VOICE_LANG[lang]
+                    ? { languageCode: LIVE_VOICE_LANG[lang] }
+                    : {}),
                 },
-                systemInstruction: { parts: [{ text: LIVE_SYSTEM }] },
-                // languageCodes: [] = automatic language detection
-                // (Google default, made explicit): the model detects
-                // the spoken language across utterances, including
-                // code-switching, and the system instruction tells
-                // it to answer in that language.
-                inputAudioTranscription: { languageCodes: [] },
-                outputAudioTranscription: {},
               },
-            })
-          );
+              systemInstruction: { parts: [{ text: LIVE_SYSTEM }] },
+              // languageCodes: [] = automatic language detection
+              // (Google default, made explicit): the model detects
+              // the spoken language across utterances, including
+              // code-switching, and the system instruction tells
+              // it to answer in that language.
+              inputAudioTranscription: { languageCodes: [] },
+              outputAudioTranscription: {},
+            },
+          });
+          try {
+            ws.send(setupPayload);
+          } catch {
+            // The socket opened but the setup could not even be sent.
+            serverError = "setup send failed";
+            settle(false);
+          }
         };
         ws.onmessage = (event) => {
           let msg: {
@@ -518,7 +604,10 @@ export default function LiveCall({
           if (sc.interrupted) setSpeaking(false);
         };
         ws.onerror = () => {
-          clearTimeout(setupTimer);
+          // FIXES #3: this used to clear the setup guard even after
+          // the socket opened — if onerror fired spuriously, the
+          // 20s (now 15s) backstop was gone. Keep it after open.
+          if (!opened) clearTimeout(setupTimer);
           if (failTimer) return;
           failTimer = setTimeout(() => settle(false), 1000);
         };
@@ -526,17 +615,30 @@ export default function LiveCall({
           closeCode = ev.code;
           closeReason = ev.reason ?? "";
           clearTimeout(setupTimer);
+          clearTimeout(openTimer);
           // A close before setup means this model failed; after setup
           // it means the call dropped — fall back honestly.
           if (!settled) settle(false);
-          else if (!stoppedRef.current) {
-            setPhase((p) => (p === "live" ? "fallback" : p));
-            setErrorNote(t(lang, "liveFallbackNote"));
+          else if (
+            !stoppedRef.current &&
+            phaseRef.current === "live" &&
+            !errorNoteRef.current
+          ) {
+            // Genuine mid-call drop ONLY. The late close that
+            // settle(false) itself triggers (ws.close() in settle)
+            // used to run this branch and overwrite the diagnostic
+            // note startLive had just set with the bare fallback
+            // text — that is why the (step: detail) suffix never
+            // appeared in the 07:22 test. The mic-failure note is
+            // protected the same way: it is already in errorNoteRef
+            // by the time this close lands.
+            setPhase("fallback");
+            setNote(t(lang, "liveFallbackNote"));
           }
         };
       });
     },
-    [addLine, playPcmChunk, lang]
+    [addLine, playPcmChunk, lang, setNote]
   );
 
   /** Try the Live API; on any failure switch to push-to-talk. */
@@ -563,28 +665,36 @@ export default function LiveCall({
           }
           wsRef.current = null;
           setPhase("fallback");
-          setErrorNote(t(lang, denied ? "micPermission" : "micNotSupported"));
+          setNote(t(lang, denied ? "micPermission" : "micNotSupported"));
         }
         return;
       }
       lastFail = res;
+      // Token minting is model-independent: if it failed, the next
+      // model would fail the same way — do not burn another full
+      // timeout budget on it (FIXES #3).
+      if (res.step === "token") break;
     }
     if (stoppedRef.current) return;
     // No Live model worked for this key — honest fallback, not a fake
     // call. Say WHICH step failed (token / socket / setup) plus the
     // captured detail, so a re-test can tell the causes apart.
+    // FIXES #3: the note set here used to be overwritten by the
+    // late onclose of the socket settle() had just closed — the
+    // onclose branch is now guarded (phase live + no note yet), so
+    // this suffix survives and is what the user sees.
     setPhase("fallback");
     const f = lastFail;
     if (!f) {
-      setErrorNote(t(lang, "liveUnavailable"));
+      setNote(t(lang, "liveUnavailable"));
       return;
     }
     const base =
       f.step === "token"
         ? t(lang, f.noKey ? "liveNoKey" : "liveTokenFailed")
         : t(lang, "liveUnavailable");
-    setErrorNote(`${base} (${f.step}: ${f.detail})`);
-  }, [connectWithModel, startMic, lang]);
+    setNote(`${base} (${f.step}: ${f.detail})`);
+  }, [connectWithModel, startMic, lang, setNote]);
 
   useEffect(() => {
     startLive();
@@ -1108,7 +1218,12 @@ export default function LiveCall({
           </button>
         </div>
         <p className="mt-3 text-center text-[11px] text-slate-400">
-          {phase === "fallback"
+          {/* FIXES #3: the amber pill above already shows the
+              fallback note WITH its (step: detail) suffix — the
+              footer must not repeat the same bare sentence a second
+              time. Show the tap-to-talk guidance instead when a
+              diagnostic note is present. */}
+          {phase === "fallback" && !errorNote
             ? t(lang, "liveFallbackNote")
             : t(lang, "liveTapToTalk")}
         </p>
