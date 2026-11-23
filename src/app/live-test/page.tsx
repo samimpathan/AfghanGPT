@@ -122,15 +122,21 @@ export default function LiveTestPage() {
             done("FAILED", `setup send failed (${elapsed()})`);
           }
         };
-        ws.onmessage = (event) => {
-          const raw = String(event.data);
+        ws.onmessage = async (event) => {
+          // The Live server sends frames as binary Blob — String(blob) is
+          // just "[object Blob]" (13 chars, which is why the log showed
+          // len=13), so decode it first or setupComplete is never seen.
+          let raw: string;
+          if (typeof event.data === "string") raw = event.data;
+          else if (event.data instanceof Blob) raw = await event.data.text();
+          else raw = new TextDecoder().decode(event.data as ArrayBuffer);
           let keys = "?";
           try {
             keys = Object.keys(JSON.parse(raw)).join(",");
           } catch {
             // non-JSON frame
           }
-          log(`${v.id} MESSAGE keys=[${keys}] len=${raw.length} head=${raw.slice(0, 160)}`);
+          log(`${v.id} MESSAGE keys=[${keys}] len=${raw.length} head=${raw.slice(0, 200)}`);
           try {
             const msg = JSON.parse(raw) as { setupComplete?: unknown; error?: { message?: string } };
             if (msg.error) {

@@ -565,7 +565,17 @@ export default function LiveCall({
             settle(false);
           }
         };
-        ws.onmessage = (event) => {
+        ws.onmessage = async (event) => {
+          // ROOT CAUSE (proven by the /live-test log 2026-11-23): the Live
+          // server sends its frames as binary Blob. String(blob) is just
+          // "[object Blob]", so JSON.parse threw and setupComplete was
+          // silently dropped — the call waited out the whole setup timer
+          // even though the server had answered ~0.8s after setup. Decode
+          // the Blob first.
+          let text: string;
+          if (typeof event.data === "string") text = event.data;
+          else if (event.data instanceof Blob) text = await event.data.text();
+          else text = new TextDecoder().decode(event.data as ArrayBuffer);
           let msg: {
             setupComplete?: unknown;
             serverContent?: {
@@ -578,7 +588,7 @@ export default function LiveCall({
             error?: { message?: string };
           };
           try {
-            msg = JSON.parse(String(event.data));
+            msg = JSON.parse(text);
           } catch {
             return;
           }
