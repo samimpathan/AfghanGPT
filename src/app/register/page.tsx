@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import { Icon } from "@/components/icons";
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Btn, Card, Field, Input } from "@/components/ui";
 import { useUi } from "@/components/Providers";
 import { t } from "@/lib/i18n";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
@@ -53,92 +53,74 @@ export default function RegisterPage() {
     <div className="flex min-h-dvh items-center justify-center px-4 py-8">
       <div className="w-full max-w-sm">
         <div className="text-center">
-          <Image
-            src="/avatar.jpg"
-            alt="AfghanGPT"
-            width={88}
-            height={88}
-            className="mx-auto rounded-full object-cover ring-4 ring-[var(--brand2)]/20"
-          />
-          <h1 className="mt-4 text-2xl font-bold text-[var(--brand2)]">
-            {t(lang, "appShort")}
-          </h1>
+          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-[#2457FF] text-white shadow-sm">
+            <Icon name="sparkles" size={28} />
+          </span>
+          <h1 className="mt-4 text-2xl font-bold">{t(lang, "appShort")}</h1>
           <p className="mt-1 text-sm font-bold">{t(lang, "createAccount")}</p>
           <p className="text-sm text-[var(--muted)]">{t(lang, "createAccountSubtitle")}</p>
         </div>
 
-        <div className="mt-6 rounded-3xl border border-[var(--card-border)] bg-[var(--card)] p-5 shadow-sm">
+        <Card className="mt-6 p-5">
           {!isSupabaseConfigured && (
             <p className="mb-4 rounded-2xl bg-amber-100 px-3 py-2 text-sm text-amber-900 dark:bg-amber-900 dark:text-amber-100">
               {t(lang, "setupNeeded")}
             </p>
           )}
           <form onSubmit={submit} className="flex flex-col gap-4">
-            <label className="text-sm font-bold">
-              {t(lang, "fullName")}
-              <input
+            <Field label={t(lang, "fullName")}>
+              <Input
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 autoComplete="name"
-                className="mt-1.5 w-full rounded-xl border border-[var(--card-border)] bg-transparent px-3 py-2.5 text-sm font-normal outline-none focus:border-[var(--brand2)]"
               />
-            </label>
-            <label className="text-sm font-bold">
-              {t(lang, "email")}
-              <input
+            </Field>
+            <Field label={t(lang, "email")}>
+              <Input
                 type="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email"
-                className="mt-1.5 w-full rounded-xl border border-[var(--card-border)] bg-transparent px-3 py-2.5 text-sm font-normal outline-none focus:border-[var(--brand2)]"
               />
-            </label>
-            <label className="text-sm font-bold">
-              {t(lang, "password")}
-              <input
+            </Field>
+            <Field label={t(lang, "password")}>
+              <Input
                 type="password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 autoComplete="new-password"
-                className="mt-1.5 w-full rounded-xl border border-[var(--card-border)] bg-transparent px-3 py-2.5 text-sm font-normal outline-none focus:border-[var(--brand2)]"
               />
-            </label>
-            <label className="text-sm font-bold">
-              {t(lang, "confirmPassword")}
-              <input
+            </Field>
+            <Field label={t(lang, "confirmPassword")}>
+              <Input
                 type="password"
                 required
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
                 autoComplete="new-password"
-                className="mt-1.5 w-full rounded-xl border border-[var(--card-border)] bg-transparent px-3 py-2.5 text-sm font-normal outline-none focus:border-[var(--brand2)]"
               />
-            </label>
+            </Field>
             {error && (
               <p role="alert" className="rounded-2xl bg-red-50 px-3 py-2.5 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">
                 {error}
               </p>
             )}
-            <button
-              type="submit"
-              disabled={busy}
-              className="rounded-xl bg-[var(--brand2)] py-2.5 font-bold text-white disabled:opacity-50"
-            >
+            <Btn type="submit" disabled={busy} className="min-h-11 w-full">
               {busy ? t(lang, "loading") : t(lang, "createAccount")}
-            </button>
+            </Btn>
           </form>
           <div className="mt-5 flex flex-col gap-2.5 border-t border-[var(--card-border)] pt-4 text-center text-sm">
-            <Link href="/login" className="text-[var(--muted)] hover:underline">
+            <Link href="/login" className="min-h-11 text-[var(--muted)] hover:underline">
               {t(lang, "haveAccount")}
             </Link>
-            <Link href="/" className="text-[var(--muted)] hover:underline">
+            <Link href="/" className="min-h-11 text-[var(--muted)] hover:underline">
               <Icon name="arrowLeft" size={16} className="me-1 inline-block align-middle rtl:rotate-180" /> {t(lang, "backToChat")}
             </Link>
           </div>
-        </div>
+        </Card>
       </div>
     </div>
   );

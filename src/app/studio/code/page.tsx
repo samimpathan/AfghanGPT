@@ -10,7 +10,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/icons";
-import Link from "next/link";
+import AppShell from "@/components/AppShell";
 import { useLang } from "@/lib/i18n";
 import { store, uid, type ProjectFile, type StudioProject } from "@/lib/store";
 import { chatText, downloadFileSpec } from "@/lib/client";
@@ -131,9 +131,6 @@ function buildSrcDoc(files: ProjectFile[]): string | null {
   }
   return out;
 }
-
-/** Solid brand button — the shared Btn primary is a gradient; studios use a flat brand colour. */
-const SOLID = "!bg-none !bg-[var(--brand2)]";
 
 type AiAction = "explain" | "generate" | "bugs" | "optimise";
 
@@ -369,27 +366,19 @@ export default function CodeStudioPage() {
   const nonWebNote = activeFile && !WEB_LANGS.includes(activeLang) && !hasWebFile;
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-4 px-3 py-4 sm:px-4">
-      <header className="space-y-1">
-        <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
-          <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
-          {t("backToChat")}
-        </Link>
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-xl font-bold sm:text-2xl">{t("coding")}</h1>
-          <span className="ms-auto" />
-          <Btn size="sm" variant="outline" onClick={() => setShowPreview((v) => !v)} disabled={!hasWebFile}>
-            {showPreview ? "Hide preview" : "Live Preview"}
-          </Btn>
-          <Btn size="sm" variant="outline" onClick={exportZip} disabled={exporting}>
-            {exporting ? "Exporting…" : "Export ZIP"}
-          </Btn>
-          <Btn size="sm" onClick={saveProject} className={SOLID}>
-            {t("save")}
-          </Btn>
-        </div>
-        <p className="text-sm text-[var(--muted)]">{t("codeSubtitle")}</p>
-      </header>
+    <AppShell title={t("coding")} subtitle={t("codeSubtitle")} icon="code" wide>
+      <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        <Btn size="sm" variant="outline" onClick={() => setShowPreview((v) => !v)} disabled={!hasWebFile}>
+          {showPreview ? "Hide preview" : "Live Preview"}
+        </Btn>
+        <Btn size="sm" variant="outline" onClick={exportZip} disabled={exporting}>
+          {exporting ? "Exporting…" : "Export ZIP"}
+        </Btn>
+        <Btn size="sm" onClick={saveProject}>
+          {t("save")}
+        </Btn>
+      </div>
 
       {notice && (
         <button
@@ -428,7 +417,7 @@ export default function CodeStudioPage() {
               <div
                 key={f.path}
                 className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm ${
-                  f.path === activePath ? "bg-violet-600/15" : "hover:bg-black/5 dark:hover:bg-white/5"
+                  f.path === activePath ? "bg-[var(--brand2)]/10" : "hover:bg-black/5 dark:hover:bg-white/5"
                 }`}
               >
                 <button type="button" className="min-w-0 flex-1 truncate text-start font-mono" onClick={() => openFile(f.path)}>
@@ -437,7 +426,7 @@ export default function CodeStudioPage() {
                 <button
                   type="button"
                   aria-label="Rename"
-                  className="rounded px-1 text-xs opacity-0 group-hover:opacity-100"
+                  className="rounded px-1 text-xs opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                   onClick={() => renameFile(f.path)}
                 >
                   <Icon name="pencil" size={13} />
@@ -445,7 +434,7 @@ export default function CodeStudioPage() {
                 <button
                   type="button"
                   aria-label="Delete"
-                  className="rounded px-1 text-xs text-red-500 opacity-0 group-hover:opacity-100"
+                  className="rounded px-1 text-xs text-red-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                   onClick={() => deleteFile(f.path)}
                 >
                   <Icon name="x" size={13} />
@@ -484,7 +473,7 @@ export default function CodeStudioPage() {
                 <span
                   key={p}
                   className={`flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-mono ${
-                    p === activePath ? "bg-violet-600 text-white" : "border border-[var(--card-border)]"
+                    p === activePath ? "bg-[var(--brand2)] text-white" : "border border-[var(--card-border)]"
                   }`}
                 >
                   <button type="button" onClick={() => setActivePath(p)}>
@@ -532,7 +521,7 @@ export default function CodeStudioPage() {
                     cannot be executed here — nothing is faked. You can run it in the DevConnect
                     playground instead:{" "}
                     <a
-                      className="font-semibold text-violet-500 underline"
+                      className="font-semibold text-[var(--brand2)] underline"
                       href="https://dev-connect-nu-wine.vercel.app/playground"
                       target="_blank"
                       rel="noreferrer"
@@ -544,9 +533,14 @@ export default function CodeStudioPage() {
               )}
             </>
           ) : (
-            <p className="py-8 text-center text-sm text-[var(--muted)]">
-              No file open — pick a file from the list or add a new one.
-            </p>
+            <div className="flex flex-col items-center gap-2 py-8 text-center">
+              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--brand2)]/10 text-[var(--brand2)]">
+                <Icon name="folder" size={24} />
+              </span>
+              <p className="text-sm text-[var(--muted)]">
+                No file open — pick a file from the list or add a new one.
+              </p>
+            </div>
           )}
 
           {/* AI actions */}
@@ -569,7 +563,7 @@ export default function CodeStudioPage() {
                 placeholder="Describe code to generate, e.g. a function that sorts numbers…"
                 className="min-w-0 flex-1"
               />
-              <Btn size="sm" onClick={() => runAi("generate")} disabled={aiBusy} className={`shrink-0 ${SOLID}`}>
+              <Btn size="sm" onClick={() => runAi("generate")} disabled={aiBusy} className="shrink-0">
                 {t("codeGenerateCode")}
               </Btn>
             </div>
@@ -584,7 +578,7 @@ export default function CodeStudioPage() {
                   <span className="text-sm font-bold">{aiResult.title}</span>
                   {aiResult.mode && <Badge tone={aiResult.mode === "gemini" ? "green" : "amber"}>{aiResult.mode}</Badge>}
                   {aiAction === null && aiResult.title === "Optimised code" && (
-                    <Btn size="sm" className={`ms-auto ${SOLID}`} onClick={applyOptimised}>
+                    <Btn size="sm" className="ms-auto" onClick={applyOptimised}>
                       Apply to file
                     </Btn>
                   )}
@@ -608,13 +602,19 @@ export default function CodeStudioPage() {
               className="h-[480px] w-full rounded-xl border border-[var(--card-border)] bg-white"
             />
           ) : (
-            <p className="text-sm text-[var(--muted)]">
-              Preview works for web projects only (HTML / CSS / JavaScript). Add an index.html, a .css
-              or a .js file to see a live preview here — other languages cannot run in the browser.
-            </p>
+            <div className="flex flex-col items-center gap-2 py-8 text-center">
+              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--brand2)]/10 text-[var(--brand2)]">
+                <Icon name="play" size={24} />
+              </span>
+              <p className="text-sm text-[var(--muted)]">
+                Preview works for web projects only (HTML / CSS / JavaScript). Add an index.html, a .css
+                or a .js file to see a live preview here — other languages cannot run in the browser.
+              </p>
+            </div>
           )}
         </Card>
       )}
-    </div>
+      </div>
+    </AppShell>
   );
 }

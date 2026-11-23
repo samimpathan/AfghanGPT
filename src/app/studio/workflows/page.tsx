@@ -11,7 +11,7 @@
 
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/icons";
-import Link from "next/link";
+import AppShell from "@/components/AppShell";
 import { useLang } from "@/lib/i18n";
 import {
   store,
@@ -23,9 +23,6 @@ import {
 import { chatJson, chatText, downloadFileSpec, type ApiChatMsg } from "@/lib/client";
 import type { FileSpec } from "@/lib/filegen";
 import { Btn, Card, Field, Input, Select, Spinner, Textarea, Badge } from "@/components/ui";
-
-/** Solid brand button — the shared Btn primary is a gradient; studios use a flat brand colour. */
-const SOLID = "!bg-none !bg-[var(--brand2)]";
 
 type StepKind = WorkflowStep["kind"];
 
@@ -326,21 +323,13 @@ export default function WorkflowsPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-4 px-3 py-4 sm:px-4">
-      <header className="space-y-1">
-        <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
-          <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
-          {t("backToChat")}
-        </Link>
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-xl font-bold sm:text-2xl">{t("workflows")}</h1>
-          <span className="ms-auto" />
-          <Btn size="sm" onClick={saveWorkflow} className={SOLID}>
-            Save workflow
-          </Btn>
-        </div>
-        <p className="text-sm text-[var(--muted)]">{t("workflowsSubtitle")}</p>
-      </header>
+    <AppShell title={t("workflows")} subtitle={t("workflowsSubtitle")} icon="workflow" wide>
+      <div className="space-y-4">
+      <div className="flex flex-wrap gap-2">
+        <Btn size="sm" onClick={saveWorkflow}>
+          Save workflow
+        </Btn>
+      </div>
 
       {notice && (
         <button
@@ -377,7 +366,7 @@ export default function WorkflowsPage() {
             {steps.map((step, idx) => (
               <div key={step.id} className="space-y-2 rounded-xl border border-[var(--card-border)] p-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-violet-600 text-xs font-bold text-white">
+                  <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[var(--brand2)] text-xs font-bold text-white">
                     {idx + 1}
                   </span>
                   <Select
@@ -440,7 +429,14 @@ export default function WorkflowsPage() {
                 />
               </div>
             ))}
-            {steps.length === 0 && <p className="text-sm text-[var(--muted)]">No steps yet — add one below.</p>}
+            {steps.length === 0 && (
+              <div className="flex flex-col items-center gap-2 py-6 text-center">
+                <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--brand2)]/10 text-[var(--brand2)]">
+                  <Icon name="workflow" size={24} />
+                </span>
+                <p className="text-sm text-[var(--muted)]">No steps yet — add one below.</p>
+              </div>
+            )}
           </div>
           <Btn size="sm" variant="outline" onClick={addStep}>
             + Add step
@@ -458,14 +454,21 @@ export default function WorkflowsPage() {
                   <button
                     type="button"
                     aria-label="Delete workflow"
-                    className="rounded px-1.5 text-xs text-red-500 opacity-0 group-hover:opacity-100"
+                    className="rounded px-1.5 text-xs text-red-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                     onClick={() => deleteWorkflow(w.id)}
                   >
                     <Icon name="x" size={13} />
                   </button>
                 </div>
               ))}
-              {savedWfs.length === 0 && <p className="text-sm text-[var(--muted)]">No saved workflows yet.</p>}
+              {savedWfs.length === 0 && (
+                <div className="flex flex-col items-center gap-2 py-4 text-center">
+                  <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-[var(--brand2)]/10 text-[var(--brand2)]">
+                    <Icon name="folder" size={20} />
+                  </span>
+                  <p className="text-sm text-[var(--muted)]">No saved workflows yet.</p>
+                </div>
+              )}
             </div>
           </div>
         </Card>
@@ -481,7 +484,7 @@ export default function WorkflowsPage() {
               placeholder="Paste or type the text this workflow should process…"
             />
           </Field>
-          <Btn onClick={runWorkflow} disabled={running} className={SOLID}>
+          <Btn onClick={runWorkflow} disabled={running}>
             {running ? "Running…" : "Run workflow"}
           </Btn>
           {running && <Spinner label="Running steps in order…" />}
@@ -520,7 +523,7 @@ export default function WorkflowsPage() {
           </div>
 
           {finalOutput && !runError && (
-            <div className="rounded-xl border border-violet-500/40 p-3">
+            <div className="rounded-xl border border-[var(--brand2)]/40 p-3">
               <h3 className="mb-2 text-sm font-bold">Final output</h3>
               {finalIsImage ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -564,9 +567,17 @@ export default function WorkflowsPage() {
               )}
             </div>
           ))}
-          {history.length === 0 && <p className="text-sm text-[var(--muted)]">No runs yet.</p>}
+          {history.length === 0 && (
+            <div className="flex flex-col items-center gap-2 py-6 text-center">
+              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--brand2)]/10 text-[var(--brand2)]">
+                <Icon name="play" size={24} />
+              </span>
+              <p className="text-sm text-[var(--muted)]">No runs yet.</p>
+            </div>
+          )}
         </div>
       </Card>
-    </div>
+      </div>
+    </AppShell>
   );
 }

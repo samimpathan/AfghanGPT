@@ -1010,7 +1010,7 @@ export default function LiveCall({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[#EDEDED] text-slate-900 dark:bg-[#080D1B] dark:text-white">
+    <div className="fixed inset-0 z-50 flex flex-col bg-[var(--surface)] text-[var(--foreground)]">
       {/* Header (photo 4 — ChatGPT voice screen): two white circles,
           hamburger left, sliders right. No title/pills here — the
           status lives under the orb. */}
@@ -1018,7 +1018,7 @@ export default function LiveCall({
         <button
           type="button"
           onClick={openMenu}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-2xl leading-none text-slate-900 shadow-md transition active:scale-95 dark:bg-[#111B30] dark:text-white dark:ring-1 dark:ring-[#263550]"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-2xl leading-none text-slate-900 shadow-md transition active:scale-95 dark:bg-[var(--surface)] dark:text-white dark:ring-1 dark:ring-[var(--card-border)]"
           aria-label="Menu"
         >
           ≡
@@ -1026,7 +1026,7 @@ export default function LiveCall({
         <button
           type="button"
           onClick={() => setShowTranscript((v) => !v)}
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-slate-900 shadow-md transition active:scale-95 dark:bg-[#111B30] dark:text-white dark:ring-1 dark:ring-[#263550]"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white text-slate-900 shadow-md transition active:scale-95 dark:bg-[var(--surface)] dark:text-white dark:ring-1 dark:ring-[var(--card-border)]"
           aria-label={t(lang, "liveTranscript")}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden>
@@ -1187,7 +1187,7 @@ export default function LiveCall({
       />
       {sheetOpen && (
         <div className="mx-auto w-full max-w-md px-4 pb-2">
-          <div className="rounded-[28px] bg-white p-3 pt-2 shadow-xl dark:bg-[#111B30] dark:ring-1 dark:ring-[#263550]">
+          <div className="rounded-[28px] bg-[var(--card)] p-3 pt-2 shadow-xl dark:ring-1 dark:ring-[var(--card-border)]">
             <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-slate-300 dark:bg-slate-600" aria-hidden />
             <div className="grid grid-cols-3 gap-2">
             <button
@@ -1196,7 +1196,7 @@ export default function LiveCall({
               className={`flex flex-col items-center justify-center gap-2 rounded-3xl px-2 py-6 text-sm font-medium transition active:scale-95 ${
                 screenOn
                   ? "bg-[#2457FF] text-white"
-                  : "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white"
+                  : "bg-[var(--surface)] text-[var(--foreground)] dark:bg-[var(--surface)] dark:text-white"
               }`}
             >
               <Icon name="screen" size={32} />
@@ -1208,7 +1208,7 @@ export default function LiveCall({
               className={`flex flex-col items-center justify-center gap-2 rounded-3xl px-2 py-6 text-sm font-medium transition active:scale-95 ${
                 cameraOn
                   ? "bg-[#2457FF] text-white"
-                  : "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-white"
+                  : "bg-[var(--surface)] text-[var(--foreground)] dark:bg-[var(--surface)] dark:text-white"
               }`}
             >
               <Icon name="camera" size={32} />
@@ -1217,7 +1217,7 @@ export default function LiveCall({
             <button
               type="button"
               onClick={() => liveFileInputRef.current?.click()}
-              className="flex flex-col items-center justify-center gap-2 rounded-3xl bg-slate-100 px-2 py-6 text-sm font-medium text-slate-900 transition active:scale-95 dark:bg-slate-800 dark:text-white"
+              className="flex flex-col items-center justify-center gap-2 rounded-3xl bg-[var(--surface)] px-2 py-6 text-sm font-medium text-[var(--foreground)] transition active:scale-95 dark:text-white"
             >
               <Icon name="image" size={32} />
               {t(lang, "images")}
@@ -1232,11 +1232,11 @@ export default function LiveCall({
           X ends the call. */}
       <div className="px-4 pb-8">
         <div className="mx-auto flex max-w-md items-center gap-2">
-          <div className="flex h-14 min-w-0 flex-1 items-center gap-1 rounded-full bg-white px-2 shadow-md dark:bg-[#111B30] dark:ring-1 dark:ring-[#263550]">
+          <div className="flex h-14 min-w-0 flex-1 items-center gap-1 rounded-full bg-white px-2 shadow-md dark:bg-[var(--surface)] dark:ring-1 dark:ring-[var(--card-border)]">
             <button
               type="button"
               onClick={() => setSheetOpen((v) => !v)}
-              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-2xl leading-none text-slate-900 transition hover:bg-slate-100 active:scale-95 dark:text-white dark:hover:bg-slate-800"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-2xl leading-none text-[var(--foreground)] transition hover:bg-[var(--surface-hover)] active:scale-95 dark:text-white"
               aria-label={t(lang, "screenShare")}
             >
               <Icon name="plus" size={24} />
@@ -1253,9 +1253,9 @@ export default function LiveCall({
               phase === "fallback"
                 ? fallbackListening
                   ? "bg-red-500 text-white mic-listening"
-                  : "bg-white text-slate-900 dark:bg-[#111B30] dark:text-white dark:ring-1 dark:ring-[#263550]"
+                  : "bg-white text-slate-900 dark:bg-[var(--surface)] dark:text-white dark:ring-1 dark:ring-[var(--card-border)]"
                 : micOn
-                  ? "bg-white text-slate-900 dark:bg-[#111B30] dark:text-white dark:ring-1 dark:ring-[#263550]"
+                  ? "bg-white text-slate-900 dark:bg-[var(--surface)] dark:text-white dark:ring-1 dark:ring-[var(--card-border)]"
                   : "bg-red-500 text-white"
             }`}
             aria-label={

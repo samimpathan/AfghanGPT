@@ -7,13 +7,10 @@
 
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/icons";
-import Link from "next/link";
+import AppShell from "@/components/AppShell";
 import { useLang } from "@/lib/i18n";
 import { store, uid, type StudioImage } from "@/lib/store";
 import { Btn, Card, Field, Select, Spinner, Textarea } from "@/components/ui";
-
-/** Solid brand button — the shared Btn primary is a gradient; studios use a flat brand colour. */
-const SOLID = "!bg-none !bg-[var(--brand2)]";
 
 const RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4"] as const;
 
@@ -152,16 +149,8 @@ export default function ImageStudioPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 px-3 py-4 sm:px-4">
-      <header className="space-y-1">
-        <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
-          <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
-          {t("backToChat")}
-        </Link>
-        <h1 className="text-xl font-bold sm:text-2xl">{t("image")}</h1>
-        <p className="text-sm text-[var(--muted)]">{t("imageSubtitle")}</p>
-      </header>
-
+    <AppShell title={t("image")} subtitle={t("imageSubtitle")} icon="image">
+      <div className="space-y-4">
       <Card>
         <div className="space-y-3">
           <Field label="Prompt">
@@ -189,7 +178,7 @@ export default function ImageStudioPage() {
               </Select>
             </Field>
           </div>
-          <Btn onClick={handleGenerate} disabled={generating || !prompt.trim()} className={`w-full ${SOLID}`}>
+          <Btn onClick={handleGenerate} disabled={generating || !prompt.trim()} className="w-full">
             {generating ? "Generating…" : t("generate")}
           </Btn>
           {generating && <Spinner label="Generating your image…" />}
@@ -222,22 +211,31 @@ export default function ImageStudioPage() {
       <Card>
         <h2 className="mb-1 text-base font-semibold">{t("imageTools")}</h2>
         <p className="mb-3 text-xs text-[var(--muted)]">Only Variations actually processes an image. The other two are honest placeholders until a service is connected.</p>
-        <div className="space-y-3">
-          <div className="rounded-xl border border-[var(--card-border)] p-3">
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="rounded-2xl border border-[var(--card-border)] p-3">
+            <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--brand2)]/10 text-[var(--brand2)]">
+              <Icon name="image" size={18} />
+            </span>
             <p className="text-sm font-semibold">Background removal</p>
             <p className="mt-1 text-sm text-[var(--muted)]">
               Background removal is not available yet. Your image is not processed.
             </p>
             <Btn variant="outline" size="sm" disabled className="mt-2">Remove background</Btn>
           </div>
-          <div className="rounded-xl border border-[var(--card-border)] p-3">
+          <div className="rounded-2xl border border-[var(--card-border)] p-3">
+            <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--brand2)]/10 text-[var(--brand2)]">
+              <Icon name="sparkles" size={18} />
+            </span>
             <p className="text-sm font-semibold">Enhancement</p>
             <p className="mt-1 text-sm text-[var(--muted)]">
               Enhancement is not available yet — no upscaler is wired in. Your image is not processed.
             </p>
             <Btn variant="outline" size="sm" disabled className="mt-2">Enhance image</Btn>
           </div>
-          <div className="rounded-xl border border-[var(--card-border)] p-3">
+          <div className="rounded-2xl border border-[var(--card-border)] p-3">
+            <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--brand2)]/10 text-[var(--brand2)]">
+              <Icon name="grid" size={18} />
+            </span>
             <p className="text-sm font-semibold">Variations</p>
             <p className="mt-1 text-sm text-[var(--muted)]">
               Generates a new image from the same prompt with &ldquo;variation&rdquo; added, and saves it as a new history item.
@@ -252,7 +250,12 @@ export default function ImageStudioPage() {
       <Card>
         <h2 className="mb-3 text-base font-semibold">{t("imageHistory")} ({history.length})</h2>
         {history.length === 0 ? (
-          <p className="text-sm text-[var(--muted)]">No images yet. Generate one above and save it to see it here.</p>
+          <div className="flex flex-col items-center gap-2 py-6 text-center">
+            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--brand2)]/10 text-[var(--brand2)]">
+              <Icon name="image" size={24} />
+            </span>
+            <p className="text-sm text-[var(--muted)]">No images yet. Generate one above and save it to see it here.</p>
+          </div>
         ) : (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
             {history.map((item) => (
@@ -301,6 +304,7 @@ export default function ImageStudioPage() {
           </div>
         </div>
       )}
-    </div>
+      </div>
+    </AppShell>
   );
 }

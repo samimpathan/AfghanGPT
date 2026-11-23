@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icons";
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import AppShell from "@/components/AppShell";
+import { Btn } from "@/components/ui";
 import { useUi } from "@/components/Providers";
 import { t, LANGS, type Lang } from "@/lib/i18n";
 import { supabase } from "@/lib/supabaseClient";
@@ -35,7 +36,7 @@ function Pill({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={`rounded-full border px-3.5 py-1.5 text-sm font-bold transition-colors ${
+      className={`inline-flex min-h-11 items-center rounded-full border px-4 py-2.5 text-sm font-bold transition-colors ${
         active
           ? "border-[var(--brand2)] bg-[var(--brand2)] text-white"
           : "border-[var(--card-border)] bg-transparent hover:bg-black/5 dark:hover:bg-white/5"
@@ -150,32 +151,8 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="min-h-dvh px-4 py-6">
-      <div className="mx-auto flex max-w-xl flex-col gap-4">
-        <Link href="/" className="self-start text-sm font-bold text-[var(--brand2)] hover:underline">
-          <Icon name="arrowLeft" size={16} className="me-1 inline-block align-middle rtl:rotate-180" /> {t(lang, "backToChat")}
-        </Link>
-
-        <header className="flex items-center gap-3">
-          {/* AI avatar through the face-zoom frame (ROUND 5, see
-              globals.css .ai-avatar-frame): /avatar.jpg is a 3:4
-              full-body portrait, so a plain object-cover circle left
-              the face a speck at 56px. */}
-          <span className="ai-avatar-frame h-14 w-14 ring-2 ring-[var(--brand2)]/30">
-            <Image
-              src="/avatar.jpg"
-              alt="AfghanGPT"
-              width={56}
-              height={56}
-              className="ai-avatar-img"
-            />
-          </span>
-          <div className="min-w-0">
-            <h1 className="text-xl font-bold">{t(lang, "settings")}</h1>
-            <p className="truncate text-sm text-[var(--muted)]">{t(lang, "settingsSubtitle")}</p>
-          </div>
-        </header>
-
+    <AppShell icon="settings" title={t(lang, "settings")} subtitle={t(lang, "settingsSubtitle")}>
+      <div className="flex flex-col gap-4">
         {/* Profile first: your photo + name. Like Muse, the avatar is
             your photo when set, otherwise your initials on a colour. */}
         <Section title={t(lang, "profileSection")}>
@@ -194,9 +171,9 @@ export default function SettingsPage() {
                   type="button"
                   onClick={() => photoInputRef.current?.click()}
                   aria-label={t(lang, "uploadPhoto")}
-                  className="absolute -bottom-1 -end-1 flex h-7 w-7 items-center justify-center rounded-full bg-[var(--brand2)] text-sm text-white shadow"
+                  className="absolute -bottom-1 -end-1 flex h-9 w-9 items-center justify-center rounded-full bg-[var(--brand2)] text-sm text-white shadow"
                 >
-                  <Icon name="pencil" size={14} />
+                  <Icon name="pencil" size={16} />
                 </button>
               </div>
               <div className="min-w-0 flex-1">
@@ -206,7 +183,7 @@ export default function SettingsPage() {
                   value={settings.displayName}
                   onChange={(e) => updateSettings({ displayName: e.target.value })}
                   placeholder={email?.split("@")[0] ?? ""}
-                  className="mt-1 w-full rounded-xl border border-[var(--card-border)] bg-transparent px-3 py-2 text-sm outline-none focus:border-[var(--brand2)]"
+                  className="mt-1 w-full rounded-xl border border-[var(--card-border)] bg-transparent px-3 py-2.5 text-sm outline-none focus:border-[var(--brand2)]"
                 />
                 <p className="mt-1.5 text-xs text-[var(--muted)]">{t(lang, "displayNameHint")}</p>
                 <input
@@ -223,7 +200,7 @@ export default function SettingsPage() {
                   <button
                     type="button"
                     onClick={() => photoInputRef.current?.click()}
-                    className="rounded-xl bg-[var(--brand2)] px-3 py-2 text-sm font-bold text-white"
+                    className="min-h-11 rounded-xl bg-[var(--brand2)] px-3 py-2.5 text-sm font-bold text-white"
                   >
                     {t(lang, "uploadPhoto")}
                   </button>
@@ -231,7 +208,7 @@ export default function SettingsPage() {
                     <button
                       type="button"
                       onClick={() => updateSettings({ avatarDataUrl: "" })}
-                      className="rounded-xl border border-[var(--card-border)] px-3 py-2 text-sm font-bold"
+                      className="min-h-11 rounded-xl border border-[var(--card-border)] px-3 py-2.5 text-sm font-bold"
                     >
                       {t(lang, "removePhoto")}
                     </button>
@@ -258,7 +235,7 @@ export default function SettingsPage() {
                   className={`relative shrink-0 rounded-full transition active:scale-90 ${!settings.avatarGradient ? "ring-2 ring-[var(--brand2)] ring-offset-2 ring-offset-[var(--card)]" : ""}`}
                 >
                   <span
-                    style={{ width: 40, height: 40, background: AUTO_GRADIENT_BACKGROUND, fontSize: 15, textShadow: "0 1px 2px rgba(0, 0, 0, 0.30)" }}
+                    style={{ width: 44, height: 44, background: AUTO_GRADIENT_BACKGROUND, fontSize: 15, textShadow: "0 1px 2px rgba(0, 0, 0, 0.30)" }}
                     className="flex items-center justify-center rounded-full font-bold text-white"
                   >
                     {initialsOf(settings.displayName || email?.split("@")[0] || null, email)}
@@ -282,7 +259,7 @@ export default function SettingsPage() {
                       className={`relative shrink-0 rounded-full transition active:scale-90 ${selected ? "ring-2 ring-[var(--brand2)] ring-offset-2 ring-offset-[var(--card)]" : ""}`}
                     >
                       <span
-                        style={{ width: 40, height: 40, background: g.background }}
+                        style={{ width: 44, height: 44, background: g.background }}
                         className="block rounded-full shadow-sm"
                       />
                       {selected && (
@@ -300,12 +277,17 @@ export default function SettingsPage() {
                   : t(lang, "avatarGradientAuto")}
               </p>
               <p className="mt-4 text-sm font-bold">{t(lang, "avatarPreview")}</p>
+              {/* Audit fix: the preview strip now passes the same
+                  fallbackPhoto the header/drawer use, so a logged-in
+                  user with no uploaded photo sees /avatar.jpg here
+                  instead of initials. Guests get no fallback. */}
               <div className="mt-3 flex items-end gap-6">
                 <div className="flex flex-col items-center gap-1.5">
                   <UserAvatar
                     name={settings.displayName || email?.split("@")[0] || null}
                     email={email}
                     photoUrl={settings.avatarDataUrl || null}
+                    fallbackPhoto={email ? "/avatar.jpg" : undefined}
                     gradientId={settings.avatarGradient || undefined}
                     size={96}
                   />
@@ -316,6 +298,7 @@ export default function SettingsPage() {
                     name={settings.displayName || email?.split("@")[0] || null}
                     email={email}
                     photoUrl={settings.avatarDataUrl || null}
+                    fallbackPhoto={email ? "/avatar.jpg" : undefined}
                     gradientId={settings.avatarGradient || undefined}
                     size={40}
                   />
@@ -326,6 +309,7 @@ export default function SettingsPage() {
                     name={settings.displayName || email?.split("@")[0] || null}
                     email={email}
                     photoUrl={settings.avatarDataUrl || null}
+                    fallbackPhoto={email ? "/avatar.jpg" : undefined}
                     gradientId={settings.avatarGradient || undefined}
                     size={32}
                   />
@@ -367,7 +351,7 @@ export default function SettingsPage() {
         <Section title={t(lang, "chatSection")}>
           <div className="flex items-center justify-between gap-4 text-sm">
             <span className="font-bold">{t(lang, "modelInfo")}</span>
-            <span className="max-w-[60%] rounded-full bg-black/5 px-3 py-1 text-end text-xs dark:bg-white/10">
+            <span className="max-w-[60%] rounded-full bg-[var(--surface)] px-3 py-1 text-end text-xs">
               {t(lang, "freeModelNote")}
             </span>
           </div>
@@ -375,7 +359,7 @@ export default function SettingsPage() {
           {settings && (
             <>
               <div className="flex flex-col gap-3 border-t border-[var(--card-border)] pt-4 text-sm">
-                <label className="flex items-center justify-between gap-4">
+                <label className="flex min-h-11 items-center justify-between gap-4">
                   <span className="font-bold">{t(lang, "memoryEnabled")}</span>
                   <input
                     type="checkbox"
@@ -397,7 +381,7 @@ export default function SettingsPage() {
                   }
                   rows={4}
                   placeholder="e.g. My name is Samim. I am learning Python."
-                  className="w-full rounded-xl border border-[var(--card-border)] bg-transparent px-3 py-2 text-sm outline-none focus:border-[var(--brand2)]"
+                  className="w-full rounded-xl border border-[var(--card-border)] bg-transparent px-3 py-2.5 text-sm outline-none focus:border-[var(--brand2)]"
                 />
                 <button
                   type="button"
@@ -405,7 +389,7 @@ export default function SettingsPage() {
                     updateSettings({ memoryFacts: [] });
                     setNote(t(lang, "memoryCleared"));
                   }}
-                  className="self-start rounded-xl border border-[var(--card-border)] px-3 py-2 text-sm font-bold hover:bg-black/5 dark:hover:bg-white/5"
+                  className="min-h-11 self-start rounded-xl border border-[var(--card-border)] px-3 py-2.5 text-sm font-bold hover:bg-black/5 dark:hover:bg-white/5"
                 >
                   {t(lang, "memoryClear")}
                 </button>
@@ -415,13 +399,13 @@ export default function SettingsPage() {
         </Section>
 
         <Section title={t(lang, "privacySection")}>
-          <p className="rounded-2xl bg-black/5 px-3 py-2.5 text-xs leading-relaxed text-[var(--muted)] dark:bg-white/5">
+          <p className="rounded-2xl bg-[var(--surface)] px-3 py-2.5 text-xs leading-relaxed text-[var(--muted)]">
             {t(lang, "guestNote")}
           </p>
           <button
             type="button"
             onClick={clearHistory}
-            className="rounded-xl border border-red-300 px-3 py-2.5 text-sm font-bold text-red-600 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950"
+            className="min-h-11 rounded-xl border border-red-300 px-3 py-2.5 text-sm font-bold text-red-600 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950"
           >
             {t(lang, "clearHistory")}
           </button>
@@ -435,17 +419,13 @@ export default function SettingsPage() {
             </span>
           </div>
           {email ? (
-            <button
-              type="button"
-              onClick={logout}
-              className="rounded-xl bg-slate-900 px-3 py-2.5 text-sm font-bold text-white dark:bg-slate-100 dark:text-slate-900"
-            >
-              {t(lang, "logout")}
-            </button>
+            <Btn variant="outline" onClick={logout} className="min-h-11 self-start">
+              <Icon name="logout" size={16} /> {t(lang, "logout")}
+            </Btn>
           ) : (
             <Link
               href="/login"
-              className="rounded-xl bg-[var(--brand2)] px-3 py-2.5 text-center text-sm font-bold text-white"
+              className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--brand2)] px-4 py-2.5 text-sm font-bold text-white"
             >
               {t(lang, "login")}
             </Link>
@@ -461,6 +441,6 @@ export default function SettingsPage() {
           </p>
         )}
       </div>
-    </div>
+    </AppShell>
   );
 }

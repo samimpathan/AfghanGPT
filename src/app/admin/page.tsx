@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/icons";
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import AppShell from "@/components/AppShell";
+import { Badge, Card, Stat } from "@/components/ui";
 import { useUi } from "@/components/Providers";
 import { t } from "@/lib/i18n";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
@@ -12,6 +13,7 @@ import { isAdminEmail, ADMIN_EMAIL } from "@/lib/admin";
 import { listChats, listMessages } from "@/lib/chats";
 import { store } from "@/lib/store";
 import { providerInfos } from "@/lib/providers";
+import { FOUNDER } from "@/lib/founder";
 
 type Status = {
   supabaseConfigured: boolean;
@@ -19,21 +21,12 @@ type Status = {
   geminiModel: string;
 };
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-3xl border border-[var(--card-border)] bg-[var(--card)] p-4 shadow-sm sm:p-5">
+    <Card>
       <h2 className="text-sm font-bold">{title}</h2>
       <div className="mt-3">{children}</div>
-    </section>
-  );
-}
-
-function Stat({ value, label }: { value: number | string; label: string }) {
-  return (
-    <div className="rounded-2xl bg-black/5 px-3 py-4 text-center dark:bg-white/5">
-      <p className="text-2xl font-bold">{value}</p>
-      <p className="mt-0.5 text-xs text-[var(--muted)]">{label}</p>
-    </div>
+    </Card>
   );
 }
 
@@ -161,81 +154,55 @@ export default function AdminPage() {
   const geminiModel = status?.geminiModel ?? "gemini-3-flash-preview";
 
   return (
-    <div className="min-h-dvh px-4 py-6">
-      <div className="mx-auto flex max-w-xl flex-col gap-4">
-        <Link href="/" className="self-start text-sm font-bold text-[var(--brand2)] hover:underline">
-          <Icon name="arrowLeft" size={16} className="me-1 inline-block align-middle rtl:rotate-180" /> {t(lang, "backToChat")}
-        </Link>
+    <AppShell
+      icon="gauge"
+      title={t(lang, "adminDashboard")}
+      subtitle={`${name || FOUNDER.pashtoName} • ${email}`}
+      wide
+      actions={<Badge tone="amber">{t(lang, "admin")}</Badge>}
+    >
+      <div className="flex flex-col gap-4">
+        <div className="grid grid-cols-2 gap-3">
+          <Stat value={totalChats == null ? "—" : String(totalChats)} label={t(lang, "totalChats")} />
+          <Stat value={totalMessages == null ? "—" : String(totalMessages)} label={t(lang, "totalMessages")} />
+        </div>
 
-        <header className="flex items-center gap-3">
-          <Image
-            src="/avatar.jpg"
-            alt="AfghanGPT"
-            width={56}
-            height={56}
-            className="rounded-full object-cover ring-2 ring-amber-400/50"
-          />
-          <div className="min-w-0">
-            <h1 className="flex flex-wrap items-center gap-2 text-xl font-bold">
-              {t(lang, "adminDashboard")}
-              <span className="rounded-full bg-amber-400 px-2.5 py-0.5 text-xs font-bold text-black">
-                {t(lang, "admin")}
-              </span>
-            </h1>
-            <p className="truncate text-sm text-[var(--muted)]">
-              {name || "عبدالصمیم نیازی"} • <span dir="ltr">{email}</span>
-            </p>
-          </div>
-        </header>
-
-        <Card title={t(lang, "appStatus")}>
-          <div className="flex flex-col gap-2 text-sm">
-            <div className="flex items-center justify-between gap-4">
+        <Section title={t(lang, "appStatus")}>
+          <div className="flex flex-col gap-3 text-sm">
+            <div className="flex min-h-11 items-center justify-between gap-4">
               <span className="font-bold">Supabase</span>
-              <span
-                className={`rounded-full px-3 py-1 text-xs font-bold ${
-                  supabaseOk ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : "bg-black/5 dark:bg-white/10"
-                }`}
-              >
+              <Badge tone={supabaseOk ? "green" : "amber"}>
                 {supabaseOk ? t(lang, "connected") : t(lang, "notConfigured")}
-              </span>
+              </Badge>
             </div>
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex min-h-11 items-center justify-between gap-4 border-t border-[var(--card-border)] pt-3">
               <span className="min-w-0 font-bold">
                 Gemini • <span className="break-all font-normal text-[var(--muted)]">{geminiModel}</span>
               </span>
-              <span
-                className={`shrink-0 rounded-full px-3 py-1 text-xs font-bold ${
-                  geminiOnline ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : "bg-black/5 dark:bg-white/10"
-                }`}
-              >
+              <Badge tone={geminiOnline ? "green" : "amber"}>
                 {geminiOnline ? t(lang, "online") : t(lang, "offline")}
-              </span>
+              </Badge>
             </div>
           </div>
-        </Card>
+        </Section>
 
-        <Card title={t(lang, "accountInfo")}>
-          <div className="grid grid-cols-2 gap-2">
-            <Stat value={totalChats ?? "—"} label={t(lang, "totalChats")} />
-            <Stat value={totalMessages ?? "—"} label={t(lang, "totalMessages")} />
-          </div>
-          <p className="mt-3 text-xs leading-relaxed text-[var(--muted)]">{t(lang, "adminNote")}</p>
-        </Card>
+        <Section title={t(lang, "accountInfo")}>
+          <p className="text-xs leading-relaxed text-[var(--muted)]">{t(lang, "adminNote")}</p>
+        </Section>
 
-        <Card title={t(lang, "studioCounts")}>
-          <div className="grid grid-cols-2 gap-2">
-            <Stat value={studioCounts.chats} label={t(lang, "totalChats")} />
-            <Stat value={studioCounts.projects} label={t(lang, "totalProjects")} />
-            <Stat value={studioCounts.images} label={t(lang, "totalImages")} />
-            <Stat value={studioCounts.workflows} label={t(lang, "totalWorkflows")} />
+        <Section title={t(lang, "studioCounts")}>
+          <div className="grid grid-cols-2 gap-3">
+            <Stat value={String(studioCounts.chats)} label={t(lang, "totalChats")} />
+            <Stat value={String(studioCounts.projects)} label={t(lang, "totalProjects")} />
+            <Stat value={String(studioCounts.images)} label={t(lang, "totalImages")} />
+            <Stat value={String(studioCounts.workflows)} label={t(lang, "totalWorkflows")} />
           </div>
           <p className="mt-3 text-xs text-[var(--muted)]">
             {t(lang, "studioFeatures")} • {studioCounts.runs} {t(lang, "adminRuns")}
           </p>
-        </Card>
+        </Section>
 
-        <Card title={t(lang, "providers")}>
+        <Section title={t(lang, "providers")}>
           <div className="flex flex-col gap-3 text-sm">
             {providerInfos({
               geminiConfigured: geminiOnline,
@@ -247,31 +214,27 @@ export default function AdminPage() {
               openRouterKey: !!store.settings().openRouterKey.trim(),
               huggingFaceKey: !!store.settings().hfKey.trim(),
             }).map((p) => (
-              <div key={p.id} className="flex items-center justify-between gap-4">
+              <div key={p.id} className="flex min-h-11 items-center justify-between gap-4">
                 <span className="min-w-0">
                   <span className="font-bold">{p.name}</span>
                   <span className="block break-words text-xs text-[var(--muted)]">{p.models.join(", ")}</span>
                 </span>
-                <span
-                  className={`shrink-0 rounded-full px-3 py-1 text-xs font-bold ${
-                    p.status === "ready" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200" : "bg-black/5 dark:bg-white/10"
-                  }`}
-                >
+                <Badge tone={p.status === "ready" ? "green" : "amber"}>
                   {p.status === "ready" ? t(lang, "configured") : t(lang, "notConfigured")}
-                </span>
+                </Badge>
               </div>
             ))}
           </div>
           <p className="mt-3 text-xs leading-relaxed text-[var(--muted)]">{t(lang, "limitsNote")}</p>
-        </Card>
+        </Section>
 
-        <Card title={t(lang, "studioFeatures")}>
+        <Section title={t(lang, "studioFeatures")}>
           {Object.keys(features).length === 0 ? (
             <p className="text-sm text-[var(--muted)]">{t(lang, "empty")}</p>
           ) : (
             <div className="flex flex-col gap-2 text-sm">
               {Object.keys(features).map((f) => (
-                <label key={f} className="flex items-center justify-between gap-4">
+                <label key={f} className="flex min-h-11 items-center justify-between gap-4">
                   <span className="capitalize">{f}</span>
                   <input
                     type="checkbox"
@@ -283,15 +246,15 @@ export default function AdminPage() {
               ))}
             </div>
           )}
-        </Card>
+        </Section>
 
-        <Card title={t(lang, "errorLog")}>
+        <Section title={t(lang, "errorLog")}>
           {logs.length === 0 ? (
             <p className="text-sm text-[var(--muted)]">{t(lang, "empty")}</p>
           ) : (
             <ul className="space-y-1.5 text-sm">
               {logs.slice(0, 30).map((l, i) => (
-                <li key={i} className="rounded-xl bg-black/5 px-2.5 py-2 dark:bg-white/5">
+                <li key={i} className="rounded-xl bg-[var(--surface)] px-2.5 py-2">
                   <span className="text-xs text-[var(--muted)]">
                     {new Date(l.ts).toLocaleString()} — {l.where}
                   </span>
@@ -300,34 +263,34 @@ export default function AdminPage() {
               ))}
             </ul>
           )}
-        </Card>
+        </Section>
 
-        <Card title={t(lang, "users")}>
+        <Section title={t(lang, "users")}>
           <p className="text-sm leading-relaxed text-[var(--muted)]">{t(lang, "usersNote")}</p>
-        </Card>
+        </Section>
 
         <div className="flex flex-col gap-2">
           <a
             href="https://supabase.com/dashboard/project/kmofyrkgwpgqztcggtaq/sql/new"
             target="_blank"
             rel="noreferrer"
-            className="rounded-xl bg-[var(--brand2)] px-3 py-2.5 text-center text-sm font-bold text-white"
+            className="inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--brand2)] px-3 py-2.5 text-sm font-bold text-white"
           >
             {t(lang, "openSupabase")} <Icon name="external" size={14} className="ms-1 inline-block align-middle" />
           </a>
           <a
-            href="https://vercel.com/samimpatan8-8864/samim-ai/settings/environment-variables"
+            href="https://vercel.com/samimpatan8-8864/afghan-gpt/settings/environment-variables"
             target="_blank"
             rel="noreferrer"
-            className="rounded-xl border border-[var(--card-border)] bg-[var(--card)] px-3 py-2.5 text-center text-sm font-bold"
+            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[var(--card-border)] bg-[var(--card)] px-3 py-2.5 text-sm font-bold"
           >
             {t(lang, "openVercel")} <Icon name="external" size={14} className="ms-1 inline-block align-middle" />
           </a>
           <a
-            href="https://github.com/samimpathan/SamimAI"
+            href="https://github.com/samimpathan/AfghanGPT"
             target="_blank"
             rel="noreferrer"
-            className="rounded-xl border border-[var(--card-border)] bg-[var(--card)] px-3 py-2.5 text-center text-sm font-bold"
+            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-[var(--card-border)] bg-[var(--card)] px-3 py-2.5 text-sm font-bold"
           >
             {t(lang, "openGithub")} <Icon name="external" size={14} className="ms-1 inline-block align-middle" />
           </a>
@@ -337,6 +300,6 @@ export default function AdminPage() {
           {t(lang, "admin")} • <span dir="ltr">{ADMIN_EMAIL}</span> • AfghanGPT
         </p>
       </div>
-    </div>
+    </AppShell>
   );
 }

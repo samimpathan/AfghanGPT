@@ -17,7 +17,7 @@ type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 export function Btn({ variant = "primary", size = "md", className = "", ...rest }: BtnProps) {
   const base =
     "inline-flex items-center justify-center gap-2 rounded-xl font-semibold transition duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#2457FF] active:scale-95 disabled:opacity-50 disabled:pointer-events-none";
-  const sizes = size === "sm" ? "px-3 py-1.5 text-sm" : "px-4 py-2.5 text-sm";
+  const sizes = size === "sm" ? "min-h-11 px-3 py-2 text-sm" : "px-4 py-2.5 text-sm";
   const variants: Record<string, string> = {
     // Solid brand colour — no gradients in the core design system.
     primary: "text-white bg-[#2457FF] hover:bg-[#1a46d6] dark:bg-[#3b82f6] dark:hover:bg-[#2563eb]",
@@ -61,6 +61,26 @@ export function Field({ label, children }: { label: string; children: ReactNode 
       <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">{label}</span>
       {children}
     </label>
+  );
+}
+
+export function IconButton({
+  label,
+  className = "",
+  ...rest
+}: ButtonHTMLAttributes<HTMLButtonElement> & { label: string }) {
+  return (
+    <button type="button" aria-label={label} title={label} className={`btn-icon ${className}`} {...rest} />
+  );
+}
+
+export function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-4 shadow-sm">
+      <p className="text-xs font-bold uppercase tracking-wide text-[var(--muted)]">{label}</p>
+      <p className="mt-1 text-2xl font-bold">{value}</p>
+      {hint ? <p className="mt-1 text-xs text-[var(--muted)]">{hint}</p> : null}
+    </div>
   );
 }
 

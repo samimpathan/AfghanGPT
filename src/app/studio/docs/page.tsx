@@ -12,16 +12,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Icon } from "@/components/icons";
-import Link from "next/link";
+import AppShell from "@/components/AppShell";
 import { useLang } from "@/lib/i18n";
 import { store } from "@/lib/store";
 import { chatJson, chatText, downloadFileSpec } from "@/lib/client";
 import type { FileSpec, FileType } from "@/lib/filegen";
 import { Badge, Btn, Card, Field, Input, Select, Spinner, Textarea } from "@/components/ui";
-
-/** Solid brand button — the shared Btn primary is a gradient; studios use a flat brand colour. */
-const SOLID = "!bg-none !bg-[var(--brand2)]";
 
 type Tab = "summarise" | "generate" | "convert";
 
@@ -236,16 +232,8 @@ export default function DocsStudioPage() {
   ];
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 px-3 py-4 sm:px-4">
-      <header className="space-y-1">
-        <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
-          <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
-          {t("backToChat")}
-        </Link>
-        <h1 className="text-xl font-bold sm:text-2xl">{t("docs")}</h1>
-        <p className="text-sm text-[var(--muted)]">{t("docsSubtitle")}</p>
-      </header>
-
+    <AppShell title={t("docs")} subtitle={t("docsSubtitle")} icon="fileText">
+      <div className="space-y-4">
       <div className="flex gap-2 overflow-x-auto" role="tablist">
         {tabs.map((tb) => (
           <button
@@ -254,7 +242,7 @@ export default function DocsStudioPage() {
             role="tab"
             aria-selected={tab === tb.id}
             onClick={() => setTab(tb.id)}
-            className={`shrink-0 rounded-xl px-4 py-2 text-sm font-semibold ${
+            className={`min-h-11 shrink-0 rounded-xl px-4 py-2 text-sm font-semibold ${
               tab === tb.id ? "bg-[var(--brand2)] text-white" : "border border-[var(--card-border)]"
             }`}
           >
@@ -298,7 +286,7 @@ export default function DocsStudioPage() {
             </Field>
 
             <div className="flex flex-wrap gap-2">
-              <Btn onClick={summarise} disabled={docLoading || !docText.trim()} className={SOLID}>
+              <Btn onClick={summarise} disabled={docLoading || !docText.trim()}>
                 Summarise
               </Btn>
               <span className="flex min-w-48 flex-1 gap-2">
@@ -367,7 +355,7 @@ export default function DocsStudioPage() {
               The AI writes the content as a strict JSON document spec, and /api/files builds the real file on the server.
               If the AI returns bad JSON or the wrong shape, no file is created and the error is shown.
             </p>
-            <Btn onClick={generateDoc} disabled={genLoading || !genTopic.trim()} className={`w-full ${SOLID}`}>
+            <Btn onClick={generateDoc} disabled={genLoading || !genTopic.trim()} className="w-full">
               {genLoading ? "Generating…" : `${t("generate")} .${genType}`}
             </Btn>
             {genLoading && <Spinner label="The AI is writing your document…" />}
@@ -414,7 +402,7 @@ export default function DocsStudioPage() {
               Conversion re-saves your text in the chosen format — it does not re-parse structured data.
               JSON is the exception: invalid JSON is rejected with an honest error instead of a broken file.
             </p>
-            <Btn onClick={convert} disabled={convLoading || !convText.trim()} className={`w-full ${SOLID}`}>
+            <Btn onClick={convert} disabled={convLoading || !convText.trim()} className="w-full">
               {convLoading ? "Converting…" : `Convert to .${toType} & ${t("download")}`}
             </Btn>
             {convLoading && <Spinner label="Converting…" />}
@@ -427,7 +415,8 @@ export default function DocsStudioPage() {
           </div>
         </Card>
       )}
-    </div>
+      </div>
+    </AppShell>
   );
 }
 

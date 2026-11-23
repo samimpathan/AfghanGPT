@@ -14,7 +14,7 @@ import { stripMathDelimiters } from "@/lib/mathText";
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="my-3 overflow-hidden rounded-xl border border-[#263550] bg-[#0d1426] shadow-sm" dir="ltr">
+    <div className="my-3 overflow-hidden rounded-xl border border-[var(--card-border)] bg-[#0d1426] shadow-sm" dir="ltr">
       <div className="flex items-center justify-between gap-2 border-b border-white/10 bg-white/[0.03] px-3 py-1.5">
         <span className="truncate text-xs font-semibold text-cyan-300">{lang || "code"}</span>
         <button

@@ -11,14 +11,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Icon } from "@/components/icons";
-import Link from "next/link";
+import AppShell from "@/components/AppShell";
 import { useLang } from "@/lib/i18n";
 import { store, uid, type ProjectFile, type StudioProject } from "@/lib/store";
 import { chatJson, downloadFileSpec } from "@/lib/client";
 import { Btn, Card, Field, Input, Select, Spinner, Textarea, Badge } from "@/components/ui";
-
-/** Solid brand button — the shared Btn primary is a gradient; studios use a flat brand colour. */
-const SOLID = "!bg-none !bg-[var(--brand2)]";
 
 type GenSpec = {
   name?: string;
@@ -280,28 +277,18 @@ export default function BuilderPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-4 px-3 py-4 sm:px-4">
-      <header className="space-y-1">
-        <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
-          <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
-          {t("backToChat")}
-        </Link>
-        <div className="flex flex-wrap items-center gap-2">
-          <h1 className="text-xl font-bold sm:text-2xl">{t("builder")}</h1>
-          <span className="ms-auto" />
-          {project && (
-            <>
-              <Btn size="sm" variant="outline" onClick={exportZip} disabled={exporting}>
-                {exporting ? "Exporting…" : "Download ZIP"}
-              </Btn>
-              <Btn size="sm" onClick={saveProject} className={SOLID}>
-                {t("save")}
-              </Btn>
-            </>
-          )}
+    <AppShell title={t("builder")} subtitle={t("builderSubtitle")} icon="layers" wide>
+      <div className="space-y-4">
+      {project && (
+        <div className="flex flex-wrap gap-2">
+          <Btn size="sm" variant="outline" onClick={exportZip} disabled={exporting}>
+            {exporting ? "Exporting…" : "Download ZIP"}
+          </Btn>
+          <Btn size="sm" onClick={saveProject}>
+            {t("save")}
+          </Btn>
         </div>
-        <p className="text-sm text-[var(--muted)]">{t("builderSubtitle")}</p>
-      </header>
+      )}
 
       {notice && (
         <button
@@ -335,7 +322,7 @@ export default function BuilderPage() {
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Btn onClick={generate} disabled={generating} className={SOLID}>
+          <Btn onClick={generate} disabled={generating}>
             {generating ? "Generating…" : "Generate app"}
           </Btn>
           {generating && <Spinner label="The AI is building your files…" />}
@@ -353,6 +340,15 @@ export default function BuilderPage() {
         </div>
       </Card>
 
+      {!project && !generating && (
+        <Card className="flex flex-col items-center gap-2 py-8 text-center">
+          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--brand2)]/10 text-[var(--brand2)]">
+            <Icon name="layers" size={24} />
+          </span>
+          <p className="text-sm text-[var(--muted)]">{t("empty")}</p>
+        </Card>
+      )}
+
       {project && (
         <>
           {/* Step 2 — edit + preview */}
@@ -368,7 +364,7 @@ export default function BuilderPage() {
                   <div
                     key={f.path}
                     className={`group flex items-center gap-1 rounded-lg px-2 py-1.5 text-sm ${
-                      f.path === activePath ? "bg-violet-600/15" : "hover:bg-black/5 dark:hover:bg-white/5"
+                      f.path === activePath ? "bg-[var(--brand2)]/10" : "hover:bg-black/5 dark:hover:bg-white/5"
                     }`}
                   >
                     <button type="button" className="min-w-0 flex-1 truncate text-start font-mono" onClick={() => setActivePath(f.path)}>
@@ -377,7 +373,7 @@ export default function BuilderPage() {
                     <button
                       type="button"
                       aria-label="Delete"
-                      className="rounded px-1 text-xs text-red-500 opacity-0 group-hover:opacity-100"
+                      className="rounded px-1 text-xs text-red-500 opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                       onClick={() => deleteFile(f.path)}
                     >
                       <Icon name="x" size={13} />
@@ -437,7 +433,7 @@ export default function BuilderPage() {
                 placeholder="e.g. Add a dark-mode toggle and a search box"
                 className="min-w-0 flex-1"
               />
-              <Btn onClick={modify} disabled={modifying} className={`shrink-0 ${SOLID}`}>
+              <Btn onClick={modify} disabled={modifying} className="shrink-0">
                 {modifying ? "Applying…" : "Apply change"}
               </Btn>
             </div>
@@ -505,12 +501,13 @@ export default function BuilderPage() {
             href="https://supabase.com/docs/guides/auth"
             target="_blank"
             rel="noreferrer"
-            className="text-sm font-semibold text-violet-500 underline"
+            className="text-sm font-semibold text-[var(--brand2)] underline"
           >
             Supabase Auth docs <Icon name="external" size={14} className="ms-1 inline-block align-middle" />
           </a>
         </Card>
       </div>
-    </div>
+      </div>
+    </AppShell>
   );
 }

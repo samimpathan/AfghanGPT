@@ -8,8 +8,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Icon } from "@/components/icons";
-import Link from "next/link";
+import { Icon, type IconName } from "@/components/icons";
+import AppShell from "@/components/AppShell";
 import { useLang } from "@/lib/i18n";
 import { store, uid } from "@/lib/store";
 import { chatText, downloadFileSpec, downloadText } from "@/lib/client";
@@ -31,19 +31,19 @@ type TemplateId =
   | "cv"
   | "proposal";
 
-const TEMPLATES: { id: TemplateId; label: string; hint: string; instruction: string }[] = [
-  { id: "article", label: "Article", hint: "A well-structured article on the topic.", instruction: "Write a well-structured article with a clear introduction, body sections with subheadings, and a conclusion." },
-  { id: "blog", label: "Blog post", hint: "Engaging, readable blog post.", instruction: "Write an engaging blog post that is easy to read, with a catchy opening, short paragraphs and subheadings." },
-  { id: "email", label: "Professional email", hint: "A polite, clear work email.", instruction: "Write a polite, clear professional email with a suitable subject line, greeting, body and closing." },
-  { id: "academic", label: "Academic help", hint: "Clear academic explanation or essay help.", instruction: "Help with academic writing: explain clearly and formally, with structure, evidence-style reasoning and correct academic tone. Do not invent fake citations or sources." },
-  { id: "summary", label: "Summary", hint: "Shorten text to its key points.", instruction: "Summarise the given text faithfully, keeping only the key points. Do not add facts that are not in the text." },
-  { id: "rewrite", label: "Rewrite / proofread", hint: "Rewrite the text more clearly.", instruction: "Rewrite and proofread the given text: fix grammar and spelling, improve clarity and flow, and keep the original meaning. Show the improved version." },
-  { id: "grammar", label: "Grammar correction", hint: "Fix grammar, keep the meaning.", instruction: "Correct the grammar, spelling and punctuation of the given text, keeping the meaning unchanged. Briefly list the main corrections at the end." },
-  { id: "translation", label: "Translation", hint: "Translate into the output language.", instruction: "Translate the given text accurately into the requested output language, keeping the tone and meaning. Do not add extra content." },
-  { id: "social", label: "Social media post", hint: "A short, catchy post.", instruction: "Write a short, catchy social media post on the topic, with a hook in the first line and a call to action at the end." },
-  { id: "seo", label: "SEO content", hint: "Search-friendly web content.", instruction: "Write search-friendly web content on the topic: use the topic keywords naturally, clear headings, and short readable paragraphs." },
-  { id: "cv", label: "CV / Resume", hint: "A professional CV from the details given.", instruction: "Write a professional CV / resume from the details given, with sections for summary, skills, experience and education. Use only the details provided — do not invent jobs, degrees or awards." },
-  { id: "proposal", label: "Business proposal", hint: "A formal proposal document.", instruction: "Write a formal business proposal with an introduction, problem, proposed solution, benefits, timeline and closing." },
+const TEMPLATES: { id: TemplateId; icon: IconName; label: string; hint: string; instruction: string }[] = [
+  { id: "article", icon: "fileText", label: "Article", hint: "A well-structured article on the topic.", instruction: "Write a well-structured article with a clear introduction, body sections with subheadings, and a conclusion." },
+  { id: "blog", icon: "pencil", label: "Blog post", hint: "Engaging, readable blog post.", instruction: "Write an engaging blog post that is easy to read, with a catchy opening, short paragraphs and subheadings." },
+  { id: "email", icon: "mail", label: "Professional email", hint: "A polite, clear work email.", instruction: "Write a polite, clear professional email with a suitable subject line, greeting, body and closing." },
+  { id: "academic", icon: "cap", label: "Academic help", hint: "Clear academic explanation or essay help.", instruction: "Help with academic writing: explain clearly and formally, with structure, evidence-style reasoning and correct academic tone. Do not invent fake citations or sources." },
+  { id: "summary", icon: "book", label: "Summary", hint: "Shorten text to its key points.", instruction: "Summarise the given text faithfully, keeping only the key points. Do not add facts that are not in the text." },
+  { id: "rewrite", icon: "compose", label: "Rewrite / proofread", hint: "Rewrite the text more clearly.", instruction: "Rewrite and proofread the given text: fix grammar and spelling, improve clarity and flow, and keep the original meaning. Show the improved version." },
+  { id: "grammar", icon: "check", label: "Grammar correction", hint: "Fix grammar, keep the meaning.", instruction: "Correct the grammar, spelling and punctuation of the given text, keeping the meaning unchanged. Briefly list the main corrections at the end." },
+  { id: "translation", icon: "globe", label: "Translation", hint: "Translate into the output language.", instruction: "Translate the given text accurately into the requested output language, keeping the tone and meaning. Do not add extra content." },
+  { id: "social", icon: "share", label: "Social media post", hint: "A short, catchy post.", instruction: "Write a short, catchy social media post on the topic, with a hook in the first line and a call to action at the end." },
+  { id: "seo", icon: "search", label: "SEO content", hint: "Search-friendly web content.", instruction: "Write search-friendly web content on the topic: use the topic keywords naturally, clear headings, and short readable paragraphs." },
+  { id: "cv", icon: "file", label: "CV / Resume", hint: "A professional CV from the details given.", instruction: "Write a professional CV / resume from the details given, with sections for summary, skills, experience and education. Use only the details provided — do not invent jobs, degrees or awards." },
+  { id: "proposal", icon: "layers", label: "Business proposal", hint: "A formal proposal document.", instruction: "Write a formal business proposal with an introduction, problem, proposed solution, benefits, timeline and closing." },
 ];
 
 const TONES = ["Formal", "Friendly", "Professional", "Creative"] as const;
@@ -55,9 +55,6 @@ const LENGTH_GUIDE: Record<string, string> = {
   Medium: "about 300–500 words",
   Long: "about 700–1000 words",
 };
-
-/** Solid brand button — the shared Btn primary is a gradient; studios use a flat brand colour. */
-const SOLID = "!bg-none !bg-[var(--brand2)]";
 
 function safeName(s: string, fallback: string): string {
   const clean = s.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-").slice(0, 50);
@@ -190,21 +187,13 @@ export default function WritingStudioPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 px-3 py-4 sm:px-4">
-      <header className="space-y-1">
-        <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
-          <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
-          {t("backToChat")}
-        </Link>
-        <h1 className="text-xl font-bold sm:text-2xl">{t("writing")}</h1>
-        <p className="text-sm text-[var(--muted)]">{t("writeSubtitle")}</p>
-        <p className="rounded-xl border border-[var(--card-border)] px-3 py-2 text-xs text-[var(--muted)]">
+    <AppShell title={t("writing")} subtitle={t("writeSubtitle")} icon="pencil">
+      <div className="space-y-4">
+      <Card>
+        <p className="mb-4 rounded-xl border border-[var(--card-border)] px-3 py-2 text-xs text-[var(--muted)]">
           How it works: the text is written live by AfghanGPT through /api/chat — no key is ever asked from you.
           If the AI is not available right now, the chat API answers with an honest note instead, and that note is shown honestly.
         </p>
-      </header>
-
-      <Card>
         <Field label="Template">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {TEMPLATES.map((tpl) => (
@@ -213,12 +202,15 @@ export default function WritingStudioPage() {
                 type="button"
                 onClick={() => setTemplate(tpl.id)}
                 aria-pressed={template === tpl.id}
-                className={`rounded-xl border p-3 text-start transition ${
+                className={`rounded-2xl border p-3 text-start transition ${
                   template === tpl.id
-                    ? "border-violet-500 bg-violet-600/15"
+                    ? "border-[var(--brand2)] bg-[var(--brand2)]/10"
                     : "border-[var(--card-border)] hover:bg-black/5 dark:hover:bg-white/5"
                 }`}
               >
+                <span className="mb-2 flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--brand2)]/10 text-[var(--brand2)]">
+                  <Icon name={tpl.icon} size={18} />
+                </span>
                 <span className="block text-sm font-semibold">{tpl.label}</span>
                 <span className="mt-0.5 block text-xs text-[var(--muted)]">{tpl.hint}</span>
               </button>
@@ -267,7 +259,7 @@ export default function WritingStudioPage() {
             </Field>
           </div>
 
-          <Btn onClick={generate} disabled={loading || !input.trim()} className={`w-full ${SOLID}`}>
+          <Btn onClick={generate} disabled={loading || !input.trim()} className="w-full">
             {loading ? "Writing…" : (<><Icon name="pencil" size={15} className="me-1 inline-block align-middle" />{t("generate")} — {active.label}</>)}
           </Btn>
           {loading && <Spinner label="The AI is writing…" />}
@@ -278,6 +270,15 @@ export default function WritingStudioPage() {
         <button type="button" onClick={() => setNotice("")} className="w-full rounded-xl bg-amber-500/15 px-3 py-2 text-start text-sm text-amber-700 dark:text-amber-300">
           {notice} <Icon name="x" size={13} className="ms-1 inline-block align-middle" />
         </button>
+      )}
+
+      {!result && !loading && (
+        <Card className="flex flex-col items-center gap-2 py-8 text-center">
+          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--brand2)]/10 text-[var(--brand2)]">
+            <Icon name="pencil" size={24} />
+          </span>
+          <p className="text-sm text-[var(--muted)]">{t("empty")}</p>
+        </Card>
       )}
 
       {result && (
@@ -316,11 +317,12 @@ export default function WritingStudioPage() {
               {t("download")} .md
             </Btn>
             <Btn size="sm" variant="outline" onClick={downloadDocx}>{t("download")} .docx</Btn>
-            <Btn size="sm" onClick={saveProject} className={SOLID}>{saved ? (<><Icon name="check" size={14} className="me-1 inline-block align-middle" />Saved</>) : t("save")}</Btn>
+            <Btn size="sm" onClick={saveProject}>{saved ? (<><Icon name="check" size={14} className="me-1 inline-block align-middle" />Saved</>) : t("save")}</Btn>
           </div>
           {saved && <p className="mt-2 text-xs text-emerald-600 dark:text-emerald-300">Saved as a project (kind “doc”) in this device’s local storage.</p>}
         </Card>
       )}
-    </div>
+      </div>
+    </AppShell>
   );
 }

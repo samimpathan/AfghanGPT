@@ -46,9 +46,9 @@ function loadReactions(): Record<string, "like" | "dislike"> {
 }
 
 const actionBtn =
-  "rounded-full px-2 py-1 text-xs text-slate-500 transition duration-150 hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-[#2457FF] dark:text-slate-400 dark:hover:bg-slate-800 disabled:opacity-40";
+  "rounded-full px-2 py-1 text-xs text-[var(--muted)] transition duration-150 hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-[#2457FF] disabled:opacity-40";
 const actionBtnActive =
-  "rounded-full bg-slate-200 px-2 py-1 text-xs font-bold text-slate-800 transition duration-150 dark:bg-slate-700 dark:text-white";
+  "rounded-full bg-[var(--surface-hover)] px-2 py-1 text-xs font-bold text-[var(--foreground)] transition duration-150";
 
 function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -410,7 +410,7 @@ export default function ChatMessage({
               value={editText}
               onChange={(e) => setEditText(e.target.value)}
               rows={3}
-              className="bidi-plaintext w-full rounded-[20px] border-2 border-[#2457FF] bg-white px-4 py-3 text-[17px] text-[#111111] shadow-sm outline-none dark:bg-[#111B30] dark:text-[#EAF2FF]"
+              className="bidi-plaintext w-full rounded-[20px] border-2 border-[#2457FF] bg-[var(--card)] px-4 py-3 text-[17px] text-[var(--foreground)] shadow-sm outline-none"
             />
             <div className="mt-1.5 flex justify-end gap-2">
               <button
@@ -462,7 +462,7 @@ export default function ChatMessage({
             />
           )}
           <div
-            className="break-words rounded-[28px] bg-[#ECECEC] px-[18px] py-3 text-[17px] leading-6 text-slate-900 shadow-sm dark:bg-[#2F2F2F] dark:text-[#EAF2FF]"
+            className="break-words rounded-[28px] bg-[var(--bubble-user)] px-[18px] py-3 text-[17px] leading-6 text-[var(--foreground)] shadow-sm"
             dir="auto"
           >
             <p
@@ -528,7 +528,7 @@ export default function ChatMessage({
           globals.css .ai-avatar-frame): /avatar.jpg is a 3:4
           full-body portrait, so a plain object-cover circle left
           the face a ~8px speck at 32px. */}
-      <span className="ai-avatar-frame mt-1 h-8 w-8 ring-1 ring-black/5 dark:ring-[#263550]">
+      <span className="ai-avatar-frame mt-1 h-8 w-8 ring-1 ring-black/5 dark:ring-[var(--card-border)]">
         <img src="/avatar.jpg" alt="" className="ai-avatar-img" />
       </span>
       <div className="min-w-0 flex-1 break-words">
@@ -571,7 +571,7 @@ export default function ChatMessage({
                 const inline = !match && !codeText.includes("\n");
                 if (inline) {
                   return (
-                    <code className="rounded bg-slate-300 px-1 py-0.5 text-sm dark:bg-slate-700">
+                    <code className="rounded bg-[var(--surface-hover)] px-1 py-0.5 text-sm">
                       {codeText}
                     </code>
                   );
@@ -676,7 +676,7 @@ export default function ChatMessage({
                       setMoreOpen(false);
                       onBranch?.(msg.id);
                     }}
-                    className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-[var(--surface-hover)]"
                   >
                     <Icon name="branch" size={14} className="me-2 inline-block align-middle" /> {t(lang, "branchChat")}
                   </button>
@@ -686,26 +686,26 @@ export default function ChatMessage({
                       setMoreOpen(false);
                       onExport?.();
                     }}
-                    className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-[var(--surface-hover)]"
                   >
                     <Icon name="download" size={14} className="me-2 inline-block align-middle" /> {t(lang, "exportChat")}
                   </button>
                   <button
                     type="button"
                     onClick={() => setReportOpen((v) => !v)}
-                    className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-[var(--surface-hover)]"
                   >
                     <Icon name="flag" size={14} className="me-2 inline-block align-middle" /> {t(lang, "report")}
                   </button>
                   {reportOpen && (
-                    <div className="mt-1 border-t border-slate-200 p-2 dark:border-slate-700">
+                    <div className="mt-1 border-t border-[var(--border-subtle)] p-2">
                       <textarea
                         dir="auto"
                         value={reportText}
                         onChange={(e) => setReportText(e.target.value)}
                         placeholder={t(lang, "reportPlaceholder")}
                         rows={2}
-                        className="w-full rounded-xl border border-slate-300 bg-white px-2 py-1.5 text-sm outline-none dark:border-slate-700 dark:bg-slate-900"
+                        className="input-field"
                       />
                       <button
                         type="button"
@@ -721,7 +721,7 @@ export default function ChatMessage({
                       Every answer is "AfghanGPT Auto" to the user; the
                       free-web answer carries its source note in the
                       text itself. No key is ever mentioned here. */}
-                  <div className="mt-1 border-t border-slate-200 px-3 pb-1 pt-2 text-xs text-slate-500 dark:border-slate-700">
+                  <div className="mt-1 border-t border-[var(--border-subtle)] px-3 pb-1 pt-2 text-xs text-[var(--muted)]">
                     {t(lang, "usedModel").replace("{model}", modelUsed ?? t(lang, "modelAuto"))}
                   </div>
                 </div>

@@ -9,14 +9,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icons";
-import Link from "next/link";
+import AppShell from "@/components/AppShell";
 import { useLang } from "@/lib/i18n";
 import { chatJson, downloadFileSpec } from "@/lib/client";
 import { store } from "@/lib/store";
 import { Btn, Card, Field, Input, Select, Spinner, Textarea } from "@/components/ui";
-
-/** Solid brand button — the shared Btn primary is a gradient; studios use a flat brand colour. */
-const SOLID = "!bg-none !bg-[var(--brand2)]";
 
 const STORAGE_KEY = "samim-slides";
 
@@ -243,16 +240,8 @@ export default function SlidesPage() {
   const slide = deck.slides[Math.min(current, deck.slides.length - 1)];
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 px-3 py-4 sm:px-4">
-      <header className="space-y-1">
-        <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
-          <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
-          {t("backToChat")}
-        </Link>
-        <h1 className="text-xl font-bold sm:text-2xl">{t("slides")}</h1>
-        <p className="text-sm text-[var(--muted)]">{t("slidesSubtitle")}</p>
-      </header>
-
+    <AppShell title={t("slides")} subtitle={t("slidesSubtitle")} icon="presentation">
+      <div className="space-y-4">
       <Card>
         <div className="space-y-3">
           <Field label="Topic">
@@ -291,7 +280,7 @@ export default function SlidesPage() {
               </Select>
             </Field>
           </div>
-          <Btn onClick={handleGenerate} disabled={generating || !topic.trim()} className={`w-full ${SOLID}`}>
+          <Btn onClick={handleGenerate} disabled={generating || !topic.trim()} className="w-full">
             {generating ? "Generating outline…" : "Generate outline"}
           </Btn>
           {generating && <Spinner label="Asking the AI for an outline…" />}
@@ -371,7 +360,7 @@ export default function SlidesPage() {
           <Btn size="sm" onClick={addSlide}>+ Add slide</Btn>
         </div>
         {deck.slides.map((s, i) => (
-          <Card key={i} className={i === current ? "ring-2 ring-violet-500" : ""}>
+          <Card key={i} className={i === current ? "ring-2 ring-[var(--brand2)]" : ""}>
             <div className="space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Slide {i + 1}</span>
@@ -407,7 +396,7 @@ export default function SlidesPage() {
           The exported PPTX uses the selected theme colours.
         </p>
         <div className="flex flex-wrap gap-2">
-          <Btn onClick={() => handleExport("pptx")} disabled={exporting !== null} className={SOLID}>
+          <Btn onClick={() => handleExport("pptx")} disabled={exporting !== null}>
             {exporting === "pptx" ? "Exporting PPTX…" : "Export PPTX"}
           </Btn>
           <Btn variant="outline" onClick={() => handleExport("pdf")} disabled={exporting !== null}>
@@ -416,6 +405,7 @@ export default function SlidesPage() {
         </div>
         {exporting && <div className="mt-3"><Spinner label={`Building your ${exporting.toUpperCase()}…`} /></div>}
       </Card>
-    </div>
+      </div>
+    </AppShell>
   );
 }

@@ -9,15 +9,12 @@
 
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/icons";
-import Link from "next/link";
+import AppShell from "@/components/AppShell";
 import { useLang } from "@/lib/i18n";
 import { chatText } from "@/lib/client";
 import { store } from "@/lib/store";
 import Markdown from "@/components/Markdown";
 import { Card, Btn, Input, Textarea, Spinner } from "@/components/ui";
-
-/** Solid brand button — the shared Btn primary is a gradient; studios use a flat brand colour. */
-const SOLID = "!bg-none !bg-[var(--brand2)]";
 
 type Source = { title: string; url: string; snippet: string };
 
@@ -98,20 +95,12 @@ export default function ResearchPage() {
   };
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 px-3 py-4 sm:px-4">
-      <header className="space-y-1">
-        <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
-          <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
-          {t("backToChat")}
-        </Link>
-        <h1 className="text-xl font-bold sm:text-2xl">{t("research")}</h1>
-        <p className="text-sm text-[var(--muted)]">{t("researchSubtitle")}</p>
-      </header>
-
+    <AppShell title={t("research")} subtitle={t("researchSubtitle")} icon="search">
+      <div className="space-y-4">
       <Card>
         <div className="flex flex-col gap-2 sm:flex-row">
           <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="e.g. What is quantum computing?" onKeyDown={(e) => e.key === "Enter" && run()} />
-          <Btn onClick={run} disabled={busy || !query.trim()} className={`w-full sm:w-auto ${SOLID}`}>
+          <Btn onClick={run} disabled={busy || !query.trim()} className="w-full sm:w-auto">
             {busy ? t("loading") : t("research")}
           </Btn>
         </div>
@@ -127,7 +116,20 @@ export default function ResearchPage() {
       {notice && (
         <p className="rounded-xl bg-amber-500/15 px-3 py-2 text-sm text-amber-600 dark:text-amber-300">{notice}</p>
       )}
-      {busy && <Spinner label={t("loading")} />}
+      {busy && (
+        <Card className="flex justify-center py-6">
+          <Spinner label={t("loading")} />
+        </Card>
+      )}
+
+      {!busy && !report && sources.length === 0 && !notice && (
+        <Card className="flex flex-col items-center gap-2 py-8 text-center">
+          <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--brand2)]/10 text-[var(--brand2)]">
+            <Icon name="search" size={24} />
+          </span>
+          <p className="text-sm text-[var(--muted)]">{t("empty")}</p>
+        </Card>
+      )}
 
       {sources.length > 0 && (
         <Card>
@@ -135,7 +137,7 @@ export default function ResearchPage() {
           <ul className="space-y-2 text-sm">
             {sources.map((s, i) => (
               <li key={i}>
-                <a href={s.url} target="_blank" rel="noreferrer" className="font-semibold text-violet-500 hover:underline">
+                <a href={s.url} target="_blank" rel="noreferrer" className="font-semibold text-[var(--brand2)] hover:underline">
                   [{i + 1}] {s.title}
                 </a>
                 <span className="block text-[var(--muted)]">{s.snippet}</span>
@@ -167,6 +169,7 @@ export default function ResearchPage() {
           </div>
         </Card>
       )}
-    </div>
+      </div>
+    </AppShell>
   );
 }

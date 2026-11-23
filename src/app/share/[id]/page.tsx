@@ -3,9 +3,11 @@
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/icons";
 import Link from "next/link";
+import AppShell from "@/components/AppShell";
 import { useUi } from "@/components/Providers";
 import { t } from "@/lib/i18n";
 import { supabase } from "@/lib/supabaseClient";
+import { Card, Spinner } from "@/components/ui";
 
 /**
  * /share/[id] — read-only view of a chat the owner shared publicly.
@@ -54,40 +56,41 @@ export default function SharePage({ params }: { params: { id: string } }) {
   }, [params.id]);
 
   return (
-    <div className="min-h-dvh bg-[var(--background)] px-3 py-4 text-[var(--foreground)] sm:px-4">
-      <div className="mx-auto max-w-2xl space-y-4">
-        <header className="space-y-1">
-          <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
-            <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
-            AfghanGPT
-          </Link>
-          <p className="text-xs font-bold text-[var(--muted)]">
-            AfghanGPT • {t(lang, "sharedChat")}
-          </p>
-        </header>
+    <AppShell
+      title={title || t(lang, "sharedChat")}
+      subtitle={state === "found" ? t(lang, "sharedBy") : undefined}
+      icon="share"
+    >
+      <div className="space-y-4">
         {state === "loading" && (
-          <p className="mt-6 text-sm text-[var(--muted)]">{t(lang, "loading")}</p>
+          <Card className="flex justify-center py-10">
+            <Spinner label={t(lang, "loading")} />
+          </Card>
         )}
         {state === "missing" && (
-          <div className="mt-6">
+          <Card className="flex flex-col items-center gap-3 py-10 text-center">
+            <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--brand2)]/10 text-[var(--brand2)]">
+              <Icon name="search" size={24} />
+            </span>
             <p className="text-sm text-[var(--muted)]">{t(lang, "sharedNotFound")}</p>
-            <Link href="/" className="mt-4 inline-flex items-center gap-1.5 text-sm font-bold text-[var(--brand2)] hover:underline">
+            <Link
+              href="/"
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#2457FF] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-[#1a46d6] active:scale-95 dark:bg-[#3b82f6] dark:hover:bg-[#2563eb]"
+            >
               <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
               AfghanGPT
             </Link>
-          </div>
+          </Card>
         )}
         {state === "found" && (
-          <div className="mt-4">
-            <h1 className="text-xl font-bold sm:text-2xl">{title || t(lang, "sharedChat")}</h1>
-            <p className="mt-1 text-xs text-[var(--muted)]">{t(lang, "sharedBy")}</p>
-            <div className="mt-6 flex flex-col gap-4">
+          <div>
+            <div className="flex flex-col gap-4">
               {messages.map((m, i) => (
                 <div
                   key={i}
                   className={
                     m.role === "user"
-                      ? "max-w-[85%] self-end rounded-2xl bg-[#ECECEC] px-4 py-2.5 text-sm dark:bg-[#2F2F2F]"
+                      ? "max-w-[85%] self-end rounded-2xl bg-[var(--bubble-user)] px-4 py-2.5 text-sm"
                       : "max-w-[85%] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] px-4 py-2.5 text-sm"
                   }
                 >
@@ -97,6 +100,14 @@ export default function SharePage({ params }: { params: { id: string } }) {
                   <p className="bidi-plaintext whitespace-pre-wrap break-words">{m.content}</p>
                 </div>
               ))}
+              {messages.length === 0 && (
+                <Card className="flex flex-col items-center gap-2 py-8 text-center">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--brand2)]/10 text-[var(--brand2)]">
+                    <Icon name="share" size={24} />
+                  </span>
+                  <p className="text-sm text-[var(--muted)]">{t(lang, "empty")}</p>
+                </Card>
+              )}
             </div>
             <Link href="/" className="mt-8 inline-flex items-center gap-1.5 text-sm font-bold text-[var(--brand2)] hover:underline">
               <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
@@ -105,6 +116,6 @@ export default function SharePage({ params }: { params: { id: string } }) {
           </div>
         )}
       </div>
-    </div>
+    </AppShell>
   );
 }

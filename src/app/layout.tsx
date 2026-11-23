@@ -16,6 +16,11 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   interactiveWidget: "resizes-content",
+  // Match the browser chrome to the page background in each theme.
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#212121" },
+  ],
 };
 
 export default function RootLayout({

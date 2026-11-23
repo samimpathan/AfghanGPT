@@ -144,14 +144,14 @@ function TypingDots() {
           globals.css .ai-avatar-frame): /avatar.jpg is a 3:4
           full-body portrait, so a plain object-cover circle left
           the face a ~8px speck at 32px. */}
-      <span className="ai-avatar-frame mt-1 h-8 w-8 ring-1 ring-black/5 dark:ring-[#263550]">
+      <span className="ai-avatar-frame mt-1 h-8 w-8 ring-1 ring-black/5 dark:ring-[var(--card-border)]">
         <img src="/avatar.jpg" alt="" className="ai-avatar-img" />
       </span>
       <div className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5 px-1 py-2">
-          <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[#555555] dark:bg-slate-300" />
-          <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[#555555] dark:bg-slate-300" />
-          <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[#555555] dark:bg-slate-300" />
+          <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[var(--muted)]" />
+          <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[var(--muted)]" />
+          <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[var(--muted)]" />
         </span>
         <div className="skeleton-shimmer mt-1 h-3 w-3/4 rounded-full" />
         <div className="skeleton-shimmer mt-2 h-3 w-1/2 rounded-full" />
@@ -186,6 +186,7 @@ export default function HomePage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
+  const [chatMenuId, setChatMenuId] = useState<string | null>(null);
   const [pins, setPins] = useState<string[]>([]);
   const [savedImages, setSavedImages] = useState<string[]>([]);
   const [attachOpen, setAttachOpen] = useState(false);
@@ -233,6 +234,7 @@ export default function HomePage() {
       setModelPickerOpen(false);
       setMoreOpen(false);
       setAttachOpen(false);
+      setChatMenuId(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -1463,6 +1465,7 @@ export default function HomePage() {
     });
     tempIdsRef.current.delete(id);
     setMoreOpen(false);
+    setChatMenuId(null);
     if (chat?.dbId) await deleteChatDb(chat.dbId);
   };
 
@@ -1493,7 +1496,7 @@ export default function HomePage() {
   const chatItem = (c: LocalChat) => (
     <div
       key={c.id}
-      className={`group mb-1 rounded-xl px-2 py-2 text-sm transition duration-150 ${
+      className={`group relative mb-1 rounded-xl px-2 py-2 text-sm transition duration-150 ${
         c.id === activeId
           ? "bg-[var(--surface-hover)]"
           : "hover:bg-[var(--surface)]"
@@ -1509,94 +1512,129 @@ export default function HomePage() {
             if (e.key === "Enter") doRename(c.id);
             if (e.key === "Escape") setEditingId(null);
           }}
-          className="w-full rounded border border-slate-300 bg-white px-2 py-1 text-sm dark:border-slate-700 dark:bg-slate-900"
+          className="input-field"
         />
       ) : (
-        <button
-          type="button"
-          onClick={() => selectChat(c.id)}
-          className="block w-full truncate text-start"
-        >
-          {pins.includes(c.id) && (
-            <Icon name="pin" size={14} className="me-1 inline-block align-middle" />
-          )}
-          {c.title}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => selectChat(c.id)}
+            className="min-w-0 flex-1 truncate text-start"
+          >
+            {pins.includes(c.id) && (
+              <Icon name="pin" size={14} className="me-1 inline-block align-middle" />
+            )}
+            {c.title}
+          </button>
+          {/* Chat actions live in a hover ... menu (always reachable on
+              touch): the old 5 inline text actions under every chat
+              made the list noisy and hard to scan. */}
+          <button
+            type="button"
+            onClick={() => setChatMenuId(chatMenuId === c.id ? null : c.id)}
+            className="btn-icon-sm shrink-0 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
+            aria-label="More actions"
+            aria-expanded={chatMenuId === c.id}
+          >
+            <Icon name="dots" size={16} />
+          </button>
+        </div>
       )}
-      <div className="mt-1 flex flex-wrap gap-2 text-xs text-slate-500">
-        <button type="button" onClick={() => togglePin(c.id)}>
-          {pins.includes(c.id) ? t(lang, "unpinChat") : t(lang, "pinChat")}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            setEditingId(c.id);
-            setEditingTitle(c.title);
-          }}
-        >
-          {t(lang, "rename")}
-        </button>
-        <button type="button" onClick={() => toggleArchive(c.id)}>
-          {isArchived(c.id) ? t(lang, "restore") : t(lang, "archive")}
-        </button>
-        <select
-          value={folderOf(c.id)}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v === "__new__") {
-              const name = window.prompt(t(lang, "newFolder"), "");
-              if (name?.trim()) setFolder(c.id, name.trim().slice(0, 40));
-            } else {
-              setFolder(c.id, v);
-            }
-          }}
-          className="max-w-[110px] truncate rounded border border-slate-300 bg-transparent px-1 py-0.5 text-xs dark:border-slate-700"
-          aria-label={t(lang, "moveToFolder")}
-        >
-          <option value="">{t(lang, "noFolder")}</option>
-          {folders.map((f) => (
-            <option key={f} value={f}>
-              {f}
-            </option>
-          ))}
-          <option value="__new__">+ {t(lang, "newFolder")}</option>
-        </select>
-        <button type="button" onClick={() => doDelete(c.id)} className="text-red-500">
-          {t(lang, "delete")}
-        </button>
-      </div>
-    </div>
-  );
-
-  // ROUND 5 — the shell is a fixed-height flex column (h-dvh):
-  // header + composer are shrink-0, only .chat-scroll scrolls
-  // (min-h-0) — so when the mobile keyboard shrinks dvh, the
-  // message list absorbs ALL the shrinkage and nothing else
-  // moves, squashes, or scrolls away. overflow-hidden (not just
-  // overflow-x) so the document itself can never scroll while
-  // typing; the drawer/modals are `fixed`, so they are unaffected.
-  return (
-    <div className="flex h-dvh w-full flex-col overflow-hidden bg-white text-slate-900 dark:bg-[#080D1B] dark:text-[#EAF2FF]">
-      {/* ===== Drawer (ChatGPT style, RTL-aware) ===== */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40">
+      {chatMenuId === c.id && (
+        <>
           <button
             type="button"
             aria-label="Close menu"
-            onClick={() => setSidebarOpen(false)}
-            className="absolute inset-0 bg-black/35"
+            onClick={() => setChatMenuId(null)}
+            className="fixed inset-0 z-20 cursor-default"
           />
-          <aside
-            className={`absolute inset-y-0 left-0 flex flex-col overflow-y-auto border-e border-[var(--border-subtle)] bg-[var(--card)] shadow-md ${
-              drawerCollapsed ? "w-16" : "w-72 max-w-[85vw]"
-            }`}
-          >
+          <div className="menu-card absolute end-0 top-full z-30 w-56">
+            <button
+              type="button"
+              onClick={() => {
+                togglePin(c.id);
+                setChatMenuId(null);
+              }}
+              className="menu-item"
+            >
+              <Icon name="pin" size={16} /> {pins.includes(c.id) ? t(lang, "unpinChat") : t(lang, "pinChat")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingId(c.id);
+                setEditingTitle(c.title);
+                setChatMenuId(null);
+              }}
+              className="menu-item"
+            >
+              <Icon name="pencil" size={16} /> {t(lang, "rename")}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                toggleArchive(c.id);
+                setChatMenuId(null);
+              }}
+              className="menu-item"
+            >
+              <Icon name="archive" size={16} /> {isArchived(c.id) ? t(lang, "restore") : t(lang, "archive")}
+            </button>
+            <div className="menu-item">
+              <Icon name="folder" size={16} className="shrink-0" />
+              <select
+                value={folderOf(c.id)}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === "__new__") {
+                    const name = window.prompt(t(lang, "newFolder"), "");
+                    if (name?.trim()) setFolder(c.id, name.trim().slice(0, 40));
+                  } else {
+                    setFolder(c.id, v);
+                  }
+                  setChatMenuId(null);
+                }}
+                className="min-w-0 flex-1 truncate bg-transparent text-sm outline-none"
+                aria-label={t(lang, "moveToFolder")}
+              >
+                <option value="">{t(lang, "noFolder")}</option>
+                {folders.map((f) => (
+                  <option key={f} value={f}>
+                    {f}
+                  </option>
+                ))}
+                <option value="__new__">+ {t(lang, "newFolder")}</option>
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setChatMenuId(null);
+                void doDelete(c.id);
+              }}
+              className="menu-item text-red-600 dark:text-red-400"
+            >
+              <Icon name="trash" size={16} /> {t(lang, "delete")}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  /** Sidebar content, shared by the mobile overlay drawer and the
+   * persistent desktop sidebar (md+): one source of truth, so the
+   * two can never drift apart. `drawerCollapsed` shows the slim
+   * icon rail in both. */
+  const renderSidebarContent = () => (
+    <>
+
             {drawerCollapsed ? (
               <div className="flex flex-col items-center gap-2 py-3">
                 <button
                   type="button"
                   onClick={() => setDrawerCollapsed(false)}
-                  className="rounded-full px-2 py-1 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"
+                  className="rounded-full px-2 py-1 text-[var(--muted)] hover:bg-[var(--sidebar-hover)]"
                   aria-label={t(lang, "expand")}
                 >
                   <Icon name="chevronRight" size={20} />
@@ -1614,7 +1652,7 @@ export default function HomePage() {
                     key={s.href}
                     href={s.href}
                     onClick={() => setSidebarOpen(false)}
-                    className="flex h-10 w-10 items-center justify-center rounded-full text-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-lg hover:bg-[var(--sidebar-hover)]"
                     aria-label={t(lang, s.key)}
                   >
                     <Icon name={s.icon} size={20} />
@@ -1622,7 +1660,7 @@ export default function HomePage() {
                 ))}
                 <Link
                   href="/settings"
-                  className="flex h-10 w-10 items-center justify-center rounded-full text-lg hover:bg-slate-100 dark:hover:bg-slate-800"
+                  className="flex h-10 w-10 items-center justify-center rounded-full text-lg hover:bg-[var(--sidebar-hover)]"
                   aria-label={t(lang, "settings")}
                 >
                   <Icon name="settings" size={20} />
@@ -1643,7 +1681,7 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => setSearchOpen((v) => !v)}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg transition hover:bg-slate-100 active:scale-95 dark:hover:bg-slate-800"
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg transition hover:bg-[var(--sidebar-hover)] active:scale-95"
                 aria-label={t(lang, "searchChats")}
               >
                 <Icon name="search" size={20} />
@@ -1651,7 +1689,7 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => setDrawerCollapsed(true)}
-                className="rounded-full px-2 py-1 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"
+                className="rounded-full px-2 py-1 text-[var(--muted)] hover:bg-[var(--sidebar-hover)]"
                 aria-label={t(lang, "collapse")}
               >
                 <Icon name="chevronLeft" size={20} />
@@ -1659,7 +1697,7 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => setSidebarOpen(false)}
-                className="rounded-full px-2 py-1 text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-800"
+                className="rounded-full px-2 py-1 text-[var(--muted)] hover:bg-[var(--sidebar-hover)] md:hidden"
                 aria-label="Close menu"
               >
                 <Icon name="x" size={20} />
@@ -1672,7 +1710,7 @@ export default function HomePage() {
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder={t(lang, "searchChats")}
-                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm dark:border-slate-700 dark:bg-slate-800"
+                  className="input-field"
                 />
               </div>
             )}
@@ -1685,28 +1723,28 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => libraryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                className="flex items-center gap-3.5 rounded-lg px-2 py-2.5 text-start text-base transition hover:bg-slate-100 active:scale-[0.98] dark:hover:bg-slate-800"
+                className="flex items-center gap-3.5 rounded-lg px-2 py-2.5 text-start text-base transition hover:bg-[var(--sidebar-hover)] active:scale-[0.98]"
               >
                 <Icon name="image" size={20} /> {t(lang, "images")}
               </button>
               <button
                 type="button"
                 onClick={() => libraryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                className="flex items-center gap-3.5 rounded-lg px-2 py-2.5 text-start text-base transition hover:bg-slate-100 active:scale-[0.98] dark:hover:bg-slate-800"
+                className="flex items-center gap-3.5 rounded-lg px-2 py-2.5 text-start text-base transition hover:bg-[var(--sidebar-hover)] active:scale-[0.98]"
               >
                 <Icon name="book" size={20} /> {t(lang, "library")}
               </button>
               <button
                 type="button"
                 onClick={() => studiosRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
-                className="flex items-center gap-3.5 rounded-lg px-2 py-2.5 text-start text-base transition hover:bg-slate-100 active:scale-[0.98] dark:hover:bg-slate-800"
+                className="flex items-center gap-3.5 rounded-lg px-2 py-2.5 text-start text-base transition hover:bg-[var(--sidebar-hover)] active:scale-[0.98]"
               >
                 <Icon name="compass" size={20} /> {t(lang, "explore")}
               </button>
             </div>
             {/* Studios (merged from the AfghanGPT studios) */}
             <div ref={studiosRef} className="px-3 pb-1 pt-2">
-              <p className="px-1 pb-1 text-xs font-bold text-slate-500">
+              <p className="px-1 pb-1 text-xs font-bold text-[var(--muted)]">
                 <Icon name="grid" size={16} className="me-1 inline-block align-middle" /> {t(lang, "studios")}
               </p>
               <div className="flex flex-col gap-0.5">
@@ -1715,7 +1753,7 @@ export default function HomePage() {
                     key={s.href}
                     href={s.href}
                     onClick={() => setSidebarOpen(false)}
-                    className="rounded-lg px-2 py-1.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="rounded-lg px-2 py-1.5 text-sm hover:bg-[var(--sidebar-hover)]"
                   >
                     <Icon name={s.icon} size={16} className="me-1.5 inline-block align-middle" /> {t(lang, s.key)}
                   </Link>
@@ -1730,14 +1768,14 @@ export default function HomePage() {
                 </Link>
               </p>
             )}
-            <div className="drawer-scroll chat-scroll mt-2 flex-1 overflow-y-auto px-2 pb-2">
+            <div className="drawer-scroll chat-scroll mt-2 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
               {/* Images gallery — ALWAYS rendered (with an empty-state
                   line) so the Images/Library nav buttons always have
                   somewhere to scroll to; before ROUND 5 the section
                   only existed when an image was saved, so both
                   buttons did nothing visible on an empty library. */}
               <div ref={libraryRef} className="mb-2">
-                <p className="px-2 pb-1 pt-1 text-xs font-bold text-slate-500">
+                <p className="px-2 pb-1 pt-1 text-xs font-bold text-[var(--muted)]">
                   {t(lang, "images")}
                 </p>
                 {savedImages.length > 0 ? (
@@ -1758,36 +1796,36 @@ export default function HomePage() {
                     ))}
                   </div>
                 ) : (
-                  <p className="px-2 pb-1 text-xs text-slate-500">{t(lang, "noSavedImages")}</p>
+                  <p className="px-2 pb-1 text-xs text-[var(--muted)]">{t(lang, "noSavedImages")}</p>
                 )}
               </div>
               {/* Pinned — the heading is ALWAYS visible (ChatGPT-style);
                   an empty-state line shows when nothing is pinned. */}
               <div className="mb-1">
-                <p className="px-2 pb-1.5 pt-2 text-[15px] font-bold text-slate-900 dark:text-slate-100">
+                <p className="px-2 pb-1.5 pt-2 text-[15px] font-bold text-[var(--foreground)]">
                   {t(lang, "pinned")}
                 </p>
                 {pinnedChats.length > 0 ? (
                   pinnedChats.map(chatItem)
                 ) : (
-                  <p className="px-2 py-1 text-xs text-slate-400">{t(lang, "noPinned")}</p>
+                  <p className="px-2 py-1 text-xs text-[var(--muted)]">{t(lang, "noPinned")}</p>
                 )}
               </div>
               {/* Chats — heading ALWAYS visible; folders + unfiled
                   chats below it, or the empty state when there are none. */}
               <div className="mb-1">
-                <p className="px-2 pb-1.5 pt-2 text-[15px] font-bold text-slate-900 dark:text-slate-100">
+                <p className="px-2 pb-1.5 pt-2 text-[15px] font-bold text-[var(--foreground)]">
                   {t(lang, "chats")}
                 </p>
                 {filtered.length === 0 ? (
-                  <p className="px-2 py-4 text-center text-sm text-slate-500">
+                  <p className="px-2 py-4 text-center text-sm text-[var(--muted)]">
                     {t(lang, "noChats")}
                   </p>
                 ) : (
                   <>
                     {folders.map((f) => (
                       <div key={f} className="mb-1">
-                        <p className="px-2 pb-1 pt-1 text-xs font-bold text-slate-500">
+                        <p className="px-2 pb-1 pt-1 text-xs font-bold text-[var(--muted)]">
                           <Icon name="folder" size={14} className="me-1 inline-block align-middle" /> {f}
                         </p>
                         {otherChats.filter((c) => folderOf(c.id) === f).map(chatItem)}
@@ -1797,7 +1835,7 @@ export default function HomePage() {
                   </>
                 )}
                 {folders.length > 0 && (
-                  <p className="px-2 pb-1 text-[11px] text-slate-400">
+                  <p className="px-2 pb-1 text-[11px] text-[var(--muted)]">
                     {t(lang, "foldersLocalNote")}
                   </p>
                 )}
@@ -1806,7 +1844,7 @@ export default function HomePage() {
                     <button
                       type="button"
                       onClick={() => setShowArchived((v) => !v)}
-                      className="w-full px-2 pb-1 pt-1 text-start text-xs font-bold text-slate-500"
+                      className="w-full px-2 pb-1 pt-1 text-start text-xs font-bold text-[var(--muted)]"
                     >
                       <Icon name="archive" size={14} className="me-1 inline-block align-middle" /> {t(lang, "archived")} ({archivedChats.length}){" "}
                       <Icon name="chevronDown" size={14} className={`inline-block align-middle transition-transform ${showArchived ? "" : "-rotate-90"}`} />
@@ -1818,10 +1856,10 @@ export default function HomePage() {
             </div>
             <div className="border-t border-[var(--border-subtle)] p-3">
               <div className="flex flex-wrap gap-3 text-xs">
-                <Link href="/settings" className="text-slate-600 hover:underline dark:text-slate-300">
+                <Link href="/settings" className="text-[var(--muted)] hover:underline">
                   <Icon name="settings" size={14} className="me-1 inline-block align-middle" /> {t(lang, "settings")}
                 </Link>
-                <Link href="/about" className="text-slate-600 hover:underline dark:text-slate-300">
+                <Link href="/about" className="text-[var(--muted)] hover:underline">
                   <Icon name="info" size={14} className="me-1 inline-block align-middle" /> {t(lang, "about")}
                 </Link>
                 {isAdmin && (
@@ -1882,7 +1920,7 @@ export default function HomePage() {
               </div>
               {/* Name wraps onto two lines — never truncated mid-word. */}
               {userEmail ? (
-                <p className="mt-2 break-words text-xs leading-relaxed text-slate-500">
+                <p className="mt-2 break-words text-xs leading-relaxed text-[var(--muted)]">
                   {userName ?? userEmail}
                 </p>
               ) : (
@@ -1890,10 +1928,46 @@ export default function HomePage() {
                   {t(lang, "login")}
                 </Link>
               )}
-              <p className="mt-1 text-xs text-slate-400">{t(lang, "notMuse")}</p>
+              <p className="mt-1 text-xs text-[var(--muted)]">{t(lang, "notMuse")}</p>
             </div>
               </>
             )}
+              </>
+  );
+
+  // ROUND 5 — the shell is a fixed-height flex column (h-dvh):
+  // header + composer are shrink-0, only .chat-scroll scrolls
+  // (min-h-0) — so when the mobile keyboard shrinks dvh, the
+  // message list absorbs ALL the shrinkage and nothing else
+  // moves, squashes, or scrolls away. overflow-hidden (not just
+  // overflow-x) so the document itself can never scroll while
+  // typing; the drawer/modals are `fixed`, so they are unaffected.
+  return (
+    <div className="flex h-dvh w-full overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
+      {/* ===== Persistent desktop sidebar (md+, 260px) ===== */}
+      <aside
+        className={`hidden shrink-0 flex-col overflow-hidden border-e border-[var(--border-subtle)] bg-[var(--sidebar)] md:flex ${
+          drawerCollapsed ? "w-16" : "w-[260px]"
+        }`}
+      >
+        {renderSidebarContent()}
+      </aside>
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+      {/* ===== Mobile drawer (overlay, <md only) ===== */}
+      {sidebarOpen && (
+        <div className="fixed inset-0 z-40 md:hidden">
+          <button
+            type="button"
+            aria-label="Close menu"
+            onClick={() => setSidebarOpen(false)}
+            className="absolute inset-0 bg-black/35"
+          />
+          <aside
+            className={`absolute inset-y-0 start-0 flex flex-col overflow-y-auto border-e border-[var(--border-subtle)] bg-[var(--sidebar)] shadow-md ${
+              drawerCollapsed ? "w-16" : "w-72 max-w-[85vw]"
+            }`}
+          >
+            {renderSidebarContent()}
           </aside>
         </div>
       )}
@@ -1906,17 +1980,36 @@ export default function HomePage() {
           flex child of the non-scrolling dvh shell it cannot move or
           squash. `relative` (not static) keeps the ••• dropdown
           anchored to the header (absolute end-4 top-full). */}
-      <header className="relative z-30 min-w-0 shrink-0 border-b border-[var(--border-subtle)] bg-white px-3 py-2.5 dark:bg-[#080D1B] sm:px-5">
+      <header className="relative z-30 min-w-0 shrink-0 border-b border-[var(--border-subtle)] bg-[var(--background)] px-3 py-2.5 sm:px-5">
         <div dir="ltr" className="flex items-center justify-between gap-2">
+          {/* Mobile: opens the overlay drawer. Desktop: collapses /
+              expands the persistent sidebar. Two buttons so each
+              viewport gets the right behaviour. */}
           <button
             type="button"
             onClick={() => setSidebarOpen(true)}
-            className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-[var(--card-border)] bg-[var(--card)] transition duration-150 hover:bg-[var(--surface)] active:scale-95"
+            className="btn-icon relative border border-[var(--card-border)] bg-[var(--card)] md:hidden"
             aria-label="Menu"
           >
-            <Icon name="menu" size={24} className="text-[#222222] dark:text-[#EAF2FF]" />
+            <Icon name="menu" size={24} />
             <span className="absolute right-1 top-0.5 h-2.5 w-2.5 rounded-full bg-[#2457FF]" />
           </button>
+          <button
+            type="button"
+            onClick={() => setDrawerCollapsed((v) => !v)}
+            className="btn-icon relative hidden border border-[var(--card-border)] bg-[var(--card)] md:flex"
+            aria-label={drawerCollapsed ? t(lang, "expand") : t(lang, "collapse")}
+          >
+            <Icon name="menu" size={24} />
+            <span className="absolute right-1 top-0.5 h-2.5 w-2.5 rounded-full bg-[#2457FF]" />
+          </button>
+          {/* Gemini-style wordmark (desktop only): sparkles tile + name. */}
+          <span className="hidden shrink-0 items-center gap-2 md:flex">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#2457FF] text-white shadow-sm">
+              <Icon name="sparkles" size={20} />
+            </span>
+            <span className="text-lg font-bold tracking-tight">AfghanGPT</span>
+          </span>
 
           {/* Model picker (centre) */}
           <div className="relative min-w-0 flex-1 flex justify-center">
@@ -2055,7 +2148,7 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={newChat}
-                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[#222222] transition duration-150 hover:bg-[var(--surface)] active:scale-95 dark:text-[#EAF2FF]"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--foreground)] transition duration-150 hover:bg-[var(--surface)] active:scale-95"
                 aria-label={t(lang, "newChat")}
               >
                 <Icon name="compose" size={20} />
@@ -2067,7 +2160,7 @@ export default function HomePage() {
                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition duration-150 hover:bg-[var(--surface)] active:scale-95"
                 aria-label="More options"
               >
-                <Icon name="dots" size={20} className="text-[#222222] dark:text-[#EAF2FF]" />
+                <Icon name="dots" size={20} className="text-[var(--foreground)]" />
               </button>
             </div>
           </div>
@@ -2089,7 +2182,7 @@ export default function HomePage() {
                   setMoreOpen(false);
                   void shareChat();
                 }}
-                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)]"
               >
                 <Icon name="share" size={16} className="me-2 inline-block align-middle" /> {t(lang, "shareChat")}
               </button>
@@ -2100,7 +2193,7 @@ export default function HomePage() {
                   if (activeId) togglePin(activeId);
                   setMoreOpen(false);
                 }}
-                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
+                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)] disabled:opacity-40"
               >
                 <Icon name="pin" size={16} className="me-2 inline-block align-middle" /> {isPinned ? t(lang, "unpinChat") : t(lang, "pinChat")}
               </button>
@@ -2115,21 +2208,21 @@ export default function HomePage() {
                   }
                   setMoreOpen(false);
                 }}
-                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
+                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)] disabled:opacity-40"
               >
                 <Icon name="pencil" size={16} className="me-2 inline-block align-middle" /> {t(lang, "rename")}
               </button>
               <Link
                 href="/about"
                 onClick={() => setMoreOpen(false)}
-                className="block rounded-xl px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="block rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--surface-hover)]"
               >
                 <Icon name="info" size={14} className="me-1 inline-block align-middle" /> {t(lang, "help")}
               </Link>
               <a
                 href="mailto:samimpatan8@gmail.com?subject=AfghanGPT%20feedback"
                 onClick={() => setMoreOpen(false)}
-                className="block rounded-xl px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="block rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--surface-hover)]"
               >
                 <Icon name="feedback" size={16} className="me-2 inline-block align-middle" /> {t(lang, "feedback")}
               </a>
@@ -2140,11 +2233,11 @@ export default function HomePage() {
                   if (activeId) void doDelete(activeId);
                   setMoreOpen(false);
                 }}
-                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm text-red-600 hover:bg-slate-100 disabled:opacity-40 dark:text-red-400 dark:hover:bg-slate-800"
+                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm text-red-600 hover:bg-[var(--surface-hover)] disabled:opacity-40 dark:text-red-400"
               >
                 <Icon name="trash" size={16} className="me-2 inline-block align-middle" /> {t(lang, "delete")}
               </button>
-              <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
+              <div className="my-1 border-t border-[var(--border-subtle)]" />
               {/* No provider list here anymore: one model ("AfghanGPT
                   Auto"), free for everyone — no key is ever asked. */}
               <button
@@ -2153,7 +2246,7 @@ export default function HomePage() {
                   setTempMode((v) => !v);
                   setMoreOpen(false);
                 }}
-                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)]"
               >
                 <Icon name="lock" size={16} className="me-2 inline-block align-middle" /> {t(lang, "tempChat")}
                 {tempMode ? <Icon name="check" size={14} className="ms-1 inline-block align-middle" /> : ""}
@@ -2165,7 +2258,7 @@ export default function HomePage() {
                   void exportChatPdf();
                   setMoreOpen(false);
                 }}
-                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
+                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)] disabled:opacity-40"
               >
                 <Icon name="fileText" size={16} className="me-2 inline-block align-middle" /> {t(lang, "exportPdf")}
               </button>
@@ -2176,7 +2269,7 @@ export default function HomePage() {
                   void exportChatDocx();
                   setMoreOpen(false);
                 }}
-                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
+                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)] disabled:opacity-40"
               >
                 <Icon name="fileText" size={16} className="me-2 inline-block align-middle" /> {t(lang, "exportDocx")}
               </button>
@@ -2187,7 +2280,7 @@ export default function HomePage() {
                   void shareLink();
                   setMoreOpen(false);
                 }}
-                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 disabled:opacity-40 dark:hover:bg-slate-800"
+                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)] disabled:opacity-40"
               >
                 <Icon name="link" size={16} className="me-2 inline-block align-middle" /> {t(lang, "shareLink")}
               </button>
@@ -2197,14 +2290,14 @@ export default function HomePage() {
                   setTheme(theme === "dark" ? "light" : "dark");
                   setMoreOpen(false);
                 }}
-                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)]"
               >
                 {theme === "dark" ? (<><Icon name="sun" size={16} className="me-2 inline-block align-middle" />{t(lang, "light")}</>) : (<><Icon name="moon" size={16} className="me-2 inline-block align-middle" />{t(lang, "dark")}</>)}
               </button>
               <Link
                 href="/settings"
                 onClick={() => setMoreOpen(false)}
-                className="block rounded-xl px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="block rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--surface-hover)]"
               >
                 <Icon name="settings" size={14} className="me-1 inline-block align-middle" /> {t(lang, "settings")}
               </Link>
@@ -2212,7 +2305,7 @@ export default function HomePage() {
                 <Link
                   href="/admin"
                   onClick={() => setMoreOpen(false)}
-                  className="block rounded-xl px-3 py-2 text-sm font-bold text-amber-600 hover:bg-slate-100 dark:text-amber-400 dark:hover:bg-slate-800"
+                  className="block rounded-xl px-3 py-2 text-sm font-bold text-amber-600 hover:bg-[var(--surface-hover)] dark:text-amber-400"
                 >
                   <Icon name="star" size={14} className="me-1 inline-block align-middle" /> {t(lang, "admin")}
                 </Link>
@@ -2224,14 +2317,14 @@ export default function HomePage() {
                   <Link
                     href="/login"
                     onClick={() => setMoreOpen(false)}
-                    className="block rounded-xl px-3 py-2 text-sm font-bold text-[#2457FF] hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="block rounded-xl px-3 py-2 text-sm font-bold text-[#2457FF] hover:bg-[var(--surface-hover)]"
                   >
                     {t(lang, "login")}
                   </Link>
                   <Link
                     href="/register"
                     onClick={() => setMoreOpen(false)}
-                    className="block rounded-xl px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="block rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--surface-hover)]"
                   >
                     {t(lang, "register")}
                   </Link>
@@ -2243,12 +2336,12 @@ export default function HomePage() {
       </header>
 
       {!isSupabaseConfigured && (
-        <div className="break-words px-3 py-2 text-center text-[11px] leading-relaxed text-amber-900 sm:text-xs dark:bg-amber-900 dark:text-amber-100 bg-amber-100">
+        <div className="break-words bg-amber-500/15 px-3 py-2 text-center text-[11px] leading-relaxed text-amber-800 sm:text-xs dark:text-amber-200">
           {t(lang, "setupNeeded")}
         </div>
       )}
       {!userEmail && isSupabaseConfigured && (
-        <div className="break-words px-3 py-2 text-center text-[11px] leading-relaxed text-blue-900 sm:text-xs dark:bg-blue-950 dark:text-blue-100 bg-blue-50">
+        <div className="break-words bg-sky-500/10 px-3 py-2 text-center text-[11px] leading-relaxed text-sky-800 sm:text-xs dark:text-sky-200">
           {t(lang, "guestNote")}{" "}
           <Link href="/login" className="font-bold underline">
             {t(lang, "login")}
@@ -2260,7 +2353,7 @@ export default function HomePage() {
         </div>
       )}
       {tempMode && (
-        <div className="break-words bg-slate-200 px-3 py-2 text-center text-[11px] leading-relaxed text-slate-900 sm:text-xs dark:bg-slate-100 dark:text-slate-900">
+        <div className="break-words bg-[var(--surface)] px-3 py-2 text-center text-[11px] leading-relaxed text-[var(--foreground)] sm:text-xs">
           <Icon name="lock" size={14} className="me-1 inline-block align-middle" /> {t(lang, "tempChatNote")}
         </div>
       )}
@@ -2281,7 +2374,7 @@ export default function HomePage() {
             <a
               href="/about"
               aria-label={t(lang, "about")}
-              className="ai-avatar-frame pointer-events-auto relative z-10 mx-auto block h-16 w-16 cursor-pointer ring-2 ring-white/80 transition-transform active:scale-95 dark:ring-[#263550]"
+              className="ai-avatar-frame pointer-events-auto relative z-10 mx-auto block h-16 w-16 cursor-pointer ring-2 ring-white/80 transition-transform active:scale-95 dark:ring-[var(--card-border)]"
             >
               <Image
                 src="/avatar.jpg"
@@ -2292,8 +2385,8 @@ export default function HomePage() {
                 className="ai-avatar-img"
               />
             </a>
-            <div className="mt-3 inline-block max-w-full rounded-2xl bg-[var(--card)] px-3.5 py-1.5 shadow-sm ring-1 ring-black/5 dark:ring-[#263550]">
-              <span className="block truncate text-base text-black dark:text-[#EAF2FF]">
+            <div className="mt-3 inline-block max-w-full rounded-2xl bg-[var(--card)] px-3.5 py-1.5 shadow-sm ring-1 ring-black/5 dark:ring-[var(--card-border)]">
+              <span className="block truncate text-base text-[var(--foreground)]">
                 {userName ?? t(lang, "appShort")}
                 {isAdmin && (
                   <span className="ms-1 rounded-full bg-amber-400 px-2 py-0.5 text-[11px] font-bold text-black">
@@ -2307,35 +2400,71 @@ export default function HomePage() {
                 ? t(lang, "helloName").replace("{name}", userName)
                 : t(lang, "welcomeTitle")}
             </h1>
-            <p className="mt-2 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+            <p className="mt-2 text-sm leading-relaxed text-[var(--muted)]">
               {t(lang, "welcomeText")}
             </p>
-            {/* Suggestion rows (ChatGPT-style empty state): every row
-                DOES something real — Learn sends a starter prompt in
-                the current language, Create an image opens Image
-                Studio, Write opens Writing Studio. */}
-            <div className="mx-auto mt-10 flex w-full max-w-md flex-col gap-2 text-start">
+            {/* Suggestion cards: 4 cards with icon tiles + a one-line
+                hint. Every card DOES something real — Learn sends a
+                starter prompt, Create image / Write / Code open
+                their studio. Hints use tx() fallbacks until the
+                coordinator adds the suggest*Hint keys to i18n.ts. */}
+            <div className="mx-auto mt-8 grid w-full max-w-md grid-cols-1 gap-2 text-start sm:grid-cols-2">
               <button
                 type="button"
                 onClick={() => send(t(lang, "learnPrompt"))}
-                className="flex items-center gap-3 rounded-2xl px-3 py-3.5 text-base transition hover:bg-[var(--surface)] active:scale-[0.98]"
+                className="flex items-start gap-3 rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-3.5 text-start shadow-sm transition hover:bg-[var(--surface)] active:scale-[0.98]"
               >
-                <Icon name="cap" size={20} />
-                {t(lang, "learnSomething")}
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--surface-hover)]">
+                  <Icon name="cap" size={20} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-bold">{t(lang, "learnSomething")}</span>
+                  <span className="mt-0.5 block text-xs leading-relaxed text-[var(--muted)]">
+                    {tx("suggestLearnHint", "Ask anything and learn it step by step")}
+                  </span>
+                </span>
               </button>
               <Link
                 href="/studio/image"
-                className="flex items-center gap-3 rounded-2xl px-3 py-3.5 text-base transition hover:bg-[var(--surface)] active:scale-[0.98]"
+                className="flex items-start gap-3 rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-3.5 text-start shadow-sm transition hover:bg-[var(--surface)] active:scale-[0.98]"
               >
-                <Icon name="image" size={20} />
-                {t(lang, "createImage")}
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--surface-hover)]">
+                  <Icon name="image" size={20} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-bold">{t(lang, "createImage")}</span>
+                  <span className="mt-0.5 block text-xs leading-relaxed text-[var(--muted)]">
+                    {tx("suggestImageHint", "Describe it and the AI will draw it")}
+                  </span>
+                </span>
               </Link>
               <Link
                 href="/studio/write"
-                className="flex items-center gap-3 rounded-2xl px-3 py-3.5 text-base transition hover:bg-[var(--surface)] active:scale-[0.98]"
+                className="flex items-start gap-3 rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-3.5 text-start shadow-sm transition hover:bg-[var(--surface)] active:scale-[0.98]"
               >
-                <Icon name="pencil" size={20} />
-                {t(lang, "writeOrEdit")}
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--surface-hover)]">
+                  <Icon name="pencil" size={20} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-bold">{t(lang, "writeOrEdit")}</span>
+                  <span className="mt-0.5 block text-xs leading-relaxed text-[var(--muted)]">
+                    {tx("suggestWriteHint", "Draft, rewrite or polish any text")}
+                  </span>
+                </span>
+              </Link>
+              <Link
+                href="/studio/code"
+                className="flex items-start gap-3 rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-3.5 text-start shadow-sm transition hover:bg-[var(--surface)] active:scale-[0.98]"
+              >
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--surface-hover)]">
+                  <Icon name="code" size={20} />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-bold">{t(lang, "coding")}</span>
+                  <span className="mt-0.5 block text-xs leading-relaxed text-[var(--muted)]">
+                    {tx("suggestCodeHint", "Write, explain or fix code in any language")}
+                  </span>
+                </span>
               </Link>
             </div>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
@@ -2358,7 +2487,7 @@ export default function HomePage() {
               </p>
             )}
             {tempMode && (
-              <p className="mt-2 rounded-xl bg-slate-900 px-3 py-2 text-xs text-white dark:bg-slate-100 dark:text-slate-900">
+              <p className="mt-2 rounded-xl bg-[var(--surface)] px-3 py-2 text-xs text-[var(--foreground)]">
                 <Icon name="lock" size={14} className="me-1 inline-block align-middle" /> {t(lang, "tempChatNote")}
               </p>
             )}
@@ -2406,7 +2535,7 @@ export default function HomePage() {
           mobile keyboard shrinks h-dvh; only .chat-scroll shrinks. */}
       <div className="min-w-0 w-full shrink-0 px-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom))] pt-1 sm:px-3.5">
         {notice && (
-          <p className="mx-auto mb-2 max-w-3xl rounded-full bg-slate-900 px-4 py-2 text-center text-xs text-white dark:bg-slate-100 dark:text-slate-900">
+          <p className="mx-auto mb-2 max-w-3xl rounded-full bg-[var(--foreground)] px-4 py-2 text-center text-xs text-[var(--background)]">
             {notice}
           </p>
         )}
@@ -2425,7 +2554,7 @@ export default function HomePage() {
             <button
               type="button"
               onClick={() => setPendingImage(null)}
-              className="rounded-full bg-slate-200 px-2 py-1 text-xs dark:bg-slate-800"
+              className="rounded-full bg-[var(--surface-hover)] px-2 py-1 text-xs"
               aria-label={t(lang, "close")}
             >
               <Icon name="x" size={14} />
@@ -2481,11 +2610,11 @@ export default function HomePage() {
               static border never changes on focus (ROUND 4: the
               focus ring/border is removed — see .composer-card in
               globals.css). */}
-          <div className="composer-card relative flex min-w-0 flex-1 items-end rounded-full border border-[var(--border-subtle)] bg-[#F4F4F4] px-2.5 py-2 shadow-md sm:px-3 dark:bg-[#111B30]">
+          <div className="composer-card relative flex min-w-0 flex-1 items-end rounded-full border border-[var(--border-subtle)] bg-[var(--surface)] px-2.5 py-2 shadow-md sm:px-3">
             <button
               type="button"
               onClick={() => setAttachOpen((v) => !v)}
-              className="mb-1.5 flex h-8 w-8 shrink-0 items-center justify-center text-[#111111] dark:text-[#EAF2FF]"
+              className="mb-1.5 flex h-8 w-8 shrink-0 items-center justify-center text-[var(--foreground)]"
               aria-label="+"
             >
               <Icon name="plus" size={24} />
@@ -2507,7 +2636,7 @@ export default function HomePage() {
               onChange={(e) => setInput(e.target.value)}
               enterKeyHint="enter"
               placeholder={t(lang, "askSamim")}
-              className="composer-textarea bidi-plaintext max-h-[112px] min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-2 text-base leading-6 text-[#111111] outline-none placeholder:text-[#9A9A9A] sm:text-[17px] dark:text-[#EAF2FF]"
+              className="composer-textarea bidi-plaintext max-h-[112px] min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-2 text-base leading-6 text-[var(--foreground)] outline-none placeholder:text-[var(--muted)] sm:text-[17px]"
             />
             {/* Order inside the pill: + … mic … gold wave … ↑ send.
                 ROUND 5 (ChatGPT behaviour): as soon as there is text
@@ -2546,7 +2675,7 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={stop}
-                className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white transition-transform active:scale-95 dark:bg-white dark:text-black"
+                className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--foreground)] text-[var(--background)] transition-transform active:scale-95"
                 aria-label={t(lang, "stop")}
               >
                 <Icon name="stop" size={16} />
@@ -2560,7 +2689,7 @@ export default function HomePage() {
                     setInput("");
                   }
                 }}
-                className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#111111] text-white transition-transform active:scale-95 dark:bg-white dark:text-black"
+                className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--foreground)] text-[var(--background)] transition-transform active:scale-95"
                 aria-label={t(lang, "send")}
               >
                 <Icon name="arrowUp" size={20} />
@@ -2583,9 +2712,9 @@ export default function HomePage() {
                       setAttachOpen(false);
                       cameraInputRef.current?.click();
                     }}
-                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-[var(--surface-hover)]"
                   >
-                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] dark:bg-slate-700"><Icon name="camera" size={22} /></span>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--surface-hover)]"><Icon name="camera" size={22} /></span>
                     {t(lang, "camera")}
                   </button>
                   <button
@@ -2594,9 +2723,9 @@ export default function HomePage() {
                       setAttachOpen(false);
                       photoInputRef.current?.click();
                     }}
-                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-[var(--surface-hover)]"
                   >
-                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] dark:bg-slate-700"><Icon name="image" size={22} /></span>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--surface-hover)]"><Icon name="image" size={22} /></span>
                     {t(lang, "photos")}
                   </button>
                   <button
@@ -2605,9 +2734,9 @@ export default function HomePage() {
                       setAttachOpen(false);
                       fileInputRef.current?.click();
                     }}
-                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-[var(--surface-hover)]"
                   >
-                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] dark:bg-slate-700"><Icon name="paperclip" size={22} /></span>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--surface-hover)]"><Icon name="paperclip" size={22} /></span>
                     {t(lang, "files")}
                   </button>
                   <button
@@ -2616,17 +2745,17 @@ export default function HomePage() {
                       setAttachOpen(false);
                       void openScreenShare();
                     }}
-                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-[var(--surface-hover)]"
                   >
-                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] dark:bg-slate-700"><Icon name="screen" size={22} /></span>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--surface-hover)]"><Icon name="screen" size={22} /></span>
                     {t(lang, "screenShare")}
                   </button>
                   <button
                     type="button"
                     onClick={() => setThinkHarder((v) => !v)}
-                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-start text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-start text-[15px] hover:bg-[var(--surface-hover)]"
                   >
-                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] dark:bg-slate-700"><Icon name="gauge" size={22} /></span>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--surface-hover)]"><Icon name="gauge" size={22} /></span>
                     <span>
                       {t(lang, "thinkHarder")}
                       {thinkHarder ? <Icon name="check" size={14} className="ms-1 inline-block align-middle" /> : ""}
@@ -2638,9 +2767,9 @@ export default function HomePage() {
                       setAttachOpen(false);
                       startListening();
                     }}
-                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-[var(--surface-hover)]"
                   >
-                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#EDEDED] dark:bg-slate-700"><Icon name="mic" size={22} /></span>
+                    <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[var(--surface-hover)]"><Icon name="mic" size={22} /></span>
                     {t(lang, "listening")}
                   </button>
                   <button
@@ -2649,7 +2778,7 @@ export default function HomePage() {
                       setAttachOpen(false);
                       setLiveCallOpen(true);
                     }}
-                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-slate-100 dark:hover:bg-slate-800"
+                    className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-[var(--surface-hover)]"
                   >
                     <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#FACC15] text-black"><Icon name="waveform" size={22} /></span>
                     {t(lang, "liveCall")}
@@ -2667,7 +2796,7 @@ export default function HomePage() {
       {/* ===== Screen-share preview (send one still frame to the AI) ===== */}
       {screenShareOpen && (
         <div className="fixed inset-0 z-50 flex flex-col bg-black/80 p-4">
-          <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col rounded-2xl bg-white p-4 text-slate-900 dark:bg-[#0D1426] dark:text-[#EAF2FF]">
+          <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col rounded-2xl bg-[var(--card)] p-4 text-[var(--foreground)]">
             <p className="text-base font-bold">{t(lang, "screenShare")}</p>
             <p className="mt-1 text-xs leading-relaxed text-slate-500">{t(lang, "screenShareNote")}</p>
             <video
@@ -2688,7 +2817,7 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={closeScreenShare}
-                className="rounded-full bg-slate-200 px-4 py-2.5 text-sm dark:bg-slate-800"
+                className="rounded-full bg-[var(--surface-hover)] px-4 py-2.5 text-sm"
               >
                 {t(lang, "close")}
               </button>
@@ -2707,7 +2836,7 @@ export default function HomePage() {
           effect sends it as a photo question, reply read aloud. */}
       {screenPhotoFallbackOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
-          <div className="mx-auto w-full max-w-md rounded-2xl bg-white p-4 text-slate-900 dark:bg-[#0D1426] dark:text-[#EAF2FF]">
+          <div className="mx-auto w-full max-w-md rounded-2xl bg-[var(--card)] p-4 text-[var(--foreground)]">
             <p className="text-base font-bold">{t(lang, "screenPhotoFallbackTitle")}</p>
             <p className="mt-1 text-sm leading-relaxed text-slate-500">{t(lang, "screenPhotoFallback")}</p>
             <div className="mt-4 flex flex-col gap-2">
@@ -2721,7 +2850,7 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => setScreenPhotoFallbackOpen(false)}
-                className="w-full rounded-full bg-slate-200 px-4 py-2.5 text-sm dark:bg-slate-800"
+                className="w-full rounded-full bg-[var(--surface-hover)] px-4 py-2.5 text-sm"
               >
                 {t(lang, "close")}
               </button>
@@ -2734,6 +2863,7 @@ export default function HomePage() {
       {liveCallOpen && (
         <LiveCall lang={lang} onClose={onLiveCallClose} onNote={showNotice} onOpenMenu={() => setSidebarOpen(true)} />
       )}
+    </div>
     </div>
   );
 }
