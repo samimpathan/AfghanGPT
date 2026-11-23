@@ -1,5 +1,5 @@
 /**
- * lib/store.ts — local-first storage for the Samim AI studios.
+ * lib/store.ts — local-first storage for the AfghanGPT studios.
  * GUEST PRIVACY (2026-11-22): guest data is IN-MEMORY ONLY.
  * Content (chats, projects, images, workflows, runs, logs, slide
  * decks) is written to localStorage ONLY for logged-in users. Guests

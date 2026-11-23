@@ -69,7 +69,7 @@ function loadChatMeta(): Record<string, ChatMeta> {
   }
 }
 
-/** The 8 merged studios (from the Samim AI studios). */
+/** The 8 merged studios (from the AfghanGPT studios). */
 const STUDIOS = [
   { href: "/studio/write", key: "writing", icon: "pencil", feature: "writing" },
   { href: "/studio/code", key: "coding", icon: "code", feature: "coding" },
@@ -611,7 +611,7 @@ export default function HomePage() {
       } catch {
         // ignore
       }
-      // All answers go through /api/chat — one model (Samim AI Auto),
+      // All answers go through /api/chat — one model (AfghanGPT Auto),
       // free web answers when the online AI is unavailable. No user
       // provider keys exist anymore.
       try {
@@ -825,14 +825,14 @@ export default function HomePage() {
     if (!chat) return;
     const lines = [`# ${chat.title}`, ""];
     for (const m of chat.messages) {
-      lines.push(m.role === "user" ? `**You:** ${m.content}` : `**Samim AI:** ${m.content}`);
+      lines.push(m.role === "user" ? `**You:** ${m.content}` : `**AfghanGPT:** ${m.content}`);
       lines.push("");
     }
     const blob = new Blob([lines.join("\n")], { type: "text/markdown; charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${chat.title.replace(/[\\/:*?"<>|]/g, "").slice(0, 60) || "samim-ai-chat"}.md`;
+    a.download = `${chat.title.replace(/[\\/:*?"<>|]/g, "").slice(0, 60) || "afghangpt-chat"}.md`;
     a.click();
     URL.revokeObjectURL(url);
     showNotice(t(lang, "chatExported"));
@@ -844,11 +844,11 @@ export default function HomePage() {
     if (!chat) return;
     const lines: string[] = [chat.title, ""];
     for (const m of chat.messages) {
-      lines.push(`${m.role === "user" ? "You" : "Samim AI"}: ${m.content}`);
+      lines.push(`${m.role === "user" ? "You" : "AfghanGPT"}: ${m.content}`);
     }
     const spec: FileSpec = {
       type: "pdf",
-      filename: `${chat.title.replace(/[\\/:*?"<>|]/g, "").slice(0, 60) || "samim-ai-chat"}.pdf`,
+      filename: `${chat.title.replace(/[\\/:*?"<>|]/g, "").slice(0, 60) || "afghangpt-chat"}.pdf`,
       pdf: { title: chat.title, lines },
     };
     try {
@@ -865,14 +865,14 @@ export default function HomePage() {
     if (!chat) return;
     const spec: FileSpec = {
       type: "docx",
-      filename: `${chat.title.replace(/[\\/:*?"<>|]/g, "").slice(0, 60) || "samim-ai-chat"}.docx`,
+      filename: `${chat.title.replace(/[\\/:*?"<>|]/g, "").slice(0, 60) || "afghangpt-chat"}.docx`,
       docx: {
         title: chat.title,
         sections: [
           {
             heading: chat.title,
             paragraphs: chat.messages.map(
-              (m) => `${m.role === "user" ? "You" : "Samim AI"}: ${m.content}`
+              (m) => `${m.role === "user" ? "You" : "AfghanGPT"}: ${m.content}`
             ),
           },
         ],
@@ -952,7 +952,7 @@ export default function HomePage() {
     if (!chat) return;
     const text = [`${chat.title}`, ""];
     for (const m of chat.messages) {
-      text.push(`${m.role === "user" ? "You" : "Samim AI"}: ${m.content}`);
+      text.push(`${m.role === "user" ? "You" : "AfghanGPT"}: ${m.content}`);
     }
     const joined = text.join("\n");
     try {
@@ -1485,7 +1485,7 @@ export default function HomePage() {
       : `${t(lang, "appShort")} ${modelMode === "fast" ? t(lang, "modelFast") : t(lang, "modelSmart")}`;
 
   /** The real model/mode string, shown in each message's ••• menu.
-   * One model only: Samim AI Auto (server Gemini). No provider
+   * One model only: AfghanGPT Auto (server Gemini). No provider
    * list, no key is ever asked. */
   const currentProviderName = "Google Gemini";
   const modelUsedText = `${modelLabel} • ${currentProviderName}`;
@@ -1704,7 +1704,7 @@ export default function HomePage() {
                 <Icon name="compass" size={20} /> {t(lang, "explore")}
               </button>
             </div>
-            {/* Studios (merged from the Samim AI studios) */}
+            {/* Studios (merged from the AfghanGPT studios) */}
             <div ref={studiosRef} className="px-3 pb-1 pt-2">
               <p className="px-1 pb-1 text-xs font-bold text-slate-500">
                 <Icon name="grid" size={16} className="me-1 inline-block align-middle" /> {t(lang, "studios")}
@@ -1954,7 +1954,7 @@ export default function HomePage() {
                       {modelMode === m ? <Icon name="check" size={14} className="ms-1 inline-block align-middle" /> : ""}
                     </button>
                   ))}
-                  {/* One model only: "Samim AI Auto" (Auto/Fast/Smart
+                  {/* One model only: "AfghanGPT Auto" (Auto/Fast/Smart
                       above are answer styles of that one model, not
                       providers). No provider list, no key is ever asked. */}
                   <Link
@@ -2127,7 +2127,7 @@ export default function HomePage() {
                 <Icon name="info" size={14} className="me-1 inline-block align-middle" /> {t(lang, "help")}
               </Link>
               <a
-                href="mailto:samimpatan8@gmail.com?subject=Samim%20AI%20feedback"
+                href="mailto:samimpatan8@gmail.com?subject=AfghanGPT%20feedback"
                 onClick={() => setMoreOpen(false)}
                 className="block rounded-xl px-3 py-2.5 text-sm hover:bg-slate-100 dark:hover:bg-slate-800"
               >
@@ -2145,7 +2145,7 @@ export default function HomePage() {
                 <Icon name="trash" size={16} className="me-2 inline-block align-middle" /> {t(lang, "delete")}
               </button>
               <div className="my-1 border-t border-slate-200 dark:border-slate-700" />
-              {/* No provider list here anymore: one model ("Samim AI
+              {/* No provider list here anymore: one model ("AfghanGPT
                   Auto"), free for everyone — no key is ever asked. */}
               <button
                 type="button"
@@ -2285,7 +2285,7 @@ export default function HomePage() {
             >
               <Image
                 src="/avatar.jpg"
-                alt="Samim AI"
+                alt="AfghanGPT"
                 width={64}
                 height={64}
                 priority
@@ -2294,7 +2294,7 @@ export default function HomePage() {
             </a>
             <div className="mt-3 inline-block max-w-full rounded-2xl bg-[var(--card)] px-3.5 py-1.5 shadow-sm ring-1 ring-black/5 dark:ring-[#263550]">
               <span className="block truncate text-base text-black dark:text-[#EAF2FF]">
-                {userName ?? t(lang, "appName")}
+                {userName ?? t(lang, "appShort")}
                 {isAdmin && (
                   <span className="ms-1 rounded-full bg-amber-400 px-2 py-0.5 text-[11px] font-bold text-black">
                     {t(lang, "admin")}
@@ -2660,7 +2660,7 @@ export default function HomePage() {
           </div>
         </form>
         <p className="mt-2 text-center text-[11px] text-slate-400">
-          Samim AI • {t(lang, "notMuse")}
+          AfghanGPT • {t(lang, "notMuse")}
         </p>
       </div>
 

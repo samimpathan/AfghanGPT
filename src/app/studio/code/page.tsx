@@ -57,7 +57,7 @@ const STARTER: ProjectFile[] = [
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<h1>Hello from Samim AI</h1>
+<h1>Hello from AfghanGPT</h1>
 <p id="msg">Click the button:</p>
 <button onclick="sayHello()">Say hello</button>
 <script src="script.js"></script>

@@ -1,5 +1,5 @@
 /**
- * components/icons.tsx — Shared ChatGPT-style LINE icons for Samim AI.
+ * components/icons.tsx — Shared ChatGPT-style LINE icons for AfghanGPT.
  *
  * ROUND 4: every UI-chrome icon is a thin line SVG — 24×24 viewBox,
  * 1.5–2px stroke, rounded caps/joins, currentColor (neutral dark in

@@ -55,13 +55,13 @@ export default function RegisterPage() {
         <div className="text-center">
           <Image
             src="/avatar.jpg"
-            alt="Samim AI"
+            alt="AfghanGPT"
             width={88}
             height={88}
             className="mx-auto rounded-full object-cover ring-4 ring-[var(--brand2)]/20"
           />
           <h1 className="mt-4 text-2xl font-bold text-[var(--brand2)]">
-            {t(lang, "appName")}
+            {t(lang, "appShort")}
           </h1>
           <p className="mt-1 text-sm font-bold">{t(lang, "createAccount")}</p>
           <p className="text-sm text-[var(--muted)]">{t(lang, "createAccountSubtitle")}</p>

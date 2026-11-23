@@ -319,7 +319,7 @@ export default function ChatMessage({
   onExport,
   actionsDisabled,
   /** The real model/mode string used for this chat, e.g.
-   * "Samim AI Auto • Google Gemini" — shown at the foot of the
+   * "AfghanGPT Auto • Google Gemini" — shown at the foot of the
    * message ••• menu ("Used …" line, Gemini-style). */
   modelUsed,
 }: {
@@ -718,7 +718,7 @@ export default function ChatMessage({
                     </div>
                   )}
                   {/* The REAL model/mode used — never a made-up label.
-                      Every answer is "Samim AI Auto" to the user; the
+                      Every answer is "AfghanGPT Auto" to the user; the
                       free-web answer carries its source note in the
                       text itself. No key is ever mentioned here. */}
                   <div className="mt-1 border-t border-slate-200 px-3 pb-1 pt-2 text-xs text-slate-500 dark:border-slate-700">
@@ -731,7 +731,7 @@ export default function ChatMessage({
           <SpeakButton text={msg.content} lang={lang} onNote={onNote} />
           {msg.image && (
             <>
-              <a href={msg.image} download="samim-ai-image.png" className={actionBtn}>
+              <a href={msg.image} download="afghangpt-image.png" className={actionBtn}>
                 <Icon name="download" size={13} className="me-1 inline-block align-middle" /> {t(lang, "download")}
               </a>
               <SaveImageButton image={msg.image} lang={lang} />

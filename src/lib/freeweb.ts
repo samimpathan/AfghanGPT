@@ -1,5 +1,5 @@
 /**
- * lib/freeweb.ts — Free, no-key web answers for Samim AI (server-only).
+ * lib/freeweb.ts — Free, no-key web answers for AfghanGPT (server-only).
  *
  * Google Search has NO free no-key API, so this module never calls it.
  * Instead it uses three free public APIs that need no key at all:
@@ -35,7 +35,7 @@ async function fetchJson(url: string): Promise<unknown | null> {
   try {
     const res = await fetch(url, {
       signal: controller.signal,
-      headers: { "User-Agent": "SamimAI/1.0 (free web answers)" },
+      headers: { "User-Agent": "AfghanGPT/1.0 (free web answers)" },
     });
     if (!res.ok) return null;
     return (await res.json()) as unknown;

@@ -1,5 +1,7 @@
+import { founderBioFull, founderBioShort } from "./founder";
+
 /**
- * lib/offlineBrain.ts — Offline fallback brain for Samim AI.
+ * lib/offlineBrain.ts — Offline fallback brain for AfghanGPT.
  * Expanded from ~/workspace/samim-ai-app/lib/assistant.ts.
  * NO internet needed for its built-in topic replies. Answers in
  * simple Pashto (or English when the question is in English).
@@ -143,8 +145,8 @@ export function getOfflineTopicAnswer(rawInput: string): string | null {
     )
   ) {
     return english
-      ? "My name is Abdul Samim's Assistant — Samim AI. I am Samim Pathan's AI assistant, and I help with any kind of technology — programming, websites, mobile apps, AI, databases, networking, and more."
-      : "زما نوم د عبدالصمیم مرستیال دی — Samim AI. زه د صمیم پټان AI مرستیال یم، او په هر ډول ټکنالوژۍ، پروګرامینګ، ویبسایټ، موبایل اپ، AI، ډیټابیس، شبکو او نورو پوښتنو کې مرسته کوم.";
+      ? "My name is Abdul Samim's Assistant — AfghanGPT. I am Samim Pathan's AI assistant, and I help with any kind of technology — programming, websites, mobile apps, AI, databases, networking, and more."
+      : "زما نوم د افغانانو مرستیال دی — AfghanGPT. زه د صمیم پټان AI مرستیال یم، او په هر ډول ټکنالوژۍ، پروګرامینګ، ویبسایټ، موبایل اپ، AI، ډیټابیس، شبکو او نورو پوښتنو کې مرسته کوم.";
   }
 
   // --- How are you? ---
@@ -188,8 +190,8 @@ export function getOfflineTopicAnswer(rawInput: string): string | null {
   );
   if (greetingOnly || (pashtoGreeting && wordCount <= 5)) {
     return english
-      ? "Hello! How are you?\n\nWhat can I do for you today?"
-      : "سلام! څنګه یې؟\n\nنن څه درته وکړم؟";
+      ? "Hello! I am AfghanGPT. How are you?\n\nWhat can I do for you today?"
+      : "سلام! زه AfghanGPT یم. څنګه یې؟\n\nنن څه درته وکړم؟";
   }
 
   // --- Thanks ---
@@ -203,6 +205,23 @@ export function getOfflineTopicAnswer(rawInput: string): string | null {
   }
 
   // --- Founder / Samim ---
+  // Full profile (skills, philosophy, tagline) for "tell me about
+  // the founder" style questions.
+  if (
+    has(
+      lower,
+      "tell me about the founder",
+      "about the founder",
+      "founder bio",
+      "founder profile",
+      "about abdul samim"
+    ) ||
+    has(text, "د بنسټګر په اړه", "د بنسټګر ژوند", "بنسټګر په اړه")
+  ) {
+    return founderBioFull(english ? "en" : "ps");
+  }
+  // Short bio for "who is / who created / who made" questions.
+  // English triggers use `lower` so "Who created you?" matches too.
   if (
     has(
       text,
@@ -211,14 +230,22 @@ export function getOfflineTopicAnswer(rawInput: string): string | null {
       "عبدالصمیم څوک دی",
       "بنسټګر څوک دی",
       "founder څوک دی",
-      "ستا جوړوونکی څوک دی",
+      "ستا جوړوونکی څوک دی"
+    ) ||
+    has(
+      lower,
       "who is samim",
-      "who is abdul samim"
+      "who is abdul samim",
+      "who created you",
+      "who made you",
+      "who built you",
+      "who developed you",
+      "who is the founder",
+      "who is your founder",
+      "who is your creator"
     )
   ) {
-    return english
-      ? "Abdul Samim Niazai (Samim Pathan) is the founder of DevConnect and Samim AI.\n\nHe is from Alingar, Laghman, Afghanistan, and is a 3rd-semester Computer Science student at Arzgan University."
-      : "عبدالصمیم نیازی (صمیم پټان) د DevConnect او Samim AI بنسټګر دی.\n\nله علینګار، لغمان څخه دی، د ارزګان پوهنتون د کمپیوټر ساینس درېیم سمستر زده‌کوونکی دی.";
+    return founderBioShort(english ? "en" : "ps");
   }
 
   // --- DevConnect ---
@@ -228,11 +255,13 @@ export function getOfflineTopicAnswer(rawInput: string): string | null {
       : "DevConnect د صمیم یو اپ دی — د ډیولپرانو لپاره ټولنیز اپ، لکه فیسبوک + ګیټ‌هب + VS Code په یوه ځای کې.\n\nپه کې پروژې شریکېږی، کوډ لیکل کېږی، ملګری، ګروپونه، پاڼې او کیسې شته.";
   }
 
-  // --- Samim AI itself ---
-  if (has(lower, "samim ai") || has(text, "صمیم ای ای", "دا اپ څه دی", "what is samim ai")) {
+  // --- AfghanGPT itself ---
+  // "samim ai" stays as a legacy trigger — people may still say the
+  // old name; the answer always uses the new name.
+  if (has(lower, "afghangpt", "afghan gpt", "samim ai") || has(text, "صمیم ای ای", "دا اپ څه دی")) {
     return english
-      ? "Samim AI is a free AI assistant made by Abdul Samim Niazai. Anyone can create an account and ask questions — any kind of technology: programming, websites, mobile apps, AI, databases, networking, and general knowledge.\n\nThis is not Muse or Google — it is Samim's own app."
-      : "Samim AI د عبدالصمیم نیازی وړیا AI مرستیال دی. هر څوک کولای شی اکاونټ جوړ کړی او پوښتنې وکړی — هر ډول ټکنالوژی: پروګرامینګ، ویبسایټ، موبایل اپ، AI، ډیټابیس، شبکې او عمومی معلومات.\n\nدا Muse یا Google نه دی؛ دا د صمیم خپل اپ دی.";
+      ? "AfghanGPT is a free AI assistant made by Abdul Samim Niazai. Anyone can create an account and ask questions — any kind of technology: programming, websites, mobile apps, AI, databases, networking, and general knowledge.\n\nThis is not Muse or Google — it is Samim's own app."
+      : "AfghanGPT د عبدالصمیم نیازی وړیا AI مرستیال دی. هر څوک کولای شی اکاونټ جوړ کړی او پوښتنې وکړی — هر ډول ټکنالوژی: پروګرامینګ، ویبسایټ، موبایل اپ، AI، ډیټابیس، شبکې او عمومی معلومات.\n\nدا Muse یا Google نه دی؛ دا د صمیم خپل اپ دی.";
   }
 
   // --- HTML: build a web page ---
@@ -332,8 +361,8 @@ export function getOfflineTopicAnswer(rawInput: string): string | null {
     has(text, "مصنوعي ځیرکتیا", "مصنوعي ذکاوت")
   ) {
     return english
-      ? "AI (Artificial Intelligence) means teaching a computer to learn and decide like a person — for example understanding language, recognising pictures, or answering questions.\n\nSamim AI is one example: you ask a question, and it answers from what it learned."
-      : "AI (مصنوعي ځیرکتیا) یعنې کمپیوټر ته زده کول چې د انسان په څېر زده کړي او پرېکړه وکړي — لکه د ژبې پوهېدل، د انځور پېژندل، یا پوښتنو ته ځواب ورکول.\n\nSamim AI یو بېلګه ده: ته پوښتنه کوې، او دا له خپلو زده‌کړو څخه ځواب درکوي.";
+      ? "AI (Artificial Intelligence) means teaching a computer to learn and decide like a person — for example understanding language, recognising pictures, or answering questions.\n\nAfghanGPT is one example: you ask a question, and it answers from what it learned."
+      : "AI (مصنوعي ځیرکتیا) یعنې کمپیوټر ته زده کول چې د انسان په څېر زده کړي او پرېکړه وکړي — لکه د ژبې پوهېدل، د انځور پېژندل، یا پوښتنو ته ځواب ورکول.\n\nAfghanGPT یو بېلګه ده: ته پوښتنه کوې، او دا له خپلو زده‌کړو څخه ځواب درکوي.";
   }
   if (/\bwhat is (a )?computer\b/.test(lower) || has(text, "کمپیوټر څه دی", "کمپیوټر څه شی دی")) {
     return english
@@ -342,8 +371,8 @@ export function getOfflineTopicAnswer(rawInput: string): string | null {
   }
   if (/\bwhat is (the )?internet\b/.test(lower) || has(text, "انټرنیټ څه دی", "انټرنیټ څه شی دی")) {
     return english
-      ? "The internet is a worldwide network of connected computers. It lets people send messages, open websites, watch videos and use apps like Samim AI from anywhere in the world."
-      : "انټرنیټ د نړۍ د تړلو کمپیوټرونو شبکه ده. خلک کولای شي پیغامونه ولېږي، ویبسایټونه پرانیزي، ویډیوګانې وګوري او له هر ځای څخه Samim AI په څېر اپونه وکاروي.";
+      ? "The internet is a worldwide network of connected computers. It lets people send messages, open websites, watch videos and use apps like AfghanGPT from anywhere in the world."
+      : "انټرنیټ د نړۍ د تړلو کمپیوټرونو شبکه ده. خلک کولای شي پیغامونه ولېږي، ویبسایټونه پرانیزي، ویډیوګانې وګوري او له هر ځای څخه AfghanGPT په څېر اپونه وکاروي.";
   }
   if (has(lower, "sql") && (has(lower, "what", "learn", "example", "query", "database") || lower.trim() === "sql")) {
     return english

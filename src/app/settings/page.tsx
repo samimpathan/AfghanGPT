@@ -164,7 +164,7 @@ export default function SettingsPage() {
           <span className="ai-avatar-frame h-14 w-14 ring-2 ring-[var(--brand2)]/30">
             <Image
               src="/avatar.jpg"
-              alt="Samim AI"
+              alt="AfghanGPT"
               width={56}
               height={56}
               className="ai-avatar-img"

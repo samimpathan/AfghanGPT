@@ -59,10 +59,10 @@ export default function SharePage({ params }: { params: { id: string } }) {
         <header className="space-y-1">
           <Link href="/" className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--muted)] hover:text-[var(--foreground)]">
             <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
-            Samim AI
+            AfghanGPT
           </Link>
           <p className="text-xs font-bold text-[var(--muted)]">
-            Samim AI • {t(lang, "sharedChat")}
+            AfghanGPT • {t(lang, "sharedChat")}
           </p>
         </header>
         {state === "loading" && (
@@ -73,7 +73,7 @@ export default function SharePage({ params }: { params: { id: string } }) {
             <p className="text-sm text-[var(--muted)]">{t(lang, "sharedNotFound")}</p>
             <Link href="/" className="mt-4 inline-flex items-center gap-1.5 text-sm font-bold text-[var(--brand2)] hover:underline">
               <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
-              Samim AI
+              AfghanGPT
             </Link>
           </div>
         )}
@@ -92,7 +92,7 @@ export default function SharePage({ params }: { params: { id: string } }) {
                   }
                 >
                   <p className="mb-1 text-[11px] font-bold text-[var(--muted)]">
-                    {m.role === "user" ? "You" : "Samim AI"}
+                    {m.role === "user" ? "You" : "AfghanGPT"}
                   </p>
                   <p className="bidi-plaintext whitespace-pre-wrap break-words">{m.content}</p>
                 </div>
@@ -100,7 +100,7 @@ export default function SharePage({ params }: { params: { id: string } }) {
             </div>
             <Link href="/" className="mt-8 inline-flex items-center gap-1.5 text-sm font-bold text-[var(--brand2)] hover:underline">
               <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" />
-              Samim AI
+              AfghanGPT
             </Link>
           </div>
         )}

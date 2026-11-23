@@ -1,5 +1,5 @@
 /**
- * Safety — adult / porn / sexy content is banned in Samim AI.
+ * Safety — adult / porn / sexy content is banned in AfghanGPT.
  * Rule set by Samim (2026-11-22): if anyone asks for porn, adult or sexy
  * content, reply "دا محتوا نه لرو" (we do not have this content).
  * Every other kind of question is answered normally.

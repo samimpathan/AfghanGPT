@@ -3,9 +3,9 @@ import Providers from "@/components/Providers";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Samim AI — د عبدالصمیم مرستیال",
+  title: "AfghanGPT — د افغانانو مرستیال",
   description:
-    "Samim AI — free AI assistant by Abdul Samim Niazai. Ask anything: programming, websites, English and more.",
+    "AfghanGPT — free AI assistant by Abdul Samim Niazai. Ask anything: programming, websites, English and more.",
 };
 
 // interactive-widget=resizes-content: when the Android keyboard

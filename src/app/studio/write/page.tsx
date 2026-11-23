@@ -199,7 +199,7 @@ export default function WritingStudioPage() {
         <h1 className="text-xl font-bold sm:text-2xl">{t("writing")}</h1>
         <p className="text-sm text-[var(--muted)]">{t("writeSubtitle")}</p>
         <p className="rounded-xl border border-[var(--card-border)] px-3 py-2 text-xs text-[var(--muted)]">
-          How it works: the text is written live by Samim AI through /api/chat — no key is ever asked from you.
+          How it works: the text is written live by AfghanGPT through /api/chat — no key is ever asked from you.
           If the AI is not available right now, the chat API answers with an honest note instead, and that note is shown honestly.
         </p>
       </header>

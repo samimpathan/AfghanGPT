@@ -170,7 +170,7 @@ export default function AdminPage() {
         <header className="flex items-center gap-3">
           <Image
             src="/avatar.jpg"
-            alt="Samim AI"
+            alt="AfghanGPT"
             width={56}
             height={56}
             className="rounded-full object-cover ring-2 ring-amber-400/50"
@@ -334,7 +334,7 @@ export default function AdminPage() {
         </div>
 
         <p className="text-xs text-[var(--muted)]">
-          {t(lang, "admin")} • <span dir="ltr">{ADMIN_EMAIL}</span> • Samim AI
+          {t(lang, "admin")} • <span dir="ltr">{ADMIN_EMAIL}</span> • AfghanGPT
         </p>
       </div>
     </div>

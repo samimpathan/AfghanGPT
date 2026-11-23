@@ -122,7 +122,7 @@ export function contentTypeFor(type: FileType): string {
 
 export function filenameFor(spec: FileSpec): string {
   const ext = EXT[spec.type];
-  const raw = sanitizeFilename(spec.filename, `samim-ai-file.${ext}`);
+  const raw = sanitizeFilename(spec.filename, `afghangpt-file.${ext}`);
   return raw.toLowerCase().endsWith(`.${ext}`) ? raw : `${raw}.${ext}`;
 }
 
@@ -213,7 +213,7 @@ async function buildDocx(spec: FileSpec): Promise<Buffer> {
 
 async function buildXlsx(spec: FileSpec): Promise<Buffer> {
   const wb = new ExcelJS.Workbook();
-  wb.creator = "Samim AI";
+  wb.creator = "AfghanGPT";
   for (const sheet of spec.xlsx?.sheets ?? []) {
     const ws = wb.addWorksheet(sanitizeFilename(sheet.name ?? "Sheet1", "Sheet1").slice(0, 31));
     for (const row of asRows(sheet.rows)) ws.addRow(row);
@@ -224,11 +224,11 @@ async function buildXlsx(spec: FileSpec): Promise<Buffer> {
 
 async function buildPptx(spec: FileSpec): Promise<Buffer> {
   const pptx = new PptxGenJS();
-  pptx.author = "Samim AI";
-  pptx.title = asStr(spec.pptx?.title, 200) || "Samim AI Presentation";
+  pptx.author = "AfghanGPT";
+  pptx.title = asStr(spec.pptx?.title, 200) || "AfghanGPT Presentation";
   pptx.defineLayout({ name: "WIDE", width: 13.33, height: 7.5 });
   pptx.layout = "WIDE";
-  // Theme (from the Presentation Maker): defaults match Samim AI's
+  // Theme (from the Presentation Maker): defaults match AfghanGPT's
   // dark palette, so files made without a theme look exactly as before.
   const bg = (spec.pptx?.theme?.bg ?? "#0D1426").replace(/^#/, "");
   const accent = (spec.pptx?.theme?.accent ?? "#2457FF").replace(/^#/, "");
