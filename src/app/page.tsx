@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import ChatMessage, { type UiMessage } from "@/components/ChatMessage";
@@ -256,6 +256,27 @@ export default function HomePage() {
       recorderRef.current?.stop();
       stopSpeaking();
     };
+  }, []);
+
+  // The header avatar must not flash grey "?" on first paint:
+  // load the saved photo/gradient/name in a LAYOUT effect, which
+  // runs before the browser paints (the mount effect below runs
+  // after paint — that was the flash, 2026-11-23 browser test).
+  // A lazy useState initializer would read localStorage during the
+  // server prerender (no localStorage there) and differ from
+  // hydration — a hydration mismatch — so the layout effect is
+  // the safe fix. The mount effect below re-reads the same values
+  // harmlessly. The server-rendered first paint (before JS loads)
+  // can still show "?" — no code can know localStorage there.
+  useLayoutEffect(() => {
+    try {
+      const s = store.settings();
+      setUserPhoto(s.avatarDataUrl || null);
+      setUserGradient(s.avatarGradient || "");
+      if (s.displayName) setUserName(s.displayName);
+    } catch {
+      // ignore
+    }
   }, []);
 
   // Load the saved model choice + pins once.
@@ -1836,7 +1857,15 @@ export default function HomePage() {
                     aria-label={t(lang, "login")}
                     className="shrink-0 rounded-full transition active:scale-90"
                   >
-                    <UserAvatar name={null} email={null} photoUrl={null} size={40} />
+                    {/* Guests get the SAME avatar as the header: their
+                        uploaded photo when set, else the chosen
+                        gradient (or grey "?"). This branch used to
+                        hardcode photoUrl={null} and no gradientId,
+                        so the drawer always showed grey "?" even
+                        after a photo upload (2026-11-23 browser
+                        test). No fallbackPhoto here — guests never
+                        get Samim's photo. */}
+                    <UserAvatar name={userName} email={userEmail} photoUrl={userPhoto} gradientId={userGradient} size={40} />
                   </Link>
                 )}
                 <button

@@ -22,6 +22,11 @@
  * initials instead of rendering a broken src="".
  * If a photo fails to load, fall back to initials — an uploaded
  * photo is never replaced by the fallback photo.
+ * An EXPLICITLY chosen gradient (Settings → Avatar colour,
+ * prop `gradientId`) wins for EVERYONE, guests included: the "?"
+ * fill and the photo ring both use it. Only Auto ("" / unknown)
+ * keeps the grey guest gradient and the deterministic gradient
+ * for a named user.
  * The AI's avatar (Samim's real photo, /avatar.jpg) is separate and
  * is NOT touched by this component.
  */
@@ -121,9 +126,15 @@ export default function UserAvatar({
   const isGuest = initials === "?";
   // One personal gradient drives BOTH the initials fill and the
   // luminous ring — photos get the same ring, so the system is one.
-  const gradient = isGuest
-    ? GUEST_GRADIENT
-    : gradientById(gradientId) ?? gradientFor(`${name ?? ""}|${email ?? ""}`);
+  // An EXPLICITLY chosen gradient wins for everyone, guests
+  // included (their "?" fill and photo ring use it too) — the old
+  // code hardcoded grey for guests here, so a picked Violet/Sunset
+  // never rendered anywhere (2026-11-23 browser test). Only Auto
+  // (""/unknown) keeps the old behaviour: the deterministic
+  // gradient for a named user, soft grey for a guest.
+  const gradient =
+    gradientById(gradientId) ??
+    (isGuest ? GUEST_GRADIENT : gradientFor(`${name ?? ""}|${email ?? ""}`));
   const ring = size >= 64 ? 3 : 2;
   const fontSize = Math.max(10, Math.round(size * 0.38));
   // An empty-string photo means "no photo" (see header comment).
