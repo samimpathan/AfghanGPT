@@ -25,6 +25,27 @@ export type ChatMsg = {
  */
 const CHAT_MODELS = ["gemini-3-flash-preview", "gemini-flash-lite-latest"] as const;
 
+/** ROUND 6 — first-attempt failure fix (2026-11-23, proven live).
+ * The primary model was observed hanging for a full 60s (and 503ing)
+ * while the fallback answered in ~1.5s — yet first attempts still
+ * failed after ~90s with a dead-end error. Root cause: the old
+ * 60s-per-model timeout let ONE hung model eat the whole Vercel 60s
+ * function budget, so the function was killed (504) before the
+ * fallback model — or the graceful offline fallback — could run.
+ * Each model now gets at most FIRST_CHUNK_MS for its FIRST token;
+ * the whole chain is bounded by the caller's deadline (the route
+ * passes request start + 50s, leaving margin for cold start). Once
+ * the first token arrives, the rest of the stream gets the remaining
+ * budget instead (a full reply can take ~45s; cutting it at 20s
+ * would truncate good answers). */
+const FIRST_CHUNK_MS = 20000;
+const DEFAULT_BUDGET_MS = 50000;
+
+/** Absolute deadline (Date.now() ms) by which a Gemini call must
+ * settle — first chunk, fallback model, everything. Callers that
+ * know the request start (the /api/chat route) pass their own. */
+export type GeminiOptions = { deadline?: number };
+
 /** gemini-3-flash-preview is a thinking model: without a cap, a Pashto
  * reply spends ~13s thinking and dies on Vercel Hobby's 10s limit.
  * thinkingBudget 0 disables thinking (verified 2026-11-23: Pashto
@@ -146,16 +167,26 @@ export async function* streamGemini(
   messages: ChatMsg[],
   apiKey: string,
   mode: GeminiMode = "auto",
-  systemOverride?: string
+  systemOverride?: string,
+  opts: GeminiOptions = {}
 ): AsyncGenerator<string> {
   const system =
     (systemOverride ? `${systemOverride}\n` : "") + SYSTEM_PROMPT + modePrompt(mode);
   const maxTokens = modeTokens(mode);
+  const deadline = opts.deadline ?? Date.now() + DEFAULT_BUDGET_MS;
   let lastError: Error | null = null;
 
   for (const model of CHAT_MODELS) {
+    // No budget left for another attempt — stop, don't start a call
+    // that the function timeout would kill mid-flight.
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000);
+    // First token only: a hung model must not eat the whole budget.
+    let timer = setTimeout(
+      () => controller.abort(),
+      Math.min(remaining, FIRST_CHUNK_MS)
+    );
     let res: Response;
     try {
       res = await fetch(`${modelStreamUrl(model)}&key=${encodeURIComponent(apiKey)}`, {
@@ -173,7 +204,7 @@ export async function* streamGemini(
         signal: controller.signal,
       });
     } catch (e) {
-      clearTimeout(timeout);
+      clearTimeout(timer);
       lastError = new Error(
         e instanceof Error && e.name === "AbortError"
           ? `Gemini request timed out (${model})`
@@ -183,7 +214,7 @@ export async function* streamGemini(
     }
 
     if (!res.ok) {
-      clearTimeout(timeout);
+      clearTimeout(timer);
       const status = res.status;
       await res.text().catch(() => "");
       lastError = new Error(`Gemini error ${status} (${model})`);
@@ -192,15 +223,21 @@ export async function* streamGemini(
       continue; // try the next model (e.g. 503/429 on the primary)
     }
     if (!res.body) {
-      clearTimeout(timeout);
+      clearTimeout(timer);
       lastError = new Error(`Gemini returned an empty response (${model})`);
       continue;
     }
 
-    // This model works — stream it. A mid-stream failure throws.
+    // This model works — stream it. A stall BEFORE the first token is
+    // a model failure like any other: try the next model. (The old
+    // code had no catch here, so a stalled stream threw out of the
+    // generator and the fallback model was never tried.) A stall
+    // AFTER the first token is thrown — the caller already has a
+    // partial reply and keeps it instead of starting over.
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    let yielded = false;
     try {
       while (true) {
         const { done, value } = await reader.read();
@@ -219,16 +256,45 @@ export async function* streamGemini(
               | { text?: string }[]
               | undefined;
             for (const part of parts ?? []) {
-              if (part.text) yield part.text;
+              if (part.text) {
+                if (!yielded) {
+                  yielded = true;
+                  // First token arrived: the reply is real. Give the
+                  // rest of the stream the remaining budget instead
+                  // of the short first-chunk timeout.
+                  clearTimeout(timer);
+                  timer = setTimeout(
+                    () => controller.abort(),
+                    Math.max(0, deadline - Date.now())
+                  );
+                }
+                yield part.text;
+              }
             }
           } catch {
             // Ignore one malformed SSE line and keep streaming.
           }
         }
       }
+      if (!yielded) {
+        // 200 with an empty stream is not a success — try the next
+        // model instead of ending the chain here.
+        lastError = new Error(`Gemini returned an empty response (${model})`);
+        continue;
+      }
       return; // success — do not try the next model
+    } catch (e) {
+      if (!yielded) {
+        lastError = new Error(
+          e instanceof Error && e.name === "AbortError"
+            ? `Gemini request timed out (${model})`
+            : `Gemini stream failed (${model})`
+        );
+        continue; // try the next model
+      }
+      throw e; // partial reply already yielded — keep it
     } finally {
-      clearTimeout(timeout);
+      clearTimeout(timer);
       reader.releaseLock();
     }
   }
@@ -243,15 +309,24 @@ export async function generateText(
   messages: ChatMsg[],
   apiKey: string,
   mode: GeminiMode = "auto",
-  systemOverride?: string
+  systemOverride?: string,
+  opts: GeminiOptions = {}
 ): Promise<string> {
   const system =
     (systemOverride ? `${systemOverride}\n` : "") + SYSTEM_PROMPT + modePrompt(mode);
   const maxTokens = modeTokens(mode);
+  // Same budget as the stream: a hung model must not eat the whole
+  // function budget (see FIRST_CHUNK_MS above).
+  const deadline = opts.deadline ?? Date.now() + DEFAULT_BUDGET_MS;
   let lastError: Error | null = null;
   for (const model of CHAT_MODELS) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 60000);
+    const timeout = setTimeout(
+      () => controller.abort(),
+      Math.min(remaining, FIRST_CHUNK_MS)
+    );
     try {
       const res = await fetch(
         `${modelUrl(model, "generateContent")}?key=${encodeURIComponent(apiKey)}`,

@@ -85,7 +85,8 @@ async function handleFileRequest(
   messages: ChatMsg[],
   lastText: string,
   type: FileType,
-  apiKey: string | undefined
+  apiKey: string | undefined,
+  deadline: number
 ): Promise<Response | null> {
   const pashto = isPashto(lastText);
   if (!apiKey) {
@@ -111,7 +112,7 @@ async function handleFileRequest(
   ];
   let raw = "";
   try {
-    for await (const chunk of streamGemini(specMessages, apiKey, "smart")) {
+    for await (const chunk of streamGemini(specMessages, apiKey, "smart", undefined, { deadline })) {
       raw += chunk;
     }
   } catch (e) {
@@ -250,6 +251,20 @@ async function webFallback(text: string): Promise<Response | null> {
   return web ? textStream(web.text, "web") : null;
 }
 
+/** Free web fallback, but never past the deadline: if the sources
+ * cannot answer within the remaining function budget, give up
+ * immediately instead of being killed mid-fallback — the user would
+ * get a dead-end error instead of an answer. */
+async function webFallbackBefore(text: string, deadline: number): Promise<Response | null> {
+  const remaining = deadline - Date.now();
+  if (remaining <= 2000) return null;
+  const web = await Promise.race([
+    webFallback(text),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), remaining)),
+  ]);
+  return web;
+}
+
 /** ROUND 4 — no-key fallback order (the preview has no server key,
  * so this is the path every message takes there):
  *   1. Conversational messages (greetings, who-are-you, small talk,
@@ -270,18 +285,28 @@ async function noKeyFallback(text: string): Promise<Response> {
 
 /** ROUND 4 — Gemini failed although a key IS configured: same order
  * as noKeyFallback, but the last resort is the honest "busy" message
- * (the key exists, so the real AI is expected to work). */
-async function geminiFailureFallback(text: string): Promise<Response> {
+ * (the key exists, so the real AI is expected to work). ROUND 6: the
+ * web step is bounded by the deadline — a slow web fallback after a
+ * slow Gemini must not push the request past the function timeout. */
+async function geminiFailureFallback(text: string, deadline: number): Promise<Response> {
   const topic = getOfflineTopicAnswer(text);
   if (topic !== null) return textStream(topic, "offline");
   if (isFactualQuestion(text)) {
-    const web = await webFallback(text);
+    const web = await webFallbackBefore(text, deadline);
     if (web) return web;
   }
   return textStream(busyMessageFor(text), "busy");
 }
 
 export async function POST(req: NextRequest) {
+  // ROUND 6: Vercel kills this function at 60s. Every Gemini wait
+  // and every fallback must finish inside that budget, with margin
+  // for cold start — so all downstream timeouts hang off this one
+  // deadline (request start + 50s). The old code gave each model
+  // 60s, so one hung model ate the whole budget and the user got a
+  // dead-end error instead of the graceful fallback.
+  const startedAt = Date.now();
+  const deadline = startedAt + 50000;
   // Basic abuse brake: 30 chat requests per minute per IP.
   if (rateLimited(clientIp(req), 30, 60_000)) {
     return new Response(JSON.stringify({ error: "rate-limited" }), {
@@ -334,7 +359,7 @@ export async function POST(req: NextRequest) {
       return textStream(getOfflineAnswer(lastText), "offline");
     }
     try {
-      const text = await generateText(messages, apiKey, chatMode, system);
+      const text = await generateText(messages, apiKey, chatMode, system, { deadline });
       return new Response(JSON.stringify({ text }), {
         headers: {
           "Content-Type": "application/json; charset=utf-8",
@@ -344,7 +369,7 @@ export async function POST(req: NextRequest) {
       });
     } catch (e) {
       console.error("Gemini failed:", e instanceof Error ? e.message : "unknown");
-      const web = await webFallback(lastText);
+      const web = await webFallbackBefore(lastText, deadline);
       if (web) return web;
       return textStream(busyMessageFor(lastText), "busy");
     }
@@ -354,7 +379,7 @@ export async function POST(req: NextRequest) {
   // Adult content was already refused above, so this is safe to run.
   const fileType = !lastImage ? detectFileRequest(lastText) : null;
   if (fileType) {
-    const fileRes = await handleFileRequest(messages, lastText, fileType, apiKey);
+    const fileRes = await handleFileRequest(messages, lastText, fileType, apiKey, deadline);
     if (fileRes) return fileRes;
     // Null means "could not do it" — fall through to normal chat.
   }
@@ -399,16 +424,16 @@ export async function POST(req: NextRequest) {
   let gen: AsyncGenerator<string>;
   let first: IteratorResult<string>;
   try {
-    gen = streamGemini(messages, apiKey, chatMode, system);
+    gen = streamGemini(messages, apiKey, chatMode, system, { deadline });
     first = await gen.next();
   } catch (e) {
     // Server log only: status/message, never the key.
     console.error("Gemini failed:", e instanceof Error ? e.message : "unknown");
-    return geminiFailureFallback(lastText);
+    return geminiFailureFallback(lastText, deadline);
   }
   if (first.done) {
     console.error("Gemini failed: empty response");
-    return geminiFailureFallback(lastText);
+    return geminiFailureFallback(lastText, deadline);
   }
   try {
     const encoder = new TextEncoder();
@@ -439,6 +464,6 @@ export async function POST(req: NextRequest) {
     });
   } catch (e) {
     console.error("Gemini failed:", e instanceof Error ? e.message : "unknown");
-    return geminiFailureFallback(lastText);
+    return geminiFailureFallback(lastText, deadline);
   }
 }
