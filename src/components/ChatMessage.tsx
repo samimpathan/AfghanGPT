@@ -329,7 +329,7 @@ export default function ChatMessage({
    * to the user's own messages, like Muse shows it. `fallbackPhoto`
    * is the default photo for a LOGGED-IN user with no uploaded photo
    * ("/avatar.jpg"); never pass it for guests. */
-  userAvatar?: { name?: string | null; email?: string | null; photoUrl?: string | null; fallbackPhoto?: string | null };
+  userAvatar?: { name?: string | null; email?: string | null; photoUrl?: string | null; fallbackPhoto?: string | null; gradientId?: string | null };
   onRegenerate?: () => void;
   isLastAssistant?: boolean;
   onEditMessage?: (id: string, newText: string) => void;
@@ -439,6 +439,7 @@ export default function ChatMessage({
             email={userAvatar?.email}
             photoUrl={userAvatar?.photoUrl}
             fallbackPhoto={userAvatar?.fallbackPhoto}
+            gradientId={userAvatar?.gradientId}
             size={32}
             className="mt-1"
           />
@@ -509,6 +510,7 @@ export default function ChatMessage({
           email={userAvatar?.email}
           photoUrl={userAvatar?.photoUrl}
           fallbackPhoto={userAvatar?.fallbackPhoto}
+          gradientId={userAvatar?.gradientId}
           size={32}
           className="mt-1"
         />

@@ -167,6 +167,8 @@ export default function HomePage() {
   const [userName, setUserName] = useState<string | null>(null);
   /** The user's own profile photo (Settings → Profile photo). */
   const [userPhoto, setUserPhoto] = useState<string | null>(null);
+  /** Chosen avatar gradient (Settings → Avatar colour, "" = auto). */
+  const [userGradient, setUserGradient] = useState<string>("");
   const [chats, setChats] = useState<LocalChat[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -263,6 +265,7 @@ export default function HomePage() {
       if (saved === "fast" || saved === "smart" || saved === "auto") setModelMode(saved);
       const settings = store.settings();
       setUserPhoto(settings.avatarDataUrl || null);
+      setUserGradient(settings.avatarGradient || "");
       if (settings.displayName) setUserName(settings.displayName);
     } catch {
       // ignore
@@ -292,6 +295,7 @@ export default function HomePage() {
         setStudioFeatures(s.features ?? {});
         // The photo/name may have changed in Settings — refresh them.
         setUserPhoto(s.avatarDataUrl || null);
+        setUserGradient(s.avatarGradient || "");
         if (s.displayName) setUserName(s.displayName);
       } catch {
         // ignore
@@ -307,6 +311,7 @@ export default function HomePage() {
       try {
         const s = store.settings();
         setUserPhoto(s.avatarDataUrl || null);
+        setUserGradient(s.avatarGradient || "");
         if (s.displayName) setUserName(s.displayName);
       } catch {
         // ignore
@@ -314,9 +319,15 @@ export default function HomePage() {
     };
     window.addEventListener("focus", refreshProfile);
     document.addEventListener("visibilitychange", refreshProfile);
+    // Settings changed in ANOTHER tab (same browser, same storage):
+    // the focus/visibility events above do not fire for that, but
+    // the storage event does — without it the avatar there would
+    // stay stale until reload.
+    window.addEventListener("storage", refreshProfile);
     return () => {
       window.removeEventListener("focus", refreshProfile);
       document.removeEventListener("visibilitychange", refreshProfile);
+      window.removeEventListener("storage", refreshProfile);
     };
   }, []);
 
@@ -374,6 +385,7 @@ export default function HomePage() {
       const s = store.settings();
       setUserName(s.displayName || displayNameOf(session.user));
       setUserPhoto(s.avatarDataUrl || null);
+      setUserGradient(s.avatarGradient || "");
       const rows: ChatRow[] = await listChats(session.user.id);
       const loaded: LocalChat[] = rows.map((r) => ({
         id: r.id,
@@ -392,6 +404,7 @@ export default function HomePage() {
         const s = store.settings();
         setUserName(s.displayName || displayNameOf(session.user));
         setUserPhoto(s.avatarDataUrl || null);
+        setUserGradient(s.avatarGradient || "");
       } else {
         // Signed out — the guest session starts empty. Nothing from
         // the signed-in session (or any earlier guest session) is kept.
@@ -1815,7 +1828,7 @@ export default function HomePage() {
                     {/* The USER's avatar (photo or initials) — like Muse.
                         Logged-in users without a photo get /avatar.jpg as
                         the default; guests never do (see UserAvatar). */}
-                    <UserAvatar name={userName} email={userEmail} photoUrl={userPhoto} fallbackPhoto="/avatar.jpg" size={40} />
+                    <UserAvatar name={userName} email={userEmail} photoUrl={userPhoto} fallbackPhoto="/avatar.jpg" gradientId={userGradient} size={40} />
                   </a>
                 ) : (
                   <Link
@@ -1943,6 +1956,7 @@ export default function HomePage() {
                 email={userEmail}
                 photoUrl={userPhoto}
                 fallbackPhoto={userEmail ? "/avatar.jpg" : undefined}
+                gradientId={userGradient}
                 size={40}
               />
             </button>
@@ -2327,7 +2341,7 @@ export default function HomePage() {
                 key={m.id}
                 msg={m}
                 lang={lang}
-                userAvatar={{ name: userName, email: userEmail, photoUrl: userPhoto, fallbackPhoto: userEmail ? "/avatar.jpg" : undefined }}
+                userAvatar={{ name: userName, email: userEmail, photoUrl: userPhoto, fallbackPhoto: userEmail ? "/avatar.jpg" : undefined, gradientId: userGradient }}
                 isLastAssistant={
                   m.role === "assistant" && i === messages.length - 1 && !streaming
                 }

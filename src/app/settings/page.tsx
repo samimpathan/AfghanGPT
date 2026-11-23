@@ -10,7 +10,7 @@ import { t, LANGS, type Lang } from "@/lib/i18n";
 import { supabase } from "@/lib/supabaseClient";
 import { listChats, deleteChat } from "@/lib/chats";
 import { store, type Settings } from "@/lib/store";
-import UserAvatar from "@/components/UserAvatar";
+import UserAvatar, { AVATAR_GRADIENTS, AUTO_GRADIENT_BACKGROUND, initialsOf } from "@/components/UserAvatar";
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -180,13 +180,15 @@ export default function SettingsPage() {
             your photo when set, otherwise your initials on a colour. */}
         <Section title={t(lang, "profileSection")}>
           {settings ? (
+            <>
             <div className="flex items-start gap-4">
               <div className="relative shrink-0">
                 <UserAvatar
                   name={settings.displayName || email?.split("@")[0] || null}
                   email={email}
                   photoUrl={settings.avatarDataUrl || null}
-                  size={72}
+                  gradientId={settings.avatarGradient || undefined}
+                  size={96}
                 />
                 <button
                   type="button"
@@ -237,6 +239,101 @@ export default function SettingsPage() {
                 </div>
               </div>
             </div>
+            {/* Avatar colour: pick the gradient your initials use.
+                Each swatch shows your own initials on that gradient;
+                "Auto" keeps the deterministic one for your name. The
+                preview below shows the same avatar at the three sizes
+                it appears at in the app — the gradient also rims your
+                photo (or the default photo) everywhere as the ring. */}
+            <div className="border-t border-[var(--card-border)] pt-4">
+              <p className="text-sm font-bold">{t(lang, "avatarGradient")}</p>
+              <p className="mt-1 text-xs leading-relaxed text-[var(--muted)]">{t(lang, "avatarGradientHint")}</p>
+              <div className="mt-3 flex flex-wrap gap-2.5" role="radiogroup" aria-label={t(lang, "avatarGradient")}>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={!settings.avatarGradient}
+                  aria-label={t(lang, "avatarGradientAuto")}
+                  onClick={() => updateSettings({ avatarGradient: "" })}
+                  className={`relative shrink-0 rounded-full transition active:scale-90 ${!settings.avatarGradient ? "ring-2 ring-[var(--brand2)] ring-offset-2 ring-offset-[var(--card)]" : ""}`}
+                >
+                  <span
+                    style={{ width: 40, height: 40, background: AUTO_GRADIENT_BACKGROUND, fontSize: 15, textShadow: "0 1px 2px rgba(0, 0, 0, 0.30)" }}
+                    className="flex items-center justify-center rounded-full font-bold text-white"
+                  >
+                    {initialsOf(settings.displayName || email?.split("@")[0] || null, email)}
+                  </span>
+                  {!settings.avatarGradient && (
+                    <span className="absolute -bottom-1 -end-1 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--brand2)] text-white shadow">
+                      <Icon name="check" size={12} />
+                    </span>
+                  )}
+                </button>
+                {AVATAR_GRADIENTS.map((g) => {
+                  const selected = settings.avatarGradient === g.id;
+                  return (
+                    <button
+                      key={g.id}
+                      type="button"
+                      role="radio"
+                      aria-checked={selected}
+                      aria-label={g.label}
+                      onClick={() => updateSettings({ avatarGradient: g.id })}
+                      className={`relative shrink-0 rounded-full transition active:scale-90 ${selected ? "ring-2 ring-[var(--brand2)] ring-offset-2 ring-offset-[var(--card)]" : ""}`}
+                    >
+                      <span
+                        style={{ width: 40, height: 40, background: g.background }}
+                        className="block rounded-full shadow-sm"
+                      />
+                      {selected && (
+                        <span className="absolute -bottom-1 -end-1 flex h-5 w-5 items-center justify-center rounded-full bg-[var(--brand2)] text-white shadow">
+                          <Icon name="check" size={12} />
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-2 text-xs font-bold text-[var(--muted)]">
+                {settings.avatarGradient
+                  ? AVATAR_GRADIENTS.find((g) => g.id === settings.avatarGradient)?.label ?? t(lang, "avatarGradientAuto")
+                  : t(lang, "avatarGradientAuto")}
+              </p>
+              <p className="mt-4 text-sm font-bold">{t(lang, "avatarPreview")}</p>
+              <div className="mt-3 flex items-end gap-6">
+                <div className="flex flex-col items-center gap-1.5">
+                  <UserAvatar
+                    name={settings.displayName || email?.split("@")[0] || null}
+                    email={email}
+                    photoUrl={settings.avatarDataUrl || null}
+                    gradientId={settings.avatarGradient || undefined}
+                    size={96}
+                  />
+                  <span className="text-[11px] text-[var(--muted)]">{t(lang, "avatarPreviewProfile")}</span>
+                </div>
+                <div className="flex flex-col items-center gap-1.5">
+                  <UserAvatar
+                    name={settings.displayName || email?.split("@")[0] || null}
+                    email={email}
+                    photoUrl={settings.avatarDataUrl || null}
+                    gradientId={settings.avatarGradient || undefined}
+                    size={40}
+                  />
+                  <span className="text-[11px] text-[var(--muted)]">{t(lang, "avatarPreviewDrawer")}</span>
+                </div>
+                <div className="flex flex-col items-center gap-1.5">
+                  <UserAvatar
+                    name={settings.displayName || email?.split("@")[0] || null}
+                    email={email}
+                    photoUrl={settings.avatarDataUrl || null}
+                    gradientId={settings.avatarGradient || undefined}
+                    size={32}
+                  />
+                  <span className="text-[11px] text-[var(--muted)]">{t(lang, "avatarPreviewChat")}</span>
+                </div>
+              </div>
+            </div>
+            </>
           ) : (
             <p className="text-sm text-[var(--muted)]">{t(lang, "loading")}</p>
           )}

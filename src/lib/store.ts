@@ -34,6 +34,9 @@ export type Settings = {
   hfKey: string;
   features: Record<string, boolean>;
   avatarDataUrl: string;
+  /** Chosen initials-avatar gradient (AVATAR_GRADIENTS id).
+   * "" = automatic — the deterministic gradient for the user. */
+  avatarGradient: string;
   displayName: string;
   /** Conversation memory: facts the AI remembers about the user.
    * Only included in the system prompt when memoryEnabled is true;
@@ -74,6 +77,7 @@ export const DEFAULT_SETTINGS: Settings = {
     workflows: true,
   },
   avatarDataUrl: "",
+  avatarGradient: "",
   displayName: "",
 };
 
