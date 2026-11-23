@@ -5,6 +5,7 @@ import { Icon } from "@/components/icons";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { t, type Lang } from "@/lib/i18n";
+import { stripMathDelimiters } from "@/lib/mathText";
 import UserAvatar from "@/components/UserAvatar";
 import {
   isSpeechSynthesisSupported,
@@ -586,7 +587,12 @@ export default function ChatMessage({
               },
             }}
           >
-            {msg.content}
+            {/* LaTeX math ($$...$$ / $...$) is converted to readable
+                plain text first (see lib/mathText) — the raw
+                "$$...$$" equation in a Gemini answer rendered
+                literally before this. Code blocks and inline code
+                are protected inside stripMathDelimiters. */}
+            {stripMathDelimiters(msg.content)}
           </ReactMarkdown>
         </div>
         {msg.file && <FileCard file={msg.file} lang={lang} />}

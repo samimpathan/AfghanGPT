@@ -9,6 +9,7 @@ import { useState, type ReactNode } from "react";
 import { Icon } from "@/components/icons";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { stripMathDelimiters } from "@/lib/mathText";
 
 function CodeBlock({ lang, code }: { lang: string; code: string }) {
   const [copied, setCopied] = useState(false);
@@ -76,7 +77,11 @@ export default function Markdown({ text }: { text: string }) {
           },
         }}
       >
-        {text}
+        {/* LaTeX math ($$...$$ / $...$) is converted to readable
+            plain text first (see lib/mathText) — raw "$$" in a chat
+            bubble is worse than a plain equation. Code blocks and
+            inline code are protected inside stripMathDelimiters. */}
+        {stripMathDelimiters(text)}
       </ReactMarkdown>
     </div>
   );

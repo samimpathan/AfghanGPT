@@ -143,7 +143,13 @@ export default function LiveCall({
     setErrorNote(note);
   }, []);
   const [speaking, setSpeaking] = useState(false);
-  const [micOn, setMicOn] = useState(true);
+  /** Mic is OFF until a mic is actually running. It used to
+   * default to true, so the control said "Mic is on" while the
+   * call was still connecting — and after a mic denial the label
+   * stayed "on" next to the denial note (the 08:01 contradiction).
+   * startLive sets it true only after startMic() succeeds, and
+   * false again when startMic() throws. */
+  const [micOn, setMicOn] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
   const [screenOn, setScreenOn] = useState(false);
   const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
@@ -166,7 +172,7 @@ export default function LiveCall({
   const videoStreamRef = useRef<MediaStream | null>(null);
   const videoElRef = useRef<HTMLVideoElement | null>(null);
   const frameTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const micOnRef = useRef(true);
+  const micOnRef = useRef(false);
   const transcriptRef = useRef<TranscriptLine[]>([]);
   const stoppedRef = useRef(false);
   const fallbackRecRef = useRef<MediaRecorder | null>(null);
@@ -660,12 +666,16 @@ export default function LiveCall({
       if (res.ok) {
         try {
           await startMic();
+          // Only now is the mic really running — say so.
+          setMicOn(true);
         } catch (err) {
           // Live connected but the mic is dead (denied / no mic).
           // A "live" call that cannot hear the user would be fake —
           // close the session and fall back to push-to-talk honestly.
           // Only a real denial gets the permission note — no mic
           // found / mic busy is not a permission problem.
+          // The mic is OFF (never "on" next to this note).
+          setMicOn(false);
           const name = (err as { name?: string } | null)?.name ?? "";
           const denied = name === "NotAllowedError" || name === "SecurityError";
           try {
@@ -911,6 +921,10 @@ export default function LiveCall({
       void fallbackToggleMic();
       return;
     }
+    // Still connecting: no mic exists yet, so there is nothing to
+    // mute — toggling here used to flip the label to "Mic is on"
+    // before any mic was running.
+    if (phase === "connecting") return;
     setMicOn((v) => !v);
   };
 
@@ -1061,7 +1075,12 @@ export default function LiveCall({
                 ? t(lang, "recording")
                 : fallbackBusy
                   ? t(lang, "voiceTranscribing")
-                  : t(lang, "liveTapToTalk")}
+                  : // Fallback idle: do NOT claim "the AI is
+                    // listening" — with no mic granted nothing is
+                    // listening. Say what to do instead.
+                    phase === "fallback"
+                    ? t(lang, "livePushToTalkAction")
+                    : t(lang, "liveTapToTalk")}
         </p>
         <p className="mt-2 flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
           {phase === "live" && (
@@ -1081,6 +1100,31 @@ export default function LiveCall({
           <p className="mt-4 max-w-md rounded-2xl bg-black/5 px-4 py-2.5 text-center text-xs leading-relaxed text-amber-800 dark:bg-white/10 dark:text-amber-200">
             {errorNote}
           </p>
+        )}
+        {/* Push-to-talk fallback, made VISIBLE: when the Live call
+            is off, the old screen looked identical to the live one
+            minus the red pill — the mic button was the only fallback
+            and tapping it just re-showed the denial toast, so the
+            08:01 test saw "no push-to-talk fallback". This banner
+            names the mode and gives it a labelled button; the button
+            runs the real fallbackToggleMic path (record ->
+            transcribe -> voice reply through /api/chat). It hides
+            while recording/transcribing, when the status line
+            already says so. */}
+        {phase === "fallback" && !fallbackListening && !fallbackBusy && (
+          <div className="mt-4 w-full max-w-md rounded-2xl bg-[#2457FF]/10 px-4 py-3 text-center ring-1 ring-[#2457FF]/25 dark:bg-[#2457FF]/20 dark:ring-[#2457FF]/40">
+            <p className="text-xs font-medium leading-relaxed text-slate-700 dark:text-slate-200">
+              {t(lang, "livePushToTalk")}
+            </p>
+            <button
+              type="button"
+              onClick={toggleMic}
+              className="mt-2.5 rounded-full bg-[#2457FF] px-4 py-2 text-xs font-bold text-white shadow transition active:scale-95"
+            >
+              <Icon name="mic" size={14} className="me-1.5 inline-block align-middle" />
+              {t(lang, "livePushToTalkAction")}
+            </button>
+          </div>
         )}
         <p className="mt-3 text-center text-[11px] text-slate-400">
           <Icon name="wifi" size={14} className="me-1 inline-block align-middle" /> {t(lang, "liveNeedsWifi")}
@@ -1214,7 +1258,13 @@ export default function LiveCall({
                   ? "bg-white text-slate-900 dark:bg-[#111B30] dark:text-white dark:ring-1 dark:ring-[#263550]"
                   : "bg-red-500 text-white"
             }`}
-            aria-label={micOn ? t(lang, "liveMicOn") : t(lang, "liveMicOff")}
+            aria-label={
+              phase === "fallback"
+                ? t(lang, "livePushToTalkAction")
+                : micOn
+                  ? t(lang, "liveMicOn")
+                  : t(lang, "liveMicOff")
+            }
           >
             {phase === "fallback" ? (fallbackListening ? <Icon name="stop" size={22} /> : <Icon name="mic" size={22} />) : micOn ? <Icon name="mic" size={22} /> : <Icon name="volumeOff" size={22} />}
           </button>
@@ -1231,10 +1281,13 @@ export default function LiveCall({
           {/* FIXES #3: the amber pill above already shows the
               fallback note WITH its (step: detail) suffix — the
               footer must not repeat the same bare sentence a second
-              time. Show the tap-to-talk guidance instead when a
-              diagnostic note is present. */}
-          {phase === "fallback" && !errorNote
-            ? t(lang, "liveFallbackNote")
+              time. In fallback with a diagnostic note, show the
+              push-to-talk action instead of claiming "the AI is
+              listening" while no mic is running. */}
+          {phase === "fallback"
+            ? errorNote
+              ? t(lang, "livePushToTalkAction")
+              : t(lang, "liveFallbackNote")
             : t(lang, "liveTapToTalk")}
         </p>
       </div>
