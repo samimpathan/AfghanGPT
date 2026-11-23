@@ -47,6 +47,8 @@ const GREEK: Record<string, string> = {
 const OPS: Record<string, string> = {
   rightarrow: "→", leftarrow: "←", Rightarrow: "⇒", Leftarrow: "⇐",
   leftrightarrow: "↔", Leftrightarrow: "⇔", to: "→",
+  longrightarrow: "→", longleftarrow: "←", Longrightarrow: "⇒",
+  longleftrightarrow: "↔",
   times: "×", div: "÷", pm: "±", mp: "∓", cdot: "·",
   approx: "≈", leq: "≤", geq: "≥", neq: "≠", equiv: "≡",
   sim: "~", propto: "∝", in: "∈", cup: "∪", cap: "∩",
@@ -121,6 +123,37 @@ export function mathToPlainText(latex: string): string {
             i = g.next;
           } else {
             out += "√";
+          }
+        } else if (cmd === "xrightarrow" || cmd === "xleftarrow" ||
+          cmd === "xleftrightarrow" || cmd === "xRightarrow" ||
+          cmd === "xLeftarrow" || cmd === "xLeftrightarrow") {
+          // Extensible arrow: \xrightarrow[below]{above} — the label
+          // sits ABOVE the arrow in LaTeX. In plain text the label
+          // goes before the arrow: "above →" (below-label, if any,
+          // follows in parentheses). Without this branch the command
+          // fell into "unknown command" and the arrow vanished while
+          // the label survived — the photosynthesis equation lost
+          // its → (2026-11-23 browser test).
+          const arrow: Record<string, string> = {
+            xrightarrow: "→", xleftarrow: "←", xleftrightarrow: "↔",
+            xRightarrow: "⇒", xLeftarrow: "⇐", xLeftrightarrow: "⇔",
+          };
+          let below = "";
+          if (latex[i] === "[") {
+            const close = latex.indexOf("]", i);
+            if (close !== -1) {
+              below = latex.slice(i + 1, close);
+              i = close + 1;
+            }
+          }
+          const g = latex[i] === "{" ? readBraced(latex, i) : null;
+          if (g) {
+            const label = mathToPlainText(g.content);
+            out += label ? `${label} ${arrow[cmd]}` : arrow[cmd];
+            if (below) out += ` (${mathToPlainText(below)})`;
+            i = g.next;
+          } else {
+            out += arrow[cmd];
           }
         } else if (GREEK[cmd]) {
           out += GREEK[cmd];
