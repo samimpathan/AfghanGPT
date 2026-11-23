@@ -21,28 +21,54 @@ import {
  * Architecture (the browser NEVER holds the real key):
  *   1. POST /api/live-token mints a short-lived ephemeral token
  *      server-side from GEMINI_API_KEY || GEMINIAPIKEY.
- *   2. The client opens a WebSocket to the Gemini Live API with it:
+ *   2. The client opens a WebSocket to the Gemini Live API with it.
+ *      Ephemeral tokens work ONLY on the *Constrained* endpoint:
+ *      the plain BidiGenerateContent endpoint takes a raw API key
+ *      (?key=...) and rejects an ephemeral token, closing the
+ *      socket at once. That was FAILURE B (2026-11-23): the call
+ *      never connected and the mic was never requested, because
+ *      the mic only starts after the socket connects. Google docs:
+ *      "Ephemeral authentication tokens ... used with
+ *      GenerativeService.BidiGenerateContentConstrained, either by
+ *      passing the token in an `access_token` query parameter"
+ *      (ai.google.dev/api/live, "Ephemeral authentication tokens";
+ *      also aistudio.google.com/docs/live-api/get-started-websocket,
+ *      "Authentication with ephemeral tokens").
  *      wss://generativelanguage.googleapis.com/ws/
  *      google.ai.generativelanguage.v1beta.GenerativeService
- *      .BidiGenerateContent?access_token=<token>
+ *      .BidiGenerateContentConstrained?access_token=<token>
+ *      The token IS the `name` field of the auth_tokens response
+ *      ("auth_tokens/<hex>") - the docs say "pass the value under
+ *      token.name back to your client"; there is no `token` field.
  *   3. Mic audio streams as 16kHz PCM; the AI's 24kHz PCM audio
  *      plays back. Camera / screen-share frames go as Live video
  *      input (JPEG, ~1 fps) so the AI can see the screen and
  *      answer about it.
- *   Models tried in order: gemini-2.5-flash-preview-native-audio-dialog,
- *   then gemini-live-2.5-flash-preview.
+ *   Models tried in order: gemini-3.8-live (current Live model),
+ *   then gemini-2.5-flash-native-audio-preview-12-2025. The old
+ *   names (gemini-2.5-flash-preview-native-audio-dialog,
+ *   gemini-live-2.5-flash-preview) are dead for this key: both
+ *   return HTTP 404 NOT_FOUND from GET v1beta/models/<name>.
  *
  * HONEST FALLBACK: if the token route or the Live API is not
  * available for this key, this screen does NOT pretend a live call
  * works — it switches to push-to-talk voice mode (record ->
- * transcribe -> voice reply) and says so clearly.
+ * transcribe -> voice reply) and says so clearly, naming WHICH
+ * step failed (token mint / socket open / setup) instead of one
+ * generic fallback note, so a re-test can tell them apart.
  * A live call uses a lot of data — a Wi-Fi note is shown.
  * The adult-refusal rule is in the Live session system instruction.
  */
 
 const LIVE_MODELS = [
-  "gemini-2.5-flash-preview-native-audio-dialog",
-  "gemini-live-2.5-flash-preview",
+  // Current Live model (docs' example model everywhere; verified
+  // 2026-11-23 via GET v1beta/models/<name> with the real key:
+  // HTTP 200, methods ["bidiGenerateContent"]).
+  "gemini-3.8-live",
+  // Still alive for this key (same probe: HTTP 200). The old names
+  // gemini-2.5-flash-preview-native-audio-dialog and
+  // gemini-live-2.5-flash-preview both return HTTP 404 NOT_FOUND.
+  "gemini-2.5-flash-native-audio-preview-12-2025",
 ] as const;
 
 const LIVE_SYSTEM = `You are "د عبدالصمیم مرستیال" (Samim AI), the free voice AI assistant of Abdul Samim Niazai (Samim Pathan), founder of DevConnect. You are talking to the user by voice, live. Answer in the user's language — Pashto by default, otherwise the language they speak in. Keep spoken answers short and simple, like a natural conversation. You are an expert in all technology — programming, websites, mobile apps, AI, databases, networking, cybersecurity, hardware and cloud — as well as teaching English and general knowledge. If the user shows you their screen or camera, describe and help with what you see. Never claim to be Muse, ChatGPT, or Google. If the user asks for porn, adult or sexy content, do not generate it — reply only in Pashto: "دا محتوا نه لرو. نور هر رقم پوښتنه کولای شې — پروګرامینګ، ویبسایټ، انګلیسی او نور — په خوښۍ به دې مرسته وکړم."`;
@@ -53,14 +79,13 @@ type TranscriptLine = { role: "user" | "assistant"; text: string };
 /** TTS voice language for the Live session (Google docs:
  * "Configure language and voice" — cloud.google.com/vertex-ai/
  * generative-ai/docs/live-api/configure-language-voice).
- * The native-audio model (first in LIVE_MODELS) switches languages
- * naturally and follows the system instruction; languageCode only
- * steers the TTS voice on the non-native model. Only codes Google
- * lists for these 2.5 models are sent: Pashto (ps) and Persian
- * (fa) are listed ONLY for gemini-3.8-live, so sending ps-AF /
- * fa-IR here could fail setup — for ps/fa the system instruction
- * + automatic input detection (languageCodes: [] below) carry the
- * language instead. */
+ * The Live models switch languages naturally and follow the
+ * system instruction; languageCode only steers the TTS voice.
+ * Only codes Google lists for Live are sent (en-US, ar-EG are in
+ * the published list). Pashto/Dari omit it - sending an unlisted
+ * code could fail setup - and the system instruction + automatic
+ * input detection (languageCodes: [] below) carry the language
+ * instead. */
 const LIVE_VOICE_LANG: Partial<Record<Lang, string>> = {
   en: "en-US",
   ar: "ar-EG",
@@ -270,7 +295,10 @@ export default function LiveCall({
       const data = dataUrl.split(",")[1] ?? "";
       ws.send(
         JSON.stringify({
-          realtimeInput: { mediaChunks: [{ mimeType: "image/jpeg", data }] },
+          // realtimeInput.mediaChunks is DEPRECATED (api.live:
+          // "Use one of audio, video, or text instead") - video
+          // frames go in the `video` field (get-started-websocket).
+          realtimeInput: { video: { mimeType: "image/jpeg", data } },
         })
       );
     } catch {
@@ -321,24 +349,88 @@ export default function LiveCall({
     processor.connect(ctx.destination);
   }, []);
 
-  /** Connect with one model; returns true when the session is live. */
+  /**
+   * Connect with one model. Returns { ok: true } when the session is
+   * live, otherwise WHICH step failed, so the UI can say so honestly
+   * instead of one generic fallback:
+   *   token  - /api/live-token failed (no key / minting failed)
+   *   socket - the WebSocket never opened (handshake rejected, or
+   *            closed before setup; close code captured when known)
+   *   setup  - the socket opened but the server rejected the setup
+   *            (error message captured) or never sent setupComplete
+   * The mic is deliberately NOT requested here: startMic runs only
+   * after this returns ok, so a socket/setup failure means no mic
+   * prompt ever appears - that is expected, not a mic bug.
+   */
+  type ConnectResult =
+    | { ok: true }
+    | {
+        ok: false;
+        step: "token" | "socket" | "setup";
+        detail: string;
+        noKey?: boolean;
+      };
   const connectWithModel = useCallback(
-    async (model: string): Promise<boolean> => {
+    async (model: string): Promise<ConnectResult> => {
       // Fresh ephemeral token per attempt (tokens are single-use).
-      const tokenRes = await fetch("/api/live-token", { method: "POST" });
-      if (!tokenRes.ok) return false;
+      let tokenRes: Response;
+      try {
+        tokenRes = await fetch("/api/live-token", { method: "POST" });
+      } catch {
+        return { ok: false, step: "token", detail: "token request failed" };
+      }
+      if (!tokenRes.ok) {
+        let code = "";
+        try {
+          code = ((await tokenRes.json()) as { error?: string }).error ?? "";
+        } catch {
+          // non-JSON error body - the status below is enough
+        }
+        return {
+          ok: false,
+          step: "token",
+          detail: `HTTP ${tokenRes.status}${code ? ` ${code}` : ""}`,
+          noKey: code === "no-key",
+        };
+      }
       const { token } = (await tokenRes.json()) as { token?: string };
-      if (!token) return false;
+      if (!token) {
+        return { ok: false, step: "token", detail: "empty token" };
+      }
+      // Ephemeral tokens go ONLY to the Constrained endpoint (see the
+      // file header). The token value is "auth_tokens/<hex>" - its
+      // alphabet is URL-safe in a query value, so it is passed raw,
+      // exactly as in Google's own example (?access_token=<token>),
+      // not percent-encoded.
       const wsUrl =
-        "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?access_token=" +
-        encodeURIComponent(token);
-      return await new Promise<boolean>((resolve) => {
+        "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained?access_token=" +
+        token;
+      return await new Promise<ConnectResult>((resolve) => {
         let settled = false;
+        let opened = false;
+        let serverError: string | null = null;
+        let closeCode: number | null = null;
+        let closeReason = "";
+        // onerror carries no detail and is normally followed at once
+        // by onclose, which DOES carry the code - so wait up to 1s
+        // for onclose before settling, instead of losing the code.
+        let failTimer: ReturnType<typeof setTimeout> | null = null;
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
+        const failDetail = (): string => {
+          if (!opened) {
+            if (closeCode !== null) {
+              return `closed ${closeCode}${closeReason ? ` (${closeReason})` : ""}`;
+            }
+            return "handshake failed";
+          }
+          if (serverError) return serverError.slice(0, 120);
+          return "no setupComplete in 20s";
+        };
         const settle = (ok: boolean) => {
           if (settled) return;
           settled = true;
+          if (failTimer) clearTimeout(failTimer);
           if (!ok) {
             try {
               ws.close();
@@ -346,11 +438,18 @@ export default function LiveCall({
               // ignore
             }
             if (wsRef.current === ws) wsRef.current = null;
+            resolve({
+              ok: false,
+              step: !opened ? "socket" : "setup",
+              detail: failDetail(),
+            });
+            return;
           }
-          resolve(ok);
+          resolve({ ok: true });
         };
         const setupTimer = setTimeout(() => settle(false), 20000);
         ws.onopen = () => {
+          opened = true;
           ws.send(
             JSON.stringify({
               setup: {
@@ -360,7 +459,7 @@ export default function LiveCall({
                   speechConfig: {
                     voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } },
                     // Voice language, only for codes Google lists for
-                    // these 2.5 models (see LIVE_VOICE_LANG above).
+                    // the Live models (see LIVE_VOICE_LANG above).
                     // Pashto/Dari omit it — the system instruction
                     // + automatic detection carry the language.
                     ...(LIVE_VOICE_LANG[lang]
@@ -398,6 +497,7 @@ export default function LiveCall({
             return;
           }
           if (msg.error) {
+            serverError = msg.error.message ?? "setup rejected";
             clearTimeout(setupTimer);
             settle(false);
             return;
@@ -419,9 +519,12 @@ export default function LiveCall({
         };
         ws.onerror = () => {
           clearTimeout(setupTimer);
-          settle(false);
+          if (failTimer) return;
+          failTimer = setTimeout(() => settle(false), 1000);
         };
-        ws.onclose = () => {
+        ws.onclose = (ev) => {
+          closeCode = ev.code;
+          closeReason = ev.reason ?? "";
           clearTimeout(setupTimer);
           // A close before setup means this model failed; after setup
           // it means the call dropped — fall back honestly.
@@ -438,10 +541,11 @@ export default function LiveCall({
 
   /** Try the Live API; on any failure switch to push-to-talk. */
   const startLive = useCallback(async () => {
+    let lastFail: Extract<ConnectResult, { ok: false }> | null = null;
     for (const model of LIVE_MODELS) {
       if (stoppedRef.current) return;
-      const ok = await connectWithModel(model);
-      if (ok) {
+      const res = await connectWithModel(model);
+      if (res.ok) {
         try {
           await startMic();
         } catch (err) {
@@ -463,11 +567,23 @@ export default function LiveCall({
         }
         return;
       }
+      lastFail = res;
     }
     if (stoppedRef.current) return;
-    // No Live model worked for this key — honest fallback, not a fake call.
+    // No Live model worked for this key — honest fallback, not a fake
+    // call. Say WHICH step failed (token / socket / setup) plus the
+    // captured detail, so a re-test can tell the causes apart.
     setPhase("fallback");
-    setErrorNote(t(lang, "liveUnavailable"));
+    const f = lastFail;
+    if (!f) {
+      setErrorNote(t(lang, "liveUnavailable"));
+      return;
+    }
+    const base =
+      f.step === "token"
+        ? t(lang, f.noKey ? "liveNoKey" : "liveTokenFailed")
+        : t(lang, "liveUnavailable");
+    setErrorNote(`${base} (${f.step}: ${f.detail})`);
   }, [connectWithModel, startMic, lang]);
 
   useEffect(() => {
@@ -700,7 +816,7 @@ export default function LiveCall({
       ws.send(
         JSON.stringify({
           realtimeInput: {
-            mediaChunks: [{ mimeType: file.type || "image/jpeg", data }],
+            video: { mimeType: file.type || "image/jpeg", data },
           },
         })
       );

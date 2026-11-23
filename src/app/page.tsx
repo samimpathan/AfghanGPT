@@ -190,6 +190,10 @@ export default function HomePage() {
   const [thinkHarder, setThinkHarder] = useState(false);
   const [liveCallOpen, setLiveCallOpen] = useState(false);
   const [screenShareOpen, setScreenShareOpen] = useState(false);
+  /** FAILURE A fix: when screen capture is unavailable / denied,
+   * the fallback is a VISIBLE card the user taps — never a
+   * programmatic picker click (see openScreenShare). */
+  const [screenPhotoFallbackOpen, setScreenPhotoFallbackOpen] = useState(false);
   // Merged studios + master-prompt features (v3.3).
   const [tempMode, setTempMode] = useState(false);
   const [chatMeta, setChatMeta] = useState<Record<string, ChatMeta>>({});
@@ -1212,18 +1216,21 @@ export default function HomePage() {
     setAttachOpen(false);
     // Phones first: getDisplayMedia does not exist in most Android
     // phone browsers (Chrome Android has no screen capture at all).
-    // The button must never be dead — open the photo picker so the
-    // user photographs their screen (or picks a screenshot) and it
-    // is sent as a photo question instead.
+    // FAILURE A fix: do NOT open the photo picker here with a
+    // programmatic photoInputRef.click() — the live re-test
+    // (2026-11-23) proved that click never opens the picker, so
+    // the user only ever saw the toast and had no working path.
+    // Instead show the tappable fallback card below: the user taps
+    // its big button (a fresh gesture), and THAT tap opens the
+    // picker. The short toast stays as well.
     if (!navigator.mediaDevices?.getDisplayMedia) {
       showNotice(
         tx(
           "screenPhotoFallback",
-          "Screen capture isn't available on this phone — take a photo of your screen instead and the AI will describe it."
+          "Screen capture isn't available on this device — take a photo of your screen instead and the AI will describe it."
         )
       );
-      screenAutoSendRef.current = Date.now();
-      photoInputRef.current?.click();
+      setScreenPhotoFallbackOpen(true);
       return;
     }
     try {
@@ -1233,20 +1240,36 @@ export default function HomePage() {
       stream.getVideoTracks()[0]?.addEventListener("ended", closeScreenShare);
     } catch {
       // FAILURE 2 fix: on desktop the API EXISTS but the call can
-      // still be denied (user cancels / browser blocks it) — the old
-      // code only showed the blocked toast and left the user with no
-      // working path. Same photo fallback as the missing-API branch
-      // above: photograph the screen and the AI answers it as a
-      // photo question, so the button always leads somewhere.
+      // still be denied (user cancels / browser blocks it). Same
+      // tappable fallback as the missing-API branch above — a
+      // programmatic click AFTER this awaited rejection is doubly
+      // dead, because the tap gesture that opened the menu has
+      // expired by the time the rejection lands. The button must
+      // always lead somewhere the user can tap.
       showNotice(
         tx(
           "screenPhotoFallback",
-          "Screen capture isn't available on this phone — take a photo of your screen instead and the AI will describe it."
+          "Screen capture isn't available on this device — take a photo of your screen instead and the AI will describe it."
         )
       );
-      screenAutoSendRef.current = Date.now();
-      photoInputRef.current?.click();
+      setScreenPhotoFallbackOpen(true);
     }
+  };
+
+  /** FAILURE A fix — the ONLY place the photo picker is opened for
+   * the screen-share fallback, and only from a real user tap on the
+   * fallback card's button. This handler runs directly inside the
+   * tap gesture, so the browser allows the picker. It arms the
+   * auto-send window NOW (at tap time, not when Screen share was
+   * first pressed), closes the card, then opens the picker; the
+   * picked photo lands in pendingImage via the photo input's
+   * onChange → onPhotoPicked, and the existing screen-share
+   * auto-send effect sends it as a photo question whose reply is
+   * read aloud — exactly like the getDisplayMedia success path. */
+  const openScreenPhotoPicker = () => {
+    screenAutoSendRef.current = Date.now();
+    setScreenPhotoFallbackOpen(false);
+    photoInputRef.current?.click();
   };
 
   const closeScreenShare = () => {
@@ -1307,6 +1330,22 @@ export default function HomePage() {
       )
     );
   }, [pendingImage, send, streaming, lang]);
+
+  /** FAILURE A: if the user opens the picker from the screen-share
+   * fallback card and then cancels it, disarm the auto-send window
+   * so a much later unrelated photo is never auto-sent as a screen
+   * question. (A `cancel` listener, not an onCancel prop — this
+   * React version's input props type has no onCancel.) Harmless
+   * for ordinary Photos picks — the ref is 0 there anyway. */
+  useEffect(() => {
+    const el = photoInputRef.current;
+    if (!el) return;
+    const onCancel = () => {
+      screenAutoSendRef.current = 0;
+    };
+    el.addEventListener("cancel", onCancel);
+    return () => el.removeEventListener("cancel", onCancel);
+  }, []);
 
   /** Screen-share / voice voice reply: once the auto-sent screen
    * question or voice message finishes streaming, read the reply
@@ -2607,6 +2646,39 @@ export default function HomePage() {
                 type="button"
                 onClick={closeScreenShare}
                 className="rounded-full bg-slate-200 px-4 py-2.5 text-sm dark:bg-slate-800"
+              >
+                {t(lang, "close")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===== Screen-share photo fallback (FAILURE A): screen
+          capture is unavailable / was denied, so the user
+          photographs their screen (or picks a screenshot) instead.
+          A modal with a BIG tappable button — the toast alone never
+          opened the picker. Tapping the button calls
+          openScreenPhotoPicker (fresh gesture → picker opens), the
+          photo lands in pendingImage, and the existing auto-send
+          effect sends it as a photo question, reply read aloud. */}
+      {screenPhotoFallbackOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4">
+          <div className="mx-auto w-full max-w-md rounded-2xl bg-white p-4 text-slate-900 dark:bg-[#0D1426] dark:text-[#EAF2FF]">
+            <p className="text-base font-bold">{t(lang, "screenPhotoFallbackTitle")}</p>
+            <p className="mt-1 text-sm leading-relaxed text-slate-500">{t(lang, "screenPhotoFallback")}</p>
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={openScreenPhotoPicker}
+                className="w-full rounded-full bg-[#2457FF] px-4 py-3 text-base font-bold text-white"
+              >
+                {t(lang, "screenPhotoFallbackAction")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setScreenPhotoFallbackOpen(false)}
+                className="w-full rounded-full bg-slate-200 px-4 py-2.5 text-sm dark:bg-slate-800"
               >
                 {t(lang, "close")}
               </button>
