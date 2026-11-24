@@ -1768,7 +1768,7 @@ export default function HomePage() {
               <img src="/logo-mark.png" alt="AfghanGPT" className="h-7 w-7 shrink-0 dark:hidden" />
               <img src="/logo-mark-dark.png" alt="AfghanGPT" className="hidden h-7 w-7 shrink-0 dark:block" />
               <p className="min-w-0 flex-1 truncate text-lg font-bold">
-                {t(lang, "appShort")}
+                Afghan<span className="text-[#00A060]">GPT</span>
                 {isAdmin && (
                   <span className="ms-1 rounded-full bg-amber-400 px-2 py-0.5 align-middle text-[11px] font-bold text-black">
                     {t(lang, "admin")}
@@ -2253,7 +2253,7 @@ export default function HomePage() {
           <span className="hidden shrink-0 items-center gap-2 md:flex">
             <img src="/logo-mark.png" alt="AfghanGPT" className="h-9 w-9 shrink-0 dark:hidden" />
             <img src="/logo-mark-dark.png" alt="AfghanGPT" className="hidden h-9 w-9 shrink-0 dark:block" />
-            <span className="text-lg font-bold tracking-tight">AfghanGPT</span>
+            <span className="text-lg font-bold tracking-tight">Afghan<span className="text-[#00A060]">GPT</span></span>
           </span>
 
           {/* Model picker (centre) */}

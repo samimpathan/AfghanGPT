@@ -109,7 +109,7 @@ function SidebarNav({
         <Link href="/" onClick={onNavigate} className="flex min-w-0 items-center gap-2" aria-label="AfghanGPT">
           <img src="/logo-mark.png" alt="AfghanGPT" className="h-9 w-9 shrink-0 dark:hidden" />
           <img src="/logo-mark-dark.png" alt="AfghanGPT" className="hidden h-9 w-9 shrink-0 dark:block" />
-          {collapsed ? null : <span className="truncate text-lg font-bold tracking-tight">AfghanGPT</span>}
+          {collapsed ? null : <span className="truncate text-lg font-bold tracking-tight">Afghan<span className="text-[#00A060]">GPT</span></span>}
         </Link>
         {onClose ? (
           <button
@@ -340,7 +340,7 @@ export default function AppShell({
             <Link href="/" className="flex min-w-0 items-center gap-2 px-1">
               <img src="/logo-mark.png" alt="AfghanGPT" className="h-8 w-8 shrink-0 dark:hidden" />
               <img src="/logo-mark-dark.png" alt="AfghanGPT" className="hidden h-8 w-8 shrink-0 dark:block" />
-              <span className="truncate text-base font-bold">AfghanGPT</span>
+              <span className="truncate text-base font-bold">Afghan<span className="text-[#00A060]">GPT</span></span>
             </Link>
             <span className="min-w-0 flex-1" />
             {actions}
