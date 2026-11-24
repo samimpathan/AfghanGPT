@@ -16,6 +16,9 @@ export default function AboutPage() {
       <div className="flex flex-col gap-4">
         {/* Founder hero: photo, name, titles, what the app is. */}
         <Card className="p-6 text-center sm:p-8">
+          {/* Official AfghanGPT logo lockup. */}
+          <img src="/logo.png" alt="AfghanGPT" className="mx-auto mb-5 w-[220px] max-w-full dark:hidden" />
+          <img src="/logo-dark.png" alt="AfghanGPT" className="mx-auto mb-5 hidden w-[220px] max-w-full dark:block" />
           {/* Founder photo in the same zoomed circular frame used
               everywhere else: public/avatar.jpg is a 3:4 full-body
               portrait, so plain object-cover shows the whole body

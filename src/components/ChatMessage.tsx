@@ -348,11 +348,44 @@ export default function ChatMessage({
   const [moreOpen, setMoreOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportText, setReportText] = useState("");
+  const moreBtnRef = useRef<HTMLButtonElement | null>(null);
+  const moreMenuRef = useRef<HTMLDivElement | null>(null);
+  /** px the ••• menu is shifted right so it never leaves the viewport
+   * (see the clamp effect below). 0 wherever it already fits. */
+  const [moreMenuShift, setMoreMenuShift] = useState(0);
   const isLong = msg.content.length > LONG_MESSAGE_CHARS;
 
   useEffect(() => {
     setReaction(loadReactions()[msg.id] ?? null);
   }, [msg.id]);
+
+  // ••• menu viewport clamp (audit §9 P0 item 6): the menu is
+  // right-anchored to its button (physical right-0 — the row is
+  // dir="ltr", so it cannot flip by language) and opens downward.
+  // On a phone the action row wraps, so the ••• button can sit near
+  // the left edge (right edge ≈165px at 390px) where a 224px
+  // right-anchored menu would stick out left by ~60px. Shift it right
+  // just enough to keep its left edge ≥8px inside the viewport;
+  // everywhere it already fits the shift is 0 and the menu stays
+  // exactly right-aligned with the button.
+  useEffect(() => {
+    if (!moreOpen) {
+      setMoreMenuShift(0);
+      return;
+    }
+    const clamp = () => {
+      const btn = moreBtnRef.current;
+      const menu = moreMenuRef.current;
+      if (!btn || !menu) return;
+      // Right-anchored: the menu's right edge sits on the button's
+      // right edge, so its left edge would be right - width.
+      const left = btn.getBoundingClientRect().right - menu.offsetWidth;
+      setMoreMenuShift(Math.max(0, 8 - left));
+    };
+    clamp();
+    window.addEventListener("resize", clamp);
+    return () => window.removeEventListener("resize", clamp);
+  }, [moreOpen, isLastAssistant]);
 
   const setReactionStored = (value: "like" | "dislike") => {
     const next = value === reaction ? null : value;
@@ -403,7 +436,7 @@ export default function ChatMessage({
   if (isUser) {
     if (editing) {
       return (
-        <div className="msg-in flex min-w-0 items-start justify-end gap-2">
+        <div dir="ltr" className="msg-in flex min-w-0 items-start justify-end gap-2">
           <div className="min-w-0 w-[82%] max-w-[82%]">
             <textarea
               dir="auto"
@@ -446,13 +479,18 @@ export default function ChatMessage({
         </div>
       );
     }
-    // Physical margins (ml-auto) — NOT justify-end — so the bubble stays on
-    // the RIGHT even when the page is RTL (Pashto/Dari), like the video.
-    // dir="auto" + unicode-bidi: plaintext lets each line pick its own
-    // direction, so mixed Pashto/English text does not get jumbled.
-    // The user's own avatar sits at the right end, like Muse shows it.
+    // Message sides are PHYSICAL, not logical: the user's bubble is
+    // ALWAYS on the RIGHT and the AI answer ALWAYS on the LEFT, in
+    // both RTL (Pashto/Dari) and LTR (English) — like the video and
+    // like ChatGPT. justify-end flips in RTL (main axis runs
+    // right-to-left, so "end" is the left side), which is exactly
+    // how the sides got reversed in Pashto. Forcing dir="ltr" on the
+    // row keeps justify-end physical RIGHT; the text inside still
+    // picks its own direction per line via dir="auto" + plaintext
+    // bidi. The user's own avatar sits at the right end, like Muse
+    // shows it.
     return (
-      <div className="msg-in flex min-w-0 items-start justify-end gap-2">
+      <div dir="ltr" className="msg-in flex min-w-0 items-start justify-end gap-2">
         <div className="min-w-0 max-w-[78%]">
           {msg.image && (
             <img
@@ -521,9 +559,11 @@ export default function ChatMessage({
   // Assistant: PLAIN TEXT (no bubble, Gemini/ChatGPT style) with a
   // small circular avatar at the start (ChatGPT-style) and the
   // action row underneath: like/dislike, regenerate, share, copy,
-  // ••• (Branch / Export / Report), speaker.
+  // ••• (Branch / Export / Report), speaker. The row is dir="ltr"
+  // (see the user row above): the AI answer is ALWAYS on the LEFT,
+  // avatar at the far left, in both RTL and LTR.
   return (
-    <div className="msg-in flex min-w-0 items-start gap-3">
+    <div dir="ltr" className="msg-in flex min-w-0 items-start gap-3">
       {/* AI avatar through the face-zoom frame (ROUND 5, see
           globals.css .ai-avatar-frame): /avatar.jpg is a 3:4
           full-body portrait, so a plain object-cover circle left
@@ -649,6 +689,7 @@ export default function ChatMessage({
           <div className="relative">
             <button
               type="button"
+              ref={moreBtnRef}
               onClick={() => {
                 setMoreOpen((v) => !v);
                 setReportOpen(false);
@@ -669,7 +710,17 @@ export default function ChatMessage({
                   }}
                   className="fixed inset-0 z-20 cursor-default"
                 />
-                <div className="absolute bottom-full z-30 mb-1 w-56 rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md">
+                {/* Anchored to the ••• button: physical right-0 (the
+                    row is dir="ltr", so this is the button's right
+                    edge in both RTL and LTR), opening downward
+                    (top-full); max-w keeps it inside narrow screens,
+                    and moreMenuShift (see above) nudges it right only
+                    when it would otherwise leave the left edge. */}
+                <div
+                  ref={moreMenuRef}
+                  style={moreMenuShift ? { right: -moreMenuShift } : undefined}
+                  className="absolute right-0 top-full z-30 mt-1 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md"
+                >
                   <button
                     type="button"
                     onClick={() => {

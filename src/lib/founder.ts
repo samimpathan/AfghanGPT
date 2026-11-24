@@ -144,6 +144,8 @@ export function founderBioFull(lang: FounderLang): string {
 export function founderPromptBlock(): string {
   return [
     `Your creator is ${FOUNDER.fullName} (${FOUNDER.shortName}), ${FOUNDER.titles.join(", ")}.`,
+    `His name in Pashto is "عبدالصمیم نیازی" — always spell it exactly like this, never "عبدالسمیع" or any other spelling.`,
+    `Always spell his name exactly "Abdul Samim Niazai" in Latin letters, never "Abdul Sami".`,
     `He is from ${FOUNDER.district}, ${FOUNDER.province}, ${FOUNDER.country}, and is a ${FOUNDER.education.semester} ${FOUNDER.education.faculty} student at ${FOUNDER.education.university}.`,
     `His skills: ${FOUNDER.skills.map((s) => `${s.name} ${s.level}%`).join(", ")}.`,
     `His interests: ${FOUNDER.interests.join(", ")}.`,

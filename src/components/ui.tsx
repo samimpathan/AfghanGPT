@@ -87,15 +87,17 @@ export function Stat({ label, value, hint }: { label: string; value: string; hin
 export function Spinner({ label = "Loading…" }: { label?: string }) {
   return (
     <div className="flex items-center gap-2 text-sm text-[var(--muted)]">
-      <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-violet-500 border-t-transparent" />
+      <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-[var(--brand)] border-t-transparent" />
       {label}
     </div>
   );
 }
 
-export function Badge({ children, tone = "violet" }: { children: ReactNode; tone?: "violet" | "green" | "red" | "amber" | "cyan" }) {
+export function Badge({ children, tone = "blue" }: { children: ReactNode; tone?: "blue" | "green" | "red" | "amber" | "cyan" }) {
   const tones: Record<string, string> = {
-    violet: "bg-violet-500/15 text-violet-600 dark:text-violet-300",
+    // "blue" is the brand tone (single brand colour #2457FF); the other
+    // tones are semantic status colours, not brand usage.
+    blue: "bg-[var(--brand)]/15 text-[var(--brand)]",
     green: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300",
     red: "bg-red-500/15 text-red-600 dark:text-red-300",
     amber: "bg-amber-500/15 text-amber-600 dark:text-amber-300",

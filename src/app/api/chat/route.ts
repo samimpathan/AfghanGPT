@@ -3,6 +3,7 @@ import { streamGemini, generateText, generateImage, type ChatMsg, type GeminiMod
 import { getOfflineAnswer, getOfflineTopicAnswer, isPashto } from "@/lib/offlineBrain";
 import { getFreeWebAnswer, detectLang, isFactualQuestion } from "@/lib/freeweb";
 import { isAdultRequest, ADULT_REFUSAL_PS } from "@/lib/safety";
+import { normalizeFounderName, guardChatStream } from "@/lib/nameGuard";
 import { rateLimited, clientIp } from "@/lib/ratelimit";
 import {
   generateFile,
@@ -359,7 +360,9 @@ export async function POST(req: NextRequest) {
       return textStream(getOfflineAnswer(lastText), "offline");
     }
     try {
-      const text = await generateText(messages, apiKey, chatMode, system, { deadline });
+      const text = normalizeFounderName(
+        await generateText(messages, apiKey, chatMode, system, { deadline })
+      );
       return new Response(JSON.stringify({ text }), {
         headers: {
           "Content-Type": "application/json; charset=utf-8",
@@ -424,7 +427,13 @@ export async function POST(req: NextRequest) {
   let gen: AsyncGenerator<string>;
   let first: IteratorResult<string>;
   try {
-    gen = streamGemini(messages, apiKey, chatMode, system, { deadline });
+    // Name guard: every streamed Gemini reply passes through
+    // guardChatStream, so a misspelled founder name (the model
+    // sometimes writes عبدالسمیع for عبدالصمیم) is corrected
+    // before the user sees it — even split across chunks.
+    gen = guardChatStream(
+      streamGemini(messages, apiKey, chatMode, system, { deadline })
+    );
     first = await gen.next();
   } catch (e) {
     // Server log only: status/message, never the key.

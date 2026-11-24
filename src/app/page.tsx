@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Image from "next/image";
 import Link from "next/link";
 import ChatMessage, { type UiMessage } from "@/components/ChatMessage";
@@ -139,7 +140,11 @@ function downscaleImage(file: File): Promise<string> {
 /** Three animated dots + the AI avatar + shimmer lines while generating. */
 function TypingDots() {
   return (
-    <div className="msg-in flex min-w-0 items-start gap-3">
+    // dir="ltr" — same fix as the assistant message rows (commit
+    // 5d736e2): the AI avatar + dots sit on the LEFT in both RTL
+    // and LTR. Without it the avatar lands on the right in Pashto/
+    // Dari while the answer it precedes has its avatar on the left.
+    <div dir="ltr" className="msg-in flex min-w-0 items-start gap-3">
       {/* AI avatar through the face-zoom frame (ROUND 5, see
           globals.css .ai-avatar-frame): /avatar.jpg is a 3:4
           full-body portrait, so a plain object-cover circle left
@@ -187,6 +192,43 @@ export default function HomePage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
   const [chatMenuId, setChatMenuId] = useState<string | null>(null);
+  /** FINDING 1 fix (2026-11-24): the chat-item ••• menu is rendered
+   * in a PORTAL (fixed positioning, document.body) instead of
+   * `absolute` inside the scrollable .drawer-scroll — the old menu
+   * was clipped to a ~12px sliver for the last/only chat row and
+   * the drawer backdrop intercepted its clicks. The anchor is the
+   * trigger button's viewport rect, measured at open time; the
+   * menu flips UPWARD when there is no room below, and is clamped
+   * ≥8px inside the viewport horizontally. It closes on resize and
+   * on scroll (after a 300ms grace window for the tap's own
+   * scrollIntoView echo — see the scroll effect below); the anchor
+   * is re-measured 120ms after opening, because tapping a
+   * below-fold row scrolls the list right after the tap. */
+  const [chatMenuAnchor, setChatMenuAnchor] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+  /** FINDING A fix (2026-11-24): the chat-item ••• buttons are
+   * registered in SEPARATE ref maps per sidebar copy — one for the
+   * persistent desktop sidebar, one for the mobile overlay drawer.
+   * The two copies share renderSidebarContent, so a single map was
+   * written by both: the later-mounted mobile copy overwrote the
+   * desktop button for the same chat id, and on desktop the mobile
+   * copy is display:none (rect 0,0,0,0), so the portal anchored at
+   * the clamped (8,8) corner instead of next to its row. Each copy
+   * now only ever writes — and is only ever measured from — its own
+   * map. */
+  type SidebarCopy = "desktop" | "mobile";
+  const desktopChatMenuBtnRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  const mobileChatMenuBtnRefs = useRef<Map<string, HTMLButtonElement>>(new Map());
+  /** When the open menu was opened (ms): scroll events are delivered
+   * ASYNC, so the scrollIntoView echo from tapping a below-fold row
+   * lands AFTER the menu opens — without a grace period it would
+   * instantly close the menu the user just opened (proven by a
+   * Playwright trace: click → menu added → scroll → menu removed,
+   * 15ms). Scrolls inside the grace window are ignored. */
+  const chatMenuOpenedAtRef = useRef(0);
+  const chatMenuRemeasureRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pins, setPins] = useState<string[]>([]);
   const [savedImages, setSavedImages] = useState<string[]>([]);
   const [attachOpen, setAttachOpen] = useState(false);
@@ -235,10 +277,100 @@ export default function HomePage() {
       setMoreOpen(false);
       setAttachOpen(false);
       setChatMenuId(null);
+      setChatMenuAnchor(null);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // FINDING 1: a fixed portal menu must close when the viewport
+  // resizes, or it would float away from its chat row. Scrolls are
+  // subtler: the scrollIntoView echo from the tap itself arrives
+  // AFTER the menu opens (async scroll-event delivery), so scrolls
+  // inside the 300ms grace window are ignored; a later scroll
+  // (keyboard while the menu is open — pointer scrolling is blocked
+  // by the menu backdrop) closes it.
+  useEffect(() => {
+    if (!chatMenuId) return;
+    const onResize = () => {
+      setChatMenuId(null);
+      setChatMenuAnchor(null);
+    };
+    const onScroll = () => {
+      if (Date.now() - chatMenuOpenedAtRef.current < 300) return;
+      setChatMenuId(null);
+      setChatMenuAnchor(null);
+    };
+    window.addEventListener("resize", onResize);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [chatMenuId]);
+
+  /** Anchor a fixed portal menu to a chat row's ••• button: right-
+   * aligned to the button in LTR, left-aligned in RTL (the button
+   * sits at the row's left end there), flipped upward when the
+   * space below is too small for the ~224px menu. Returns null
+   * when the button is not measurable / not on screen. `copy`
+   * selects which sidebar copy's button map is measured — the one
+   * the user actually tapped — so a hidden copy's 0,0,0,0 rect can
+   * never be read (FINDING A). */
+  const computeChatMenuAnchor = useCallback((id: string, copy: SidebarCopy) => {
+    const btnRefs =
+      copy === "desktop" ? desktopChatMenuBtnRefs : mobileChatMenuBtnRefs;
+    const btn = btnRefs.current.get(id);
+    const rect = btn?.getBoundingClientRect();
+    if (!rect) return null;
+    const MENU_W = 224;
+    const MENU_H = 224;
+    const GAP = 4;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    if (rect.bottom < 0 || rect.top > vh) return null;
+    const openUp = rect.bottom + GAP + MENU_H > vh && rect.top - GAP - MENU_H >= 8;
+    const rtl = document.documentElement.dir === "rtl";
+    const left = rtl
+      ? Math.min(Math.max(8, rect.left), vw - MENU_W - 8)
+      : Math.min(Math.max(8, rect.right - MENU_W), vw - MENU_W - 8);
+    // Final clamp: whatever the row rect was (e.g. measured mid-scroll
+    // with the button half out of view), the menu itself always sits
+    // ≥8px inside the viewport, top and bottom.
+    const rawTop = openUp ? rect.top - GAP - MENU_H : rect.bottom + GAP;
+    const top = Math.min(Math.max(8, rawTop), Math.max(8, vh - MENU_H - 8));
+    return { top, left };
+  }, []);
+
+  /** Open the chat-item ••• menu as a fixed portal. The anchor is
+   * measured at tap time AND re-measured 120ms later: tapping a
+   * below-fold row scrolls the list (focus scroll / scrollIntoView)
+   * right after the tap, moving the button — without the re-measure
+   * the menu would stay glued to the row's old, off-screen spot.
+   * Both measurements read the same copy's map (the copy that was
+   * tapped — FINDING A). */
+  const openChatMenu = useCallback(
+    (id: string, copy: SidebarCopy) => {
+      const anchor = computeChatMenuAnchor(id, copy) ?? { top: 80, left: 8 };
+      setChatMenuAnchor(anchor);
+      setChatMenuId(id);
+      chatMenuOpenedAtRef.current = Date.now();
+      if (chatMenuRemeasureRef.current) clearTimeout(chatMenuRemeasureRef.current);
+      chatMenuRemeasureRef.current = setTimeout(() => {
+        const fresh = computeChatMenuAnchor(id, copy);
+        if (fresh) setChatMenuAnchor(fresh);
+      }, 120);
+    },
+    [computeChatMenuAnchor]
+  );
+
+  // Never re-anchor a closed menu.
+  useEffect(
+    () => () => {
+      if (chatMenuRemeasureRef.current) clearTimeout(chatMenuRemeasureRef.current);
+    },
+    []
+  );
 
   const active = chats.find((c) => c.id === activeId) ?? null;
   const messages: UiMessage[] = active?.messages ?? [];
@@ -1493,7 +1625,14 @@ export default function HomePage() {
   const currentProviderName = "Google Gemini";
   const modelUsedText = `${modelLabel} • ${currentProviderName}`;
 
-  const chatItem = (c: LocalChat) => (
+  /* FINDING A: takes the sidebar copy, so each copy's ••• button
+   * registers in — and opens the menu from — its own ref map (see
+   * the FINDING A note at the ref maps above). It is called as
+   * `.map((c) => chatItem(c, copy))` at the row sites — never passed
+   * straight to `.map(...)`, which would pass its index as `copy`.
+   * (A curried version was tried first; the inner anonymous arrow
+   * returning JSX failed the react/display-name build check.) */
+  const chatItem = (c: LocalChat, copy: SidebarCopy) => (
     <div
       key={c.id}
       className={`group relative mb-1 rounded-xl px-2 py-2 text-sm transition duration-150 ${
@@ -1531,7 +1670,17 @@ export default function HomePage() {
               made the list noisy and hard to scan. */}
           <button
             type="button"
-            onClick={() => setChatMenuId(chatMenuId === c.id ? null : c.id)}
+            ref={(el) => {
+              const btnRefs =
+                copy === "desktop" ? desktopChatMenuBtnRefs : mobileChatMenuBtnRefs;
+              if (el) btnRefs.current.set(c.id, el);
+              else btnRefs.current.delete(c.id);
+            }}
+            onClick={() =>
+              chatMenuId === c.id
+                ? (setChatMenuId(null), setChatMenuAnchor(null))
+                : openChatMenu(c.id, copy)
+            }
             className="btn-icon-sm shrink-0 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
             aria-label="More actions"
             aria-expanded={chatMenuId === c.id}
@@ -1540,95 +1689,34 @@ export default function HomePage() {
           </button>
         </div>
       )}
-      {chatMenuId === c.id && (
-        <>
-          <button
-            type="button"
-            aria-label="Close menu"
-            onClick={() => setChatMenuId(null)}
-            className="fixed inset-0 z-20 cursor-default"
-          />
-          <div className="menu-card absolute end-0 top-full z-30 w-56">
-            <button
-              type="button"
-              onClick={() => {
-                togglePin(c.id);
-                setChatMenuId(null);
-              }}
-              className="menu-item"
-            >
-              <Icon name="pin" size={16} /> {pins.includes(c.id) ? t(lang, "unpinChat") : t(lang, "pinChat")}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setEditingId(c.id);
-                setEditingTitle(c.title);
-                setChatMenuId(null);
-              }}
-              className="menu-item"
-            >
-              <Icon name="pencil" size={16} /> {t(lang, "rename")}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                toggleArchive(c.id);
-                setChatMenuId(null);
-              }}
-              className="menu-item"
-            >
-              <Icon name="archive" size={16} /> {isArchived(c.id) ? t(lang, "restore") : t(lang, "archive")}
-            </button>
-            <div className="menu-item">
-              <Icon name="folder" size={16} className="shrink-0" />
-              <select
-                value={folderOf(c.id)}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  if (v === "__new__") {
-                    const name = window.prompt(t(lang, "newFolder"), "");
-                    if (name?.trim()) setFolder(c.id, name.trim().slice(0, 40));
-                  } else {
-                    setFolder(c.id, v);
-                  }
-                  setChatMenuId(null);
-                }}
-                className="min-w-0 flex-1 truncate bg-transparent text-sm outline-none"
-                aria-label={t(lang, "moveToFolder")}
-              >
-                <option value="">{t(lang, "noFolder")}</option>
-                {folders.map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-                <option value="__new__">+ {t(lang, "newFolder")}</option>
-              </select>
-            </div>
-            <button
-              type="button"
-              onClick={() => {
-                setChatMenuId(null);
-                void doDelete(c.id);
-              }}
-              className="menu-item text-red-600 dark:text-red-400"
-            >
-              <Icon name="trash" size={16} /> {t(lang, "delete")}
-            </button>
-          </div>
-        </>
-      )}
+      {/* FINDING 1: the menu itself is rendered ONCE, as a fixed
+          portal at the page root (see below, before the header) —
+          NOT here. chatItem is rendered twice (desktop sidebar +
+          mobile drawer share renderSidebarContent), so a portal
+          here would render two overlapping menus. FINDING A: the
+          two copies still share this code, but each copy's •••
+          button registers in its own ref map (see chatItem's
+          `copy` parameter), so the anchor is always measured from
+          the copy the user tapped. */}
     </div>
   );
 
   /** Sidebar content, shared by the mobile overlay drawer and the
    * persistent desktop sidebar (md+): one source of truth, so the
    * two can never drift apart. `drawerCollapsed` shows the slim
-   * icon rail in both. */
-  const renderSidebarContent = () => (
+   * icon rail in both. `copy` tells chatItem which sidebar copy is
+   * rendering, so its ••• buttons register in that copy's own ref
+   * map (FINDING A). */
+  const renderSidebarContent = (copy: SidebarCopy) => {
+    return (
     <>
 
+            {/* Sidebar chevrons are PHYSICAL, never RTL-flipped: the
+                sidebar sits on the LEFT in every language, so expand
+                always points right (it opens toward the right) and
+                collapse always points left (it closes toward the
+                left edge). No rtl:rotate-180 here — flipping them
+                would point them the wrong way in Pashto/Dari. */}
             {drawerCollapsed ? (
               <div className="flex flex-col items-center gap-2 py-3">
                 <button
@@ -1668,9 +1756,18 @@ export default function HomePage() {
               </div>
             ) : (
               <>
-            {/* Title + search icon (ChatGPT-style sidebar top). */}
-            <div className="flex items-center gap-1 px-4 pt-4">
-              <p className="min-w-0 flex-1 truncate text-2xl font-bold">
+            {/* Title + search icon (ChatGPT-style sidebar top).
+                FINDING 2 fix (2026-11-24): the 288px drawer could not
+                fit "AfghanGPT" at text-2xl next to the search +
+                collapse + close buttons, so the wordmark truncated
+                ("…ghanGPT" / "AfghanG…") at 390px. Title is now
+                text-xl, the buttons are 36px, and the collapse button
+                is desktop-only (the mobile drawer already has the
+                close X) — the full wordmark now fits in ps/fa/en. */}
+            <div className="flex items-center gap-1.5 px-3 pt-3">
+              <img src="/logo-mark.png" alt="AfghanGPT" className="h-7 w-7 shrink-0 dark:hidden" />
+              <img src="/logo-mark-dark.png" alt="AfghanGPT" className="hidden h-7 w-7 shrink-0 dark:block" />
+              <p className="min-w-0 flex-1 truncate text-lg font-bold">
                 {t(lang, "appShort")}
                 {isAdmin && (
                   <span className="ms-1 rounded-full bg-amber-400 px-2 py-0.5 align-middle text-[11px] font-bold text-black">
@@ -1681,7 +1778,7 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => setSearchOpen((v) => !v)}
-                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-lg transition hover:bg-[var(--sidebar-hover)] active:scale-95"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lg transition hover:bg-[var(--sidebar-hover)] active:scale-95"
                 aria-label={t(lang, "searchChats")}
               >
                 <Icon name="search" size={20} />
@@ -1689,7 +1786,7 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => setDrawerCollapsed(true)}
-                className="rounded-full px-2 py-1 text-[var(--muted)] hover:bg-[var(--sidebar-hover)]"
+                className="hidden shrink-0 rounded-full px-2 py-1 text-[var(--muted)] hover:bg-[var(--sidebar-hover)] md:block"
                 aria-label={t(lang, "collapse")}
               >
                 <Icon name="chevronLeft" size={20} />
@@ -1697,7 +1794,7 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => setSidebarOpen(false)}
-                className="rounded-full px-2 py-1 text-[var(--muted)] hover:bg-[var(--sidebar-hover)] md:hidden"
+                className="shrink-0 rounded-full px-2 py-1 text-[var(--muted)] hover:bg-[var(--sidebar-hover)] md:hidden"
                 aria-label="Close menu"
               >
                 <Icon name="x" size={20} />
@@ -1718,7 +1815,14 @@ export default function HomePage() {
                 scroll to the saved-images gallery below; Explore
                 scrolls to the AI Studios list. Customize is omitted
                 (no custom-instructions setting exists), Projects is
-                omitted (no central projects page exists). */}
+                omitted (no central projects page exists). The three
+                scroll rows deliberately KEEP the drawer open: their
+                targets (gallery / studios list) live INSIDE the
+                drawer, so closing it would hide what the user just
+                asked to see — that would be a fake button. Every
+                row that NAVIGATES (Settings below, the studio links,
+                chat rows, the blue Chat button) closes the drawer
+                on mobile; the desktop sidebar stays by design. */}
             <div className="flex flex-col gap-0.5 px-3 pt-2">
               <button
                 type="button"
@@ -1741,6 +1845,13 @@ export default function HomePage() {
               >
                 <Icon name="compass" size={20} /> {t(lang, "explore")}
               </button>
+              <Link
+                href="/settings"
+                onClick={() => setSidebarOpen(false)}
+                className="flex items-center gap-3.5 rounded-lg px-2 py-2.5 text-start text-base transition hover:bg-[var(--sidebar-hover)] active:scale-[0.98]"
+              >
+                <Icon name="settings" size={20} /> {t(lang, "settings")}
+              </Link>
             </div>
             {/* Studios (merged from the AfghanGPT studios) */}
             <div ref={studiosRef} className="px-3 pb-1 pt-2">
@@ -1806,7 +1917,7 @@ export default function HomePage() {
                   {t(lang, "pinned")}
                 </p>
                 {pinnedChats.length > 0 ? (
-                  pinnedChats.map(chatItem)
+                  pinnedChats.map((c) => chatItem(c, copy))
                 ) : (
                   <p className="px-2 py-1 text-xs text-[var(--muted)]">{t(lang, "noPinned")}</p>
                 )}
@@ -1828,10 +1939,10 @@ export default function HomePage() {
                         <p className="px-2 pb-1 pt-1 text-xs font-bold text-[var(--muted)]">
                           <Icon name="folder" size={14} className="me-1 inline-block align-middle" /> {f}
                         </p>
-                        {otherChats.filter((c) => folderOf(c.id) === f).map(chatItem)}
+                        {otherChats.filter((c) => folderOf(c.id) === f).map((c) => chatItem(c, copy))}
                       </div>
                     ))}
-                    {unfiledChats.map(chatItem)}
+                    {unfiledChats.map((c) => chatItem(c, copy))}
                   </>
                 )}
                 {folders.length > 0 && (
@@ -1847,23 +1958,26 @@ export default function HomePage() {
                       className="w-full px-2 pb-1 pt-1 text-start text-xs font-bold text-[var(--muted)]"
                     >
                       <Icon name="archive" size={14} className="me-1 inline-block align-middle" /> {t(lang, "archived")} ({archivedChats.length}){" "}
-                      <Icon name="chevronDown" size={14} className={`inline-block align-middle transition-transform ${showArchived ? "" : "-rotate-90"}`} />
+                      {/* Disclosure chevron: down when open; sideways
+                          when closed — right in LTR, left in RTL
+                          (the reading direction's "forward"). */}
+                      <Icon name="chevronDown" size={14} className={`inline-block align-middle transition-transform ${showArchived ? "" : "-rotate-90 rtl:rotate-90"}`} />
                     </button>
-                    {showArchived && archivedChats.map(chatItem)}
+                    {showArchived && archivedChats.map((c) => chatItem(c, copy))}
                   </div>
                 )}
               </div>
             </div>
             <div className="border-t border-[var(--border-subtle)] p-3">
               <div className="flex flex-wrap gap-3 text-xs">
-                <Link href="/settings" className="text-[var(--muted)] hover:underline">
+                <Link href="/settings" onClick={() => setSidebarOpen(false)} className="text-[var(--muted)] hover:underline">
                   <Icon name="settings" size={14} className="me-1 inline-block align-middle" /> {t(lang, "settings")}
                 </Link>
-                <Link href="/about" className="text-[var(--muted)] hover:underline">
+                <Link href="/about" onClick={() => setSidebarOpen(false)} className="text-[var(--muted)] hover:underline">
                   <Icon name="info" size={14} className="me-1 inline-block align-middle" /> {t(lang, "about")}
                 </Link>
                 {isAdmin && (
-                  <Link href="/admin" className="font-bold text-amber-600 hover:underline dark:text-amber-400">
+                  <Link href="/admin" onClick={() => setSidebarOpen(false)} className="font-bold text-amber-600 hover:underline dark:text-amber-400">
                     <Icon name="star" size={14} className="me-1 inline-block align-middle" /> {t(lang, "admin")}
                   </Link>
                 )}
@@ -1881,6 +1995,7 @@ export default function HomePage() {
                 {userEmail ? (
                   <a
                     href="/about"
+                    onClick={() => setSidebarOpen(false)}
                     aria-label={t(lang, "about")}
                     className="shrink-0 rounded-full transition active:scale-90"
                   >
@@ -1892,6 +2007,7 @@ export default function HomePage() {
                 ) : (
                   <Link
                     href="/login"
+                    onClick={() => setSidebarOpen(false)}
                     aria-label={t(lang, "login")}
                     className="shrink-0 rounded-full transition active:scale-90"
                   >
@@ -1933,7 +2049,8 @@ export default function HomePage() {
               </>
             )}
               </>
-  );
+    );
+  };
 
   // ROUND 5 — the shell is a fixed-height flex column (h-dvh):
   // header + composer are shrink-0, only .chat-scroll scrolls
@@ -1945,32 +2062,157 @@ export default function HomePage() {
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
       {/* ===== Persistent desktop sidebar (md+, 260px) ===== */}
+      {/* PHYSICALLY LEFT in every language: this <aside> is the
+          first flex child, which lands on the RIGHT in RTL, so
+          `rtl:order-1` puts it after the main column (i.e. on the
+          left) when dir=rtl, while LTR keeps DOM order (left).
+          `border-r` (not border-e): the inner edge is the right
+          edge once the sidebar is on the left. Text inside keeps
+          the page direction — only the placement is physical. */}
       <aside
-        className={`hidden shrink-0 flex-col overflow-hidden border-e border-[var(--border-subtle)] bg-[var(--sidebar)] md:flex ${
+        className={`hidden shrink-0 flex-col overflow-hidden border-r border-[var(--border-subtle)] bg-[var(--sidebar)] md:flex rtl:order-1 ${
           drawerCollapsed ? "w-16" : "w-[260px]"
         }`}
       >
-        {renderSidebarContent()}
+        {renderSidebarContent("desktop")}
       </aside>
       <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
       {/* ===== Mobile drawer (overlay, <md only) ===== */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40 md:hidden">
-          <button
-            type="button"
-            aria-label="Close menu"
-            onClick={() => setSidebarOpen(false)}
-            className="absolute inset-0 bg-black/35"
-          />
-          <aside
-            className={`absolute inset-y-0 start-0 flex flex-col overflow-y-auto border-e border-[var(--border-subtle)] bg-[var(--sidebar)] shadow-md ${
-              drawerCollapsed ? "w-16" : "w-72 max-w-[85vw]"
-            }`}
-          >
-            {renderSidebarContent()}
-          </aside>
-        </div>
-      )}
+      {/* PHYSICALLY LEFT in every language: `left-0` (not logical
+          `start-0`, which is the RIGHT edge in RTL) + a physical
+          hidden state `-translate-x-full` (off-screen to the left),
+          so the drawer slides in FROM the left and closes back to
+          the left in Pashto, Dari and English alike. Always
+          mounted so the slide works both ways; when closed it is
+          translated off-screen, transparent, non-interactive and
+          visibility-hidden (after the 200ms slide-out). */}
+      <div
+        aria-hidden={!sidebarOpen}
+        className={`fixed inset-0 z-40 transition-[visibility] md:hidden ${
+          sidebarOpen ? "" : "invisible pointer-events-none [transition-delay:200ms]"
+        }`}
+      >
+        <button
+          type="button"
+          aria-label="Close menu"
+          onClick={() => setSidebarOpen(false)}
+          className={`absolute inset-0 bg-black/35 transition-opacity duration-200 ${
+            sidebarOpen ? "opacity-100" : "opacity-0"
+          }`}
+        />
+        <aside
+          className={`absolute inset-y-0 left-0 flex flex-col overflow-y-auto border-r border-[var(--border-subtle)] bg-[var(--sidebar)] shadow-md transition-transform duration-200 ease-out ${
+            sidebarOpen ? "translate-x-0" : "-translate-x-full"
+          } ${drawerCollapsed ? "w-16" : "w-72 max-w-[85vw]"}`}
+        >
+          {renderSidebarContent("mobile")}
+        </aside>
+      </div>
+
+      {/* ===== FINDING 1 portal menu (rendered ONCE) =====
+          The chat-item ••• menu lives here, fixed to the viewport
+          (anchor from openChatMenu), NOT absolute inside the
+          scrollable .drawer-scroll — the old menu was clipped to a
+          ~12px sliver for the last/only chat row and the drawer
+          backdrop intercepted its clicks. It is rendered once at
+          the page root (not inside chatItem, which renders twice:
+          desktop sidebar + mobile drawer) so there is exactly one
+          menu and one backdrop in the DOM. The anchor is measured
+          from the sidebar copy the user tapped (FINDING A:
+          separate ref maps per copy — a hidden copy's button rect
+          is never read). */}
+      {(() => {
+        const mc = chats.find((c) => c.id === chatMenuId) ?? null;
+        if (!mc || !chatMenuAnchor) return null;
+        const closeMenu = () => {
+          setChatMenuId(null);
+          setChatMenuAnchor(null);
+        };
+        return createPortal(
+          <>
+            <button
+              type="button"
+              aria-label="Close menu"
+              onClick={closeMenu}
+              className="fixed inset-0 z-[60] cursor-default"
+            />
+            <div
+              role="menu"
+              className="menu-card fixed z-[70] w-56 max-w-[90vw]"
+              style={{ top: chatMenuAnchor.top, left: chatMenuAnchor.left }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  togglePin(mc.id);
+                  closeMenu();
+                }}
+                className="menu-item"
+              >
+                <Icon name="pin" size={16} /> {pins.includes(mc.id) ? t(lang, "unpinChat") : t(lang, "pinChat")}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingId(mc.id);
+                  setEditingTitle(mc.title);
+                  closeMenu();
+                }}
+                className="menu-item"
+              >
+                <Icon name="pencil" size={16} /> {t(lang, "rename")}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  toggleArchive(mc.id);
+                  closeMenu();
+                }}
+                className="menu-item"
+              >
+                <Icon name="archive" size={16} /> {isArchived(mc.id) ? t(lang, "restore") : t(lang, "archive")}
+              </button>
+              <div className="menu-item">
+                <Icon name="folder" size={16} className="shrink-0" />
+                <select
+                  value={folderOf(mc.id)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === "__new__") {
+                      const name = window.prompt(t(lang, "newFolder"), "");
+                      if (name?.trim()) setFolder(mc.id, name.trim().slice(0, 40));
+                    } else {
+                      setFolder(mc.id, v);
+                    }
+                    closeMenu();
+                  }}
+                  className="min-w-0 flex-1 truncate bg-transparent text-sm outline-none"
+                  aria-label={t(lang, "moveToFolder")}
+                >
+                  <option value="">{t(lang, "noFolder")}</option>
+                  {folders.map((f) => (
+                    <option key={f} value={f}>
+                      {f}
+                    </option>
+                  ))}
+                  <option value="__new__">+ {t(lang, "newFolder")}</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  closeMenu();
+                  void doDelete(mc.id);
+                }}
+                className="menu-item text-red-600 dark:text-red-400"
+              >
+                <Icon name="trash" size={16} /> {t(lang, "delete")}
+              </button>
+            </div>
+          </>,
+          document.body
+        );
+      })()}
 
       {/* ===== Header: hamburger | model picker | avatar + new chat + ••• ===== */}
       {/* ROUND 5: NOT sticky anymore. A sticky header can only stick
@@ -1978,8 +2220,12 @@ export default function HomePage() {
           the page to lift the focused textarea above the keyboard,
           the header scrolled away with the page. As a plain shrink-0
           flex child of the non-scrolling dvh shell it cannot move or
-          squash. `relative` (not static) keeps the ••• dropdown
-          anchored to the header (absolute end-4 top-full). */}
+          squash. The header row is dir="ltr", so the hamburger is
+          physically LEFT and the avatar + new-chat pill physically
+          RIGHT in every language; the ••• menu lives inside that
+          right cluster, anchored `absolute right-0 top-full` to the
+          pill's right edge (not `end-4` against the header, which
+          flipped sides by language). */}
       <header className="relative z-30 min-w-0 shrink-0 border-b border-[var(--border-subtle)] bg-[var(--background)] px-3 py-2.5 sm:px-5">
         <div dir="ltr" className="flex items-center justify-between gap-2">
           {/* Mobile: opens the overlay drawer. Desktop: collapses /
@@ -2003,11 +2249,10 @@ export default function HomePage() {
             <Icon name="menu" size={24} />
             <span className="absolute right-1 top-0.5 h-2.5 w-2.5 rounded-full bg-[#2457FF]" />
           </button>
-          {/* Gemini-style wordmark (desktop only): sparkles tile + name. */}
+          {/* AfghanGPT wordmark (desktop only): logo mark + name. */}
           <span className="hidden shrink-0 items-center gap-2 md:flex">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#2457FF] text-white shadow-sm">
-              <Icon name="sparkles" size={20} />
-            </span>
+            <img src="/logo-mark.png" alt="AfghanGPT" className="h-9 w-9 shrink-0 dark:hidden" />
+            <img src="/logo-mark-dark.png" alt="AfghanGPT" className="hidden h-9 w-9 shrink-0 dark:block" />
             <span className="text-lg font-bold tracking-tight">AfghanGPT</span>
           </span>
 
@@ -2016,7 +2261,7 @@ export default function HomePage() {
             <button
               type="button"
               onClick={() => setModelPickerOpen((v) => !v)}
-              className="flex max-w-full items-center gap-1 rounded-full px-3 py-2 text-base font-bold transition duration-150 hover:bg-[var(--surface)] active:scale-95"
+              className="flex max-w-full items-center gap-1 rounded-full px-2 py-2 text-sm font-bold transition duration-150 hover:bg-[var(--surface)] active:scale-95 sm:px-3 sm:text-base"
               aria-label={t(lang, "modelPicker")}
               aria-expanded={modelPickerOpen}
             >
@@ -2063,6 +2308,11 @@ export default function HomePage() {
           </div>
 
           <div dir="ltr" className="relative flex shrink-0 items-center gap-1.5">
+            {/* Logged out: a "Log in" pill (screenshot 1) instead of
+                the guest "?" avatar. Logged in: the user's avatar
+                + menu, as before. */}
+            {userEmail ? (
+              <>
             {/* The USER's avatar (top-right): uploaded photo, else
                 /avatar.jpg for logged-in users, else grey "?" guest.
                 Opens a small menu — Settings, About, Sign out. */}
@@ -2139,6 +2389,15 @@ export default function HomePage() {
                 </div>
               </>
             )}
+              </>
+            ) : (
+              <Link
+                href="/login"
+                className="flex h-11 shrink-0 items-center rounded-full bg-black px-5 text-sm font-bold text-white transition hover:opacity-85 active:scale-95 dark:bg-white dark:text-black"
+              >
+                {t(lang, "login")}
+              </Link>
+            )}
             {/* Square-with-pencil new-chat + ••• in ONE rounded pill —
                 the divider separates the two actions inside the
                 shared container. ROUND 5 glyph (see icons.tsx),
@@ -2163,176 +2422,176 @@ export default function HomePage() {
                 <Icon name="dots" size={20} className="text-[var(--foreground)]" />
               </button>
             </div>
-          </div>
-        </div>
-
-        {/* ===== ••• menu ===== */}
-        {moreOpen && (
-          <>
-            <button
-              type="button"
-              aria-label="Close menu"
-              onClick={() => setMoreOpen(false)}
-              className="fixed inset-0 z-20 cursor-default"
-            />
-            <div className="absolute end-4 top-full z-30 mt-1 w-60 max-w-[90vw] rounded-3xl border border-[var(--card-border)] bg-[var(--card)] p-2.5 shadow-md">
-              <button
-                type="button"
-                onClick={() => {
-                  setMoreOpen(false);
-                  void shareChat();
-                }}
-                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)]"
-              >
-                <Icon name="share" size={16} className="me-2 inline-block align-middle" /> {t(lang, "shareChat")}
-              </button>
-              <button
-                type="button"
-                disabled={!activeId}
-                onClick={() => {
-                  if (activeId) togglePin(activeId);
-                  setMoreOpen(false);
-                }}
-                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)] disabled:opacity-40"
-              >
-                <Icon name="pin" size={16} className="me-2 inline-block align-middle" /> {isPinned ? t(lang, "unpinChat") : t(lang, "pinChat")}
-              </button>
-              <button
-                type="button"
-                disabled={!activeId}
-                onClick={() => {
-                  if (active) {
-                    setEditingId(active.id);
-                    setEditingTitle(active.title);
-                    setSidebarOpen(true);
-                  }
-                  setMoreOpen(false);
-                }}
-                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)] disabled:opacity-40"
-              >
-                <Icon name="pencil" size={16} className="me-2 inline-block align-middle" /> {t(lang, "rename")}
-              </button>
-              <Link
-                href="/about"
-                onClick={() => setMoreOpen(false)}
-                className="block rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--surface-hover)]"
-              >
-                <Icon name="info" size={14} className="me-1 inline-block align-middle" /> {t(lang, "help")}
-              </Link>
-              <a
-                href="mailto:samimpatan8@gmail.com?subject=AfghanGPT%20feedback"
-                onClick={() => setMoreOpen(false)}
-                className="block rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--surface-hover)]"
-              >
-                <Icon name="feedback" size={16} className="me-2 inline-block align-middle" /> {t(lang, "feedback")}
-              </a>
-              <button
-                type="button"
-                disabled={!activeId}
-                onClick={() => {
-                  if (activeId) void doDelete(activeId);
-                  setMoreOpen(false);
-                }}
-                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm text-red-600 hover:bg-[var(--surface-hover)] disabled:opacity-40 dark:text-red-400"
-              >
-                <Icon name="trash" size={16} className="me-2 inline-block align-middle" /> {t(lang, "delete")}
-              </button>
-              <div className="my-1 border-t border-[var(--border-subtle)]" />
-              {/* No provider list here anymore: one model ("AfghanGPT
-                  Auto"), free for everyone — no key is ever asked. */}
-              <button
-                type="button"
-                onClick={() => {
-                  setTempMode((v) => !v);
-                  setMoreOpen(false);
-                }}
-                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)]"
-              >
-                <Icon name="lock" size={16} className="me-2 inline-block align-middle" /> {t(lang, "tempChat")}
-                {tempMode ? <Icon name="check" size={14} className="ms-1 inline-block align-middle" /> : ""}
-              </button>
-              <button
-                type="button"
-                disabled={!activeId}
-                onClick={() => {
-                  void exportChatPdf();
-                  setMoreOpen(false);
-                }}
-                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)] disabled:opacity-40"
-              >
-                <Icon name="fileText" size={16} className="me-2 inline-block align-middle" /> {t(lang, "exportPdf")}
-              </button>
-              <button
-                type="button"
-                disabled={!activeId}
-                onClick={() => {
-                  void exportChatDocx();
-                  setMoreOpen(false);
-                }}
-                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)] disabled:opacity-40"
-              >
-                <Icon name="fileText" size={16} className="me-2 inline-block align-middle" /> {t(lang, "exportDocx")}
-              </button>
-              <button
-                type="button"
-                disabled={!activeId}
-                onClick={() => {
-                  void shareLink();
-                  setMoreOpen(false);
-                }}
-                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)] disabled:opacity-40"
-              >
-                <Icon name="link" size={16} className="me-2 inline-block align-middle" /> {t(lang, "shareLink")}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setTheme(theme === "dark" ? "light" : "dark");
-                  setMoreOpen(false);
-                }}
-                className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)]"
-              >
-                {theme === "dark" ? (<><Icon name="sun" size={16} className="me-2 inline-block align-middle" />{t(lang, "light")}</>) : (<><Icon name="moon" size={16} className="me-2 inline-block align-middle" />{t(lang, "dark")}</>)}
-              </button>
-              <Link
-                href="/settings"
-                onClick={() => setMoreOpen(false)}
-                className="block rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--surface-hover)]"
-              >
-                <Icon name="settings" size={14} className="me-1 inline-block align-middle" /> {t(lang, "settings")}
-              </Link>
-              {isAdmin && (
-                <Link
-                  href="/admin"
+            {/* ===== ••• menu: right-anchored to the pill ===== */}
+            {moreOpen && (
+              <>
+                <button
+                  type="button"
+                  aria-label="Close menu"
                   onClick={() => setMoreOpen(false)}
-                  className="block rounded-xl px-3 py-2 text-sm font-bold text-amber-600 hover:bg-[var(--surface-hover)] dark:text-amber-400"
-                >
-                  <Icon name="star" size={14} className="me-1 inline-block align-middle" /> {t(lang, "admin")}
-                </Link>
-              )}
-              {userEmail ? (
-                <p className="break-words px-3 py-2 text-xs text-slate-500">{userEmail}</p>
-              ) : (
-                <>
-                  <Link
-                    href="/login"
-                    onClick={() => setMoreOpen(false)}
-                    className="block rounded-xl px-3 py-2 text-sm font-bold text-[#2457FF] hover:bg-[var(--surface-hover)]"
+                  className="fixed inset-0 z-20 cursor-default"
+                />
+                <div className="absolute right-0 top-full z-30 mt-1 w-60 max-w-[90vw] rounded-3xl border border-[var(--card-border)] bg-[var(--card)] p-2.5 shadow-md">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMoreOpen(false);
+                      void shareChat();
+                    }}
+                    className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)]"
                   >
-                    {t(lang, "login")}
-                  </Link>
+                    <Icon name="share" size={16} className="me-2 inline-block align-middle" /> {t(lang, "shareChat")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!activeId}
+                    onClick={() => {
+                      if (activeId) togglePin(activeId);
+                      setMoreOpen(false);
+                    }}
+                    className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)] disabled:opacity-40"
+                  >
+                    <Icon name="pin" size={16} className="me-2 inline-block align-middle" /> {isPinned ? t(lang, "unpinChat") : t(lang, "pinChat")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!activeId}
+                    onClick={() => {
+                      if (active) {
+                        setEditingId(active.id);
+                        setEditingTitle(active.title);
+                        setSidebarOpen(true);
+                      }
+                      setMoreOpen(false);
+                    }}
+                    className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)] disabled:opacity-40"
+                  >
+                    <Icon name="pencil" size={16} className="me-2 inline-block align-middle" /> {t(lang, "rename")}
+                  </button>
                   <Link
-                    href="/register"
+                    href="/about"
                     onClick={() => setMoreOpen(false)}
                     className="block rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--surface-hover)]"
                   >
-                    {t(lang, "register")}
+                    <Icon name="info" size={14} className="me-1 inline-block align-middle" /> {t(lang, "help")}
                   </Link>
-                </>
-              )}
-            </div>
-          </>
-        )}
+                  <a
+                    href="mailto:samimpatan8@gmail.com?subject=AfghanGPT%20feedback"
+                    onClick={() => setMoreOpen(false)}
+                    className="block rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--surface-hover)]"
+                  >
+                    <Icon name="feedback" size={16} className="me-2 inline-block align-middle" /> {t(lang, "feedback")}
+                  </a>
+                  <button
+                    type="button"
+                    disabled={!activeId}
+                    onClick={() => {
+                      if (activeId) void doDelete(activeId);
+                      setMoreOpen(false);
+                    }}
+                    className="block w-full rounded-xl px-3 py-2.5 text-start text-sm text-red-600 hover:bg-[var(--surface-hover)] disabled:opacity-40 dark:text-red-400"
+                  >
+                    <Icon name="trash" size={16} className="me-2 inline-block align-middle" /> {t(lang, "delete")}
+                  </button>
+                  <div className="my-1 border-t border-[var(--border-subtle)]" />
+                  {/* No provider list here anymore: one model ("AfghanGPT
+                      Auto"), free for everyone — no key is ever asked. */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTempMode((v) => !v);
+                      setMoreOpen(false);
+                    }}
+                    className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)]"
+                  >
+                    <Icon name="lock" size={16} className="me-2 inline-block align-middle" /> {t(lang, "tempChat")}
+                    {tempMode ? <Icon name="check" size={14} className="ms-1 inline-block align-middle" /> : ""}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!activeId}
+                    onClick={() => {
+                      void exportChatPdf();
+                      setMoreOpen(false);
+                    }}
+                    className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)] disabled:opacity-40"
+                  >
+                    <Icon name="fileText" size={16} className="me-2 inline-block align-middle" /> {t(lang, "exportPdf")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!activeId}
+                    onClick={() => {
+                      void exportChatDocx();
+                      setMoreOpen(false);
+                    }}
+                    className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)] disabled:opacity-40"
+                  >
+                    <Icon name="fileText" size={16} className="me-2 inline-block align-middle" /> {t(lang, "exportDocx")}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!activeId}
+                    onClick={() => {
+                      void shareLink();
+                      setMoreOpen(false);
+                    }}
+                    className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)] disabled:opacity-40"
+                  >
+                    <Icon name="link" size={16} className="me-2 inline-block align-middle" /> {t(lang, "shareLink")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTheme(theme === "dark" ? "light" : "dark");
+                      setMoreOpen(false);
+                    }}
+                    className="block w-full rounded-xl px-3 py-2.5 text-start text-sm hover:bg-[var(--surface-hover)]"
+                  >
+                    {theme === "dark" ? (<><Icon name="sun" size={16} className="me-2 inline-block align-middle" />{t(lang, "light")}</>) : (<><Icon name="moon" size={16} className="me-2 inline-block align-middle" />{t(lang, "dark")}</>)}
+                  </button>
+                  <Link
+                    href="/settings"
+                    onClick={() => setMoreOpen(false)}
+                    className="block rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--surface-hover)]"
+                  >
+                    <Icon name="settings" size={14} className="me-1 inline-block align-middle" /> {t(lang, "settings")}
+                  </Link>
+                  {isAdmin && (
+                    <Link
+                      href="/admin"
+                      onClick={() => setMoreOpen(false)}
+                      className="block rounded-xl px-3 py-2 text-sm font-bold text-amber-600 hover:bg-[var(--surface-hover)] dark:text-amber-400"
+                    >
+                      <Icon name="star" size={14} className="me-1 inline-block align-middle" /> {t(lang, "admin")}
+                    </Link>
+                  )}
+                  {userEmail ? (
+                    <p className="break-words px-3 py-2 text-xs text-slate-500">{userEmail}</p>
+                  ) : (
+                    <>
+                      <Link
+                        href="/login"
+                        onClick={() => setMoreOpen(false)}
+                        className="block rounded-xl px-3 py-2 text-sm font-bold text-[#2457FF] hover:bg-[var(--surface-hover)]"
+                      >
+                        {t(lang, "login")}
+                      </Link>
+                      <Link
+                        href="/register"
+                        onClick={() => setMoreOpen(false)}
+                        className="block rounded-xl px-3 py-2.5 text-sm hover:bg-[var(--surface-hover)]"
+                      >
+                        {t(lang, "register")}
+                      </Link>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+
       </header>
 
       {!isSupabaseConfigured && (

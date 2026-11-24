@@ -30,9 +30,12 @@ type Theme = {
 };
 
 const THEMES: Record<string, Theme> = {
-  Midnight: { name: "Midnight", bg: "#0B1226", card: "#111B30", accent: "#2457FF", text: "#EAF2FF", sub: "#AAB7D0" },
-  Royal: { name: "Royal", bg: "#2A1650", card: "#3B1F6E", accent: "#A855F7", text: "#F5F0FF", sub: "#D6C2FF" },
-  Ocean: { name: "Ocean", bg: "#062A3A", card: "#0A3D52", accent: "#00D4FF", text: "#EAFBFF", sub: "#A8D8E8" },
+  // Single unified brand theme. The retired Midnight, Royal and Ocean
+  // themes are gone. The deck canvas is a deep brand blue (darkened
+  // #2457FF, NOT the retired navy) and the accent is the dark-mode
+  // brand-blue value #3B82F6 already used by Btn — bright enough to
+  // read on the dark canvas and on the white card (slide dots).
+  AfghanGPT: { name: "AfghanGPT", bg: "#12275E", card: "#1B3570", accent: "#3B82F6", text: "#FFFFFF", sub: "#C7D6F5" },
 };
 
 const EMPTY_DECK: Deck = {
@@ -76,7 +79,7 @@ export default function SlidesPage() {
   const [count, setCount] = useState(5);
   const [audience, setAudience] = useState("General");
   const [language, setLanguage] = useState("English");
-  const [themeName, setThemeName] = useState("Midnight");
+  const [themeName, setThemeName] = useState("AfghanGPT");
   const [deck, setDeck] = useState<Deck>(EMPTY_DECK);
   const [current, setCurrent] = useState(0);
   const [generating, setGenerating] = useState(false);
@@ -85,7 +88,7 @@ export default function SlidesPage() {
   const [savedAt, setSavedAt] = useState("");
   const loadedRef = useRef(false);
 
-  const theme = THEMES[themeName] ?? THEMES.Midnight;
+  const theme = THEMES[themeName] ?? THEMES.AfghanGPT;
 
   // Load the saved deck once — LOGGED-IN ONLY. Guests start with a
   // fresh deck in memory; nothing is read from or written to storage.

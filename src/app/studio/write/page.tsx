@@ -285,7 +285,7 @@ export default function WritingStudioPage() {
         <Card>
           <div className="mb-3 flex flex-wrap items-center gap-2">
             <h2 className="text-base font-bold">Result</h2>
-            <Badge tone="violet">{active.label}</Badge>
+            <Badge tone="blue">{active.label}</Badge>
             <Badge tone="cyan">{outLang}</Badge>
             <span className="ms-auto" />
             <Btn size="sm" variant={showPreview ? "primary" : "outline"} onClick={() => setShowPreview((v) => !v)}>
