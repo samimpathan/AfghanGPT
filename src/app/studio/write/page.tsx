@@ -79,7 +79,7 @@ function textToDocxSections(text: string): { heading?: string; paragraphs: strin
 }
 
 export default function WritingStudioPage() {
-  const { t } = useLang();
+  const { lang, t } = useLang();
   // Guests work in memory only; logged-in users may save projects.
   useEffect(() => {
     void store.refreshAuthMode();
@@ -295,7 +295,7 @@ export default function WritingStudioPage() {
 
           {showPreview ? (
             <div className="rounded-xl border border-[var(--card-border)] p-3">
-              <Markdown text={result} />
+              <Markdown text={result} lang={lang} />
             </div>
           ) : (
             <Textarea

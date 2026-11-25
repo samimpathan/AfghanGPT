@@ -19,7 +19,7 @@ import { Card, Btn, Input, Textarea, Spinner } from "@/components/ui";
 type Source = { title: string; url: string; snippet: string };
 
 export default function ResearchPage() {
-  const { t } = useLang();
+  const { lang, t } = useLang();
   // Guests work in memory only (logs included); logged-in users keep logs.
   useEffect(() => {
     void store.refreshAuthMode();
@@ -150,7 +150,7 @@ export default function ResearchPage() {
       {report && (
         <Card>
           <h2 className="mb-2 font-bold">{t("researchReport")}</h2>
-          <Markdown text={report} />
+          <Markdown text={report} lang={lang} />
           <div className="mt-3 flex gap-2">
             <Btn
               size="sm"

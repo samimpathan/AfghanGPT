@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { t, type Lang } from "@/lib/i18n";
 import { stripMathDelimiters } from "@/lib/mathText";
+import { PromptCard, plainTextOf } from "@/components/Markdown";
 import UserAvatar, { gradientById } from "@/components/UserAvatar";
 import {
   isSpeechSynthesisSupported,
@@ -336,6 +337,24 @@ function FileCard({ file, lang }: { file: NonNullable<UiMessage["file"]>; lang: 
   );
 }
 
+/** Visible space above/below a button inside the chat scroll area.
+ * The old code measured to the viewport bottom — but the menu lives
+ * inside the .chat-scroll container, whose bottom edge sits above
+ * the composer bar. Measuring to the viewport counted the composer's
+ * ~100px as free space, so on the bottom-most message the menu
+ * opened downward and its last items were cut off behind the
+ * composer. Measure to the scroll container's edge instead
+ * (viewport bottom only when no scroll ancestor exists). */
+function visibleMenuSpace(btn: HTMLElement): { below: number; above: number } {
+  const rect = btn.getBoundingClientRect();
+  const scrollEl = btn.closest(".chat-scroll");
+  if (scrollEl) {
+    const r = scrollEl.getBoundingClientRect();
+    return { below: r.bottom - rect.bottom, above: rect.top - r.top };
+  }
+  return { below: window.innerHeight - rect.bottom, above: rect.top };
+}
+
 export default function ChatMessage({
   msg,
   lang,
@@ -401,6 +420,11 @@ export default function ChatMessage({
    * fold. Same for the Share menu (shareMenuFlipUp). */
   const [moreMenuFlipUp, setMoreMenuFlipUp] = useState(false);
   const [shareMenuFlipUp, setShareMenuFlipUp] = useState(false);
+  /** px cap on a menu's height when it fits neither below nor above
+   * the button: the menu scrolls internally instead of being cut
+   * off. null = natural height. */
+  const [moreMenuMaxHeight, setMoreMenuMaxHeight] = useState<number | null>(null);
+  const [shareMenuMaxHeight, setShareMenuMaxHeight] = useState<number | null>(null);
   const shareBtnRef = useRef<HTMLButtonElement | null>(null);
   const shareMenuRef = useRef<HTMLDivElement | null>(null);
   /** R3-B: the gradient the user picked in Settings (Avatar colour),
@@ -428,6 +452,7 @@ export default function ChatMessage({
     if (!moreOpen) {
       setMoreMenuShift(0);
       setMoreMenuFlipUp(false);
+      setMoreMenuMaxHeight(null);
       return;
     }
     const clamp = () => {
@@ -442,8 +467,15 @@ export default function ChatMessage({
       // below the button; near the bottom (last message above the
       // composer on a phone) that space does not exist, so the menu
       // opens upward instead of hiding below the fold.
-      const spaceBelow = window.innerHeight - btn.getBoundingClientRect().bottom;
-      setMoreMenuFlipUp(spaceBelow < menu.offsetHeight + 8);
+      const { below, above } = visibleMenuSpace(btn);
+      const h = menu.offsetHeight;
+      const flip = below < h + 8;
+      setMoreMenuFlipUp(flip);
+      // If the menu fits neither below nor above, clamp it to the
+      // larger side with internal scrolling so every item stays
+      // reachable instead of cut off behind the composer.
+      const room = flip ? above : below;
+      setMoreMenuMaxHeight(room < h + 8 ? Math.max(120, room - 8) : null);
     };
     clamp();
     window.addEventListener("resize", clamp);
@@ -455,19 +487,40 @@ export default function ChatMessage({
   useEffect(() => {
     if (!shareMenuOpen) {
       setShareMenuFlipUp(false);
+      setShareMenuMaxHeight(null);
       return;
     }
     const clamp = () => {
       const btn = shareBtnRef.current;
       const menu = shareMenuRef.current;
       if (!btn || !menu) return;
-      const spaceBelow = window.innerHeight - btn.getBoundingClientRect().bottom;
-      setShareMenuFlipUp(spaceBelow < menu.offsetHeight + 8);
+      const { below, above } = visibleMenuSpace(btn);
+      const h = menu.offsetHeight;
+      const flip = below < h + 8;
+      setShareMenuFlipUp(flip);
+      const room = flip ? above : below;
+      setShareMenuMaxHeight(room < h + 8 ? Math.max(120, room - 8) : null);
     };
     clamp();
     window.addEventListener("resize", clamp);
     return () => window.removeEventListener("resize", clamp);
   }, [shareMenuOpen]);
+
+  // Escape closes the open menus (••• / Share) and the feedback
+  // sheet — the sheet also has a close button and a backdrop, but
+  // Escape is the standard way out of a menu.
+  useEffect(() => {
+    if (!moreOpen && !shareMenuOpen && !feedbackOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setMoreOpen(false);
+        setShareMenuOpen(false);
+        setFeedbackOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [moreOpen, shareMenuOpen, feedbackOpen]);
 
   const setReactionStored = (value: "like" | "dislike") => {
     const next = value === reaction ? null : value;
@@ -654,6 +707,14 @@ export default function ChatMessage({
               // so an English sentence inside a Pashto answer stays LTR
               // and its number/period lands in the right place.
               p({ children }: { children?: ReactNode }) {
+                // A "Prompt:" paragraph becomes a prompt card (see
+                // Markdown.tsx) — the prompt is the important part
+                // of the answer and belongs in a box, like ChatGPT's.
+                const text = plainTextOf(children).trim();
+                const m = /^prompt:\s*/i.exec(text);
+                if (m && text.length > m[0].length + 8) {
+                  return <PromptCard text={text.slice(m[0].length).trim()} lang={lang} />;
+                }
                 return (
                   <p dir="auto" className="bidi-plaintext">
                     {children}
@@ -760,10 +821,11 @@ export default function ChatMessage({
                 />
                 <div
                   ref={shareMenuRef}
+                  style={shareMenuMaxHeight ? { maxHeight: shareMenuMaxHeight } : undefined}
                   className={
                     shareMenuFlipUp
-                      ? "absolute bottom-full right-0 z-30 mb-1 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md"
-                      : "absolute right-0 top-full z-30 mt-1 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md"
+                      ? `absolute bottom-full right-0 z-30 mb-1 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md${shareMenuMaxHeight ? " overflow-y-auto" : ""}`
+                      : `absolute right-0 top-full z-30 mt-1 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md${shareMenuMaxHeight ? " overflow-y-auto" : ""}`
                   }
                 >
                   <button
@@ -823,11 +885,14 @@ export default function ChatMessage({
                     when it would otherwise leave the left edge. */}
                 <div
                   ref={moreMenuRef}
-                  style={moreMenuShift ? { right: -moreMenuShift } : undefined}
+                  style={{
+                    ...(moreMenuShift ? { right: -moreMenuShift } : {}),
+                    ...(moreMenuMaxHeight ? { maxHeight: moreMenuMaxHeight } : {}),
+                  }}
                   className={
                     moreMenuFlipUp
-                      ? "absolute bottom-full right-0 z-30 mb-1 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md"
-                      : "absolute right-0 top-full z-30 mt-1 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md"
+                      ? `absolute bottom-full right-0 z-30 mb-1 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md${moreMenuMaxHeight ? " overflow-y-auto" : ""}`
+                      : `absolute right-0 top-full z-30 mt-1 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md${moreMenuMaxHeight ? " overflow-y-auto" : ""}`
                   }
                 >
                   {isLastAssistant && onRegenerate && (

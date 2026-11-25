@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icons";
 import Image from "next/image";
 import { t, type Lang } from "@/lib/i18n";
+import { store } from "@/lib/store";
+import { resolveVoice } from "@/lib/voices";
 import {
   transcribeRecording,
   playGeminiSpeech,
@@ -477,6 +479,10 @@ export default function LiveCall({
         // by onclose, which DOES carry the code - so wait up to 1s
         // for onclose before settling, instead of losing the code.
         let failTimer: ReturnType<typeof setTimeout> | null = null;
+        // Setup budget (started in onopen, NOT at socket creation —
+        // see below). Declared here so settle()/failDetail() can
+        // clear it; undefined until the socket opens.
+        let setupTimer: ReturnType<typeof setTimeout> | undefined;
         let ws: WebSocket;
         try {
           ws = new WebSocket(wsUrl);
@@ -494,14 +500,22 @@ export default function LiveCall({
         const failDetail = (): string => {
           const where = `${model}, ${elapsed()}`;
           if (!opened) {
-            if (openTimedOut) return `handshake timed out after 10s (${where})`;
+            if (openTimedOut) return `handshake timed out after 20s (${where})`;
             if (closeCode !== null) {
               return `closed ${closeCode}${closeReason ? ` (${closeReason})` : ""} (${where})`;
             }
             return `handshake failed (${where})`;
           }
           if (serverError) return `${serverError.slice(0, 120)} (${where})`;
-          return `no setupComplete in 15s (${where})`;
+          // Opened, no server error: either the socket closed early
+          // (before setupComplete) or the setup timer really fired.
+          // The old text blamed a 15s timeout for EVERY post-open
+          // failure — even a 1.6s early close — so it lied about
+          // both the cause and the duration.
+          if (closeCode !== null) {
+            return `closed ${closeCode}${closeReason ? ` (${closeReason})` : ""} after ${elapsed()} (${model})`;
+          }
+          return `no setupComplete in 30s (${where})`;
         };
         const settle = (ok: boolean) => {
           if (settled) return;
@@ -525,25 +539,37 @@ export default function LiveCall({
           }
           resolve({ ok: true });
         };
-        // Handshake deadline (FIXES #3): if the socket never opens,
-        // fail fast instead of burning the whole setup budget. The
+        // Handshake deadline: 20s (was 10s — a slow connection
+        // needs more time for TLS + WS handshake alone). The
         // setup timer below still covers the wait for setupComplete
         // once the socket is open.
         const openTimer = setTimeout(() => {
           openTimedOut = true;
           settle(false);
-        }, 10000);
-        const setupTimer = setTimeout(() => settle(false), 15000);
+        }, 20000);
         ws.onopen = () => {
           opened = true;
           clearTimeout(openTimer);
+          // Setup budget starts HERE, not at socket creation: the
+          // old 15s timer ran from socket creation, so the
+          // handshake ate most of it on a slow connection and the
+          // call "timed out" before setup could finish. 30s from
+          // open.
+          setupTimer = setTimeout(() => settle(false), 30000);
           const setupPayload = JSON.stringify({
             setup: {
               model: `models/${model}`,
               generationConfig: {
                 responseModalities: ["AUDIO"],
                 speechConfig: {
-                  voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } },
+                  // The voice chosen in Settings ("" = automatic:
+                  // Kore for Pashto/Dari, Puck for English — the
+                  // behaviour before the picker existed).
+                  voiceConfig: {
+                    prebuiltVoiceConfig: {
+                      voiceName: resolveVoice(store.settings().voice, lang),
+                    },
+                  },
                   // Voice language, only for codes Google lists for
                   // the Live models (see LIVE_VOICE_LANG above).
                   // Pashto/Dari omit it — the system instruction
@@ -622,7 +648,7 @@ export default function LiveCall({
         ws.onerror = () => {
           // FIXES #3: this used to clear the setup guard even after
           // the socket opened — if onerror fired spuriously, the
-          // 20s (now 15s) backstop was gone. Keep it after open.
+          // 30s backstop was gone. Keep it after open.
           if (!opened) clearTimeout(setupTimer);
           if (failTimer) return;
           failTimer = setTimeout(() => settle(false), 1000);
@@ -662,7 +688,16 @@ export default function LiveCall({
     let lastFail: Extract<ConnectResult, { ok: false }> | null = null;
     for (const model of LIVE_MODELS) {
       if (stoppedRef.current) return;
-      const res = await connectWithModel(model);
+      let res = await connectWithModel(model);
+      // One retry per model on socket/setup failure (a transient
+      // close on a slow connection), 2s backoff, before moving to
+      // the next model. Token failures are model-independent and
+      // are never retried (the loop breaks on them below).
+      if (!res.ok && res.step !== "token") {
+        await new Promise((r) => setTimeout(r, 2000));
+        if (stoppedRef.current) return;
+        res = await connectWithModel(model);
+      }
       if (res.ok) {
         try {
           await startMic();
@@ -697,12 +732,10 @@ export default function LiveCall({
     }
     if (stoppedRef.current) return;
     // No Live model worked for this key — honest fallback, not a fake
-    // call. Say WHICH step failed (token / socket / setup) plus the
-    // captured detail, so a re-test can tell the causes apart.
-    // FIXES #3: the note set here used to be overwritten by the
-    // late onclose of the socket settle() had just closed — the
-    // onclose branch is now guarded (phase live + no note yet), so
-    // this suffix survives and is what the user sees.
+    // call. The user-facing bubble shows ONLY the friendly text;
+    // the technical detail (step, model, timing) goes to the
+    // console, never into the UI — the old "(step: detail)" suffix
+    // leaked model names and timings into the user's bubble.
     setPhase("fallback");
     const f = lastFail;
     if (!f) {
@@ -713,8 +746,19 @@ export default function LiveCall({
       f.step === "token"
         ? t(lang, f.noKey ? "liveNoKey" : "liveTokenFailed")
         : t(lang, "liveUnavailable");
-    setNote(`${base} (${f.step}: ${f.detail})`);
+    setNote(base);
+    console.error(`[live] ${f.step}: ${f.detail}`);
   }, [connectWithModel, startMic, lang, setNote]);
+
+  /** Retry the live call from the fallback phase (the retry button
+   * next to the push-to-talk banner). Resets the phase and runs
+   * the same model loop again. */
+  const retryLive = useCallback(() => {
+    if (phaseRef.current !== "fallback") return;
+    setNote(null);
+    setPhase("connecting");
+    void startLive();
+  }, [startLive, setNote]);
 
   useEffect(() => {
     startLive();
@@ -1116,14 +1160,28 @@ export default function LiveCall({
             <p className="text-xs font-medium leading-relaxed text-slate-700 dark:text-slate-200">
               {t(lang, "livePushToTalk")}
             </p>
-            <button
-              type="button"
-              onClick={toggleMic}
-              className="mt-2.5 rounded-full bg-[#2457FF] px-4 py-2 text-xs font-bold text-white shadow transition active:scale-95"
-            >
-              <Icon name="mic" size={14} className="me-1.5 inline-block align-middle" />
-              {t(lang, "livePushToTalkAction")}
-            </button>
+            <div className="mt-2.5 flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={toggleMic}
+                className="rounded-full bg-[#2457FF] px-4 py-2 text-xs font-bold text-white shadow transition active:scale-95"
+              >
+                <Icon name="mic" size={14} className="me-1.5 inline-block align-middle" />
+                {t(lang, "livePushToTalkAction")}
+              </button>
+              {/* Retry the live call — the connection failed, so the
+                  user can try again without closing and reopening
+                  the call. Runs the same model loop (with its own
+                  retry) from the "connecting" phase. */}
+              <button
+                type="button"
+                onClick={retryLive}
+                className="rounded-full border border-[#2457FF]/40 px-4 py-2 text-xs font-bold text-[#2457FF] transition active:scale-95 dark:text-sky-300"
+              >
+                <Icon name="regenerate" size={14} className="me-1.5 inline-block align-middle" />
+                {t(lang, "liveRetry")}
+              </button>
+            </div>
           </div>
         )}
         <p className="mt-3 text-center text-[11px] text-slate-400">

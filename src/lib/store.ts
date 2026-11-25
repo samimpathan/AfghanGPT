@@ -37,6 +37,10 @@ export type Settings = {
   /** Chosen initials-avatar gradient (AVATAR_GRADIENTS id).
    * "" = automatic — the deterministic gradient for the user. */
   avatarGradient: string;
+  /** Chosen AI voice (Gemini prebuilt voice name).
+   * "" = automatic — Kore for Pashto/Dari, Puck for English
+   * (the behaviour before the picker existed). */
+  voice: string;
   displayName: string;
   /** Conversation memory: facts the AI remembers about the user.
    * Only included in the system prompt when memoryEnabled is true;
@@ -78,6 +82,7 @@ export const DEFAULT_SETTINGS: Settings = {
   },
   avatarDataUrl: "",
   avatarGradient: "",
+  voice: "",
   displayName: "",
 };
 

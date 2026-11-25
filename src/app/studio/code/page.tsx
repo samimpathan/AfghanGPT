@@ -135,7 +135,7 @@ function buildSrcDoc(files: ProjectFile[]): string | null {
 type AiAction = "explain" | "generate" | "bugs" | "optimise";
 
 export default function CodeStudioPage() {
-  const { t } = useLang();
+  const { lang, t } = useLang();
   const [projectName, setProjectName] = useState("My project");
   const [projectId, setProjectId] = useState<string | null>(null);
   const [files, setFiles] = useState<ProjectFile[]>(STARTER);
@@ -583,7 +583,7 @@ export default function CodeStudioPage() {
                     </Btn>
                   )}
                 </div>
-                <Markdown text={aiResult.text} />
+                <Markdown text={aiResult.text} lang={lang} />
               </div>
             )}
           </div>

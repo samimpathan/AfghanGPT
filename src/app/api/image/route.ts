@@ -2,6 +2,7 @@ import { NextRequest } from "next/server";
 import { generateImage } from "@/lib/gemini";
 import { isAdultRequest } from "@/lib/safety";
 import { rateLimited, clientIp } from "@/lib/ratelimit";
+import { checkImageRateLimit } from "@/lib/imageRateLimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,6 +36,22 @@ export async function POST(req: NextRequest) {
   }
   if (isAdultRequest(prompt)) {
     return new Response(JSON.stringify({ error: "refused" }), { status: 400 });
+  }
+  // Per-IP image quota (10/hour, lib/imageRateLimit.ts): one IP must
+  // not exhaust the shared free image quota. Denied requests get the
+  // SAME busy response as a provider rate-limit (429 image-busy) so
+  // the Studio shows its existing "try again in a moment" message.
+  // Only genuine generation attempts consume quota — empty prompts
+  // and refusals above return before this check.
+  const imgLimit = checkImageRateLimit(clientIp(req));
+  if (!imgLimit.allowed) {
+    return new Response(JSON.stringify({ error: "image-busy" }), {
+      status: 429,
+      headers: {
+        "Content-Type": "application/json",
+        "Retry-After": String(imgLimit.resetAfterSec),
+      },
+    });
   }
   // No key gate: the free provider needs no key from anyone. The
   // Gemini key (server env only) is used solely as a fallback.

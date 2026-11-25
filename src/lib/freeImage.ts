@@ -25,6 +25,140 @@
 
 const POLLINATIONS_URL = "https://image.pollinations.ai/prompt/";
 
+import { IMAGE_RATE_LIMIT, getImageRateLimitStats } from "./imageRateLimit";
+
+/** IMAGE MONITORING (2026-11-25, owner rule 7): in-memory counters
+ * for image generation — attempts, successes, rate-limited (busy)
+ * events, failures, and the last error kind. Exposed as the
+ * `images` field on GET /api/status for the admin dashboard. No
+ * persistence, no user data (counts only, never prompts), no new
+ * dependency. In-memory only: counters reset on cold start /
+ * redeploy, and on Vercel each server instance counts separately —
+ * treat the numbers as approximate, not exact billing.
+ *
+ * TWO LEVELS (2026-11-25, owner order 09:56):
+ * - REQUEST level (attempts/successes/busy/failures): one count per
+ *   user-facing image request, recorded in gemini.ts generateImage
+ *   (the single entry point for Chat + Studio).
+ * - PROVIDER level (providers.*): one count per provider ATTEMPT —
+ *   a request can count against two providers when the free path
+ *   fails and Gemini is tried. "none" counts requests no provider
+ *   served (its success is always 0); lastProvider is the provider
+ *   that served the last image, or "none" when the last request
+ *   produced no image. */
+export type ImageProvider = "pollinations" | "gemini" | "none";
+export type ImageOutcome = "success" | "busy" | "fail";
+
+type ProviderCounts = { success: number; busy: number; fail: number };
+const emptyProviderCounts = (): ProviderCounts => ({ success: 0, busy: 0, fail: 0 });
+
+type ImageStatsState = {
+  attempts: number;
+  successes: number;
+  busy: number;
+  failures: number;
+  /** "rate-limited" | "failed" | null (null = the last call worked). */
+  lastError: string | null;
+  lastAttemptAt: number | null;
+  lastProvider: ImageProvider | null;
+  providers: Record<ImageProvider, ProviderCounts>;
+  startedAt: number;
+};
+
+/** SINGLETON ON globalThis (2026-11-25): webpack bundles this module
+ * once per route chunk in the production build (the /api/status chunk
+ * inlines its own copy while /api/image + /api/chat share another),
+ * so a plain module-level object would count per chunk and /api/status
+ * would always read zeros. All chunks run in ONE Node process under
+ * `next start`, so globalThis is the one place they truly share.
+ * (On Vercel each serverless instance gets its own — same documented
+ * "approximate, not exact" limit as before.) */
+const imageStats: ImageStatsState = (
+  globalThis as unknown as { __afghangptImageStats?: ImageStatsState }
+).__afghangptImageStats ??= {
+  attempts: 0,
+  successes: 0,
+  busy: 0,
+  failures: 0,
+  lastError: null,
+  lastAttemptAt: null,
+  lastProvider: null,
+  providers: {
+    pollinations: emptyProviderCounts(),
+    gemini: emptyProviderCounts(),
+    none: emptyProviderCounts(),
+  },
+  startedAt: Date.now(),
+};
+
+/** Record one provider's attempt outcome (Pollinations inside
+ * generateFreeImage; Gemini inside gemini.ts generateImage). */
+export function recordProviderAttempt(provider: Exclude<ImageProvider, "none">, outcome: ImageOutcome): void {
+  imageStats.providers[provider][outcome === "success" ? "success" : outcome === "busy" ? "busy" : "fail"]++;
+}
+
+/** Record one user-facing image request: the request-level totals
+ * plus which provider served it (or "none" when no provider did). */
+export function recordImageRequest(provider: ImageProvider, outcome: ImageOutcome): void {
+  imageStats.attempts++;
+  imageStats.lastAttemptAt = Date.now();
+  imageStats.lastProvider = provider;
+  if (outcome === "success") {
+    imageStats.successes++;
+    imageStats.lastError = null;
+  } else if (outcome === "busy") {
+    imageStats.busy++;
+    imageStats.lastError = "rate-limited";
+  } else {
+    imageStats.failures++;
+    imageStats.lastError = "failed";
+  }
+  if (provider === "none") {
+    if (outcome === "busy") imageStats.providers.none.busy++;
+    else if (outcome === "fail") imageStats.providers.none.fail++;
+  }
+}
+
+export function getImageStats(): {
+  attempts: number;
+  successes: number;
+  busy: number;
+  failures: number;
+  lastError: string | null;
+  lastAttemptAt: string | null;
+  lastProvider: ImageProvider | null;
+  providers: Record<ImageProvider, ProviderCounts>;
+  rateLimit: { perIpPerHour: number; windowSeconds: number; denied: number };
+  uptimeSeconds: number;
+  /** The honest free-tier limit — the app must never claim
+   * unlimited free images anywhere. */
+  freeLimit: string;
+} {
+  return {
+    attempts: imageStats.attempts,
+    successes: imageStats.successes,
+    busy: imageStats.busy,
+    failures: imageStats.failures,
+    lastError: imageStats.lastError,
+    lastAttemptAt: imageStats.lastAttemptAt
+      ? new Date(imageStats.lastAttemptAt).toISOString()
+      : null,
+    lastProvider: imageStats.lastProvider,
+    providers: {
+      pollinations: { ...imageStats.providers.pollinations },
+      gemini: { ...imageStats.providers.gemini },
+      none: { ...imageStats.providers.none },
+    },
+    rateLimit: {
+      perIpPerHour: IMAGE_RATE_LIMIT.perIpPerHour,
+      windowSeconds: IMAGE_RATE_LIMIT.windowSeconds,
+      denied: getImageRateLimitStats().denied,
+    },
+    uptimeSeconds: Math.floor((Date.now() - imageStats.startedAt) / 1000),
+    freeLimit: "1 image per 45s per IP — anonymous Pollinations tier; NOT unlimited",
+  };
+}
+
 /** Free-tier generation is slow under load; 45s leaves headroom inside
  * the route's 60s maxDuration. A hung call must never hang the route. */
 const FREE_IMAGE_TIMEOUT_MS = 45_000;
@@ -72,6 +206,21 @@ function mimeFor(buf: Buffer): string {
 /** Generate one image with the free provider. Returns a data URL on
  * success; on failure { ok:false } with busy=true only when the service
  * explicitly rate-limited us (429/402) — otherwise busy=false.
+ * Records the Pollinations provider attempt (see recordProviderAttempt);
+ * the REQUEST-level totals are recorded by gemini.ts generateImage,
+ * the single entry point for Chat + Studio. */
+export async function generateFreeImage(
+  prompt: string,
+  ratio = "1:1",
+  budgetMs = 55_000
+): Promise<FreeImageResult> {
+  const res = await runGenerateFreeImage(prompt, ratio, budgetMs);
+  recordProviderAttempt("pollinations", res.ok ? "success" : res.busy ? "busy" : "fail");
+  return res;
+}
+
+/** The actual generation + retry, without counting (the wrapper
+ * above counts once per call).
  *
  * LIMITED, SAFE RETRY (2026-11-25): the anonymous tier allows ~1
  * image per 45s per IP, so a burst of requests hits 402 FREE_LIMIT
@@ -88,7 +237,7 @@ function mimeFor(buf: Buffer): string {
  *   failure is returned honestly. Never more than 2 attempts,
  *   never longer than ~55s, no extra cost — same free provider.
  */
-export async function generateFreeImage(
+async function runGenerateFreeImage(
   prompt: string,
   ratio = "1:1",
   budgetMs = 55_000

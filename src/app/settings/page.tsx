@@ -10,6 +10,8 @@ import { t, LANGS, type Lang } from "@/lib/i18n";
 import { supabase } from "@/lib/supabaseClient";
 import { listChats, deleteChat } from "@/lib/chats";
 import { store, type Settings } from "@/lib/store";
+import { CURATED_VOICES, defaultVoiceForLang } from "@/lib/voices";
+import { playGeminiSpeech, detectTextLang, type GeminiAudio } from "@/lib/voice";
 import UserAvatar, { AVATAR_GRADIENTS, AUTO_GRADIENT_BACKGROUND, initialsOf } from "@/components/UserAvatar";
 
 
@@ -57,7 +59,41 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [previewVoice, setPreviewVoice] = useState<string | null>(null);
+  const previewAudioRef = useRef<GeminiAudio | null>(null);
   const photoInputRef = useRef<HTMLInputElement | null>(null);
+
+  /** Play the sample sentence in one voice (Settings Preview).
+   * Tapping the playing voice again stops it. A null result
+   * (no key / TTS unavailable) shows an honest note instead of
+   * pretending the preview played. */
+  const previewVoiceSample = async (voiceId: string) => {
+    if (previewVoice === voiceId) {
+      previewAudioRef.current?.stop();
+      previewAudioRef.current = null;
+      setPreviewVoice(null);
+      return;
+    }
+    previewAudioRef.current?.stop();
+    previewAudioRef.current = null;
+    setPreviewVoice(voiceId);
+    const sample = t(lang, "voicePreviewText");
+    let played: GeminiAudio | null = null;
+    try {
+      played = await playGeminiSpeech(sample, detectTextLang(sample), () => {
+        previewAudioRef.current = null;
+        setPreviewVoice(null);
+      }, voiceId);
+    } catch {
+      played = null;
+    }
+    if (!played) {
+      setPreviewVoice(null);
+      setNote(t(lang, "voicePreviewFailed"));
+    } else {
+      previewAudioRef.current = played;
+    }
+  };
 
   /** Profile photo: downscale client-side to 256px (JPEG 0.8) and save
    * it in settings.avatarDataUrl. The chat + drawer read the same
@@ -371,6 +407,88 @@ export default function SettingsPage() {
       ),
     },
     {
+      id: "voice",
+      icon: "speaker",
+      title: t(lang, "voiceSection"),
+      summary: settings?.voice ? settings.voice : t(lang, "voiceAuto"),
+      keys: "voice sound speaker read aloud preview غږ آواز غږیز اورېدل صدا صوت استماع معاينة",
+      content: settings ? (
+        <>
+          <p className="text-xs leading-relaxed text-[var(--muted)]">{t(lang, "voiceSectionHint")}</p>
+          {/* Voice picker: free Gemini prebuilt voices only — no
+              voice here needs payment or an account, and there is
+              no cloning. "Automatic" keeps the per-language
+              default (Kore for Pashto/Dari, Puck for English).
+              Each row previews the voice with a real sample
+              sentence through /api/speech. */}
+          <div className="mt-3 flex flex-col gap-2" role="radiogroup" aria-label={t(lang, "voiceSection")}>
+            <div
+              className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 ${
+                !settings.voice ? "border-[var(--brand2)] bg-[var(--brand2)]/5" : "border-[var(--card-border)]"
+              }`}
+            >
+              <button
+                type="button"
+                role="radio"
+                aria-checked={!settings.voice}
+                onClick={() => updateSettings({ voice: "" })}
+                className="flex min-w-0 flex-1 items-center gap-2.5 text-start"
+              >
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--surface)] text-sm font-bold">
+                  A
+                </span>
+                <span className="min-w-0">
+                  <span className="block truncate text-sm font-bold">{t(lang, "voiceAuto")}</span>
+                  <span className="block truncate text-xs text-[var(--muted)]">{defaultVoiceForLang(lang)}</span>
+                </span>
+                {!settings.voice && <Icon name="check" size={14} className="shrink-0 text-[var(--brand2)]" />}
+              </button>
+            </div>
+            {CURATED_VOICES.map((v) => {
+              const selected = settings.voice === v.id;
+              const playing = previewVoice === v.id;
+              return (
+                <div
+                  key={v.id}
+                  className={`flex items-center justify-between gap-2 rounded-xl border px-3 py-2.5 ${
+                    selected ? "border-[var(--brand2)] bg-[var(--brand2)]/5" : "border-[var(--card-border)]"
+                  }`}
+                >
+                  <button
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => updateSettings({ voice: v.id })}
+                    className="flex min-w-0 flex-1 items-center gap-2.5 text-start"
+                  >
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--surface)] text-sm font-bold">
+                      {v.id[0]}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block truncate text-sm font-bold">{v.id}</span>
+                      <span className="block truncate text-xs text-[var(--muted)]">{t(lang, v.descKey)}</span>
+                    </span>
+                    {selected && <Icon name="check" size={14} className="shrink-0 text-[var(--brand2)]" />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void previewVoiceSample(v.id)}
+                    className="flex shrink-0 items-center gap-1 rounded-full border border-[var(--card-border)] px-3 py-1.5 text-xs font-bold"
+                  >
+                    <Icon name={playing ? "volumeOff" : "play"} size={13} />
+                    {playing ? t(lang, "voicePlaying") : t(lang, "voicePreview")}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">{t(lang, "voiceAutoHint")}</p>
+        </>
+      ) : (
+        <p className="text-sm text-[var(--muted)]">{t(lang, "loading")}</p>
+      ),
+    },
+    {
       id: "usage",
       icon: "gauge",
       title: t(lang, "usageLimits"),
@@ -493,8 +611,14 @@ export default function SettingsPage() {
       const hay = `${g.title} ${g.summary ?? ""} ${g.keys}`.toLowerCase();
       return words.every((w) => hay.includes(w));
     });
+    // NOTE: previewVoice MUST be listed here. The Voice group's
+    // content reads it (the Preview button's playing state), and
+    // without it this memo returns the stale group content built
+    // when previewVoice was null — the button never shows
+    // "playing" and stop-on-retap never fires (found by the
+    // Playwright verification, 2026-11-25).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searching, query, lang, settings, email, theme]);
+  }, [searching, query, lang, settings, email, theme, previewVoice]);
 
   return (
     <AppShell icon="settings" title={t(lang, "settings")} subtitle={t(lang, "settingsSubtitle")}>

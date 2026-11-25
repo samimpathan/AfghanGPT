@@ -6,7 +6,8 @@
  */
 
 import { founderPromptBlock } from "./founder";
-import { generateFreeImage } from "./freeImage";
+import { generateFreeImage, recordProviderAttempt, recordImageRequest } from "./freeImage";
+import { isGeminiVoice } from "./voices";
 
 export type ChatMsg = {
   role: "user" | "assistant";
@@ -72,16 +73,21 @@ function modelUrl(model: string, action: "generateContent"): string {
  * current GA image model ("primary high-efficiency workhorse"); the old
  * gemini-2.5-flash-image is deprecated (shutdown 2027-03-15). Same
  * :generateContent request shape (TEXT+IMAGE modalities) for both.
- * NOTE — tested 2026-11-24 against the real free-tier key via the
- * Muse Gemini connector: gemini-2.5-flash-image, gemini-3.1-flash-image,
+ * CONFIRMED 2026-11-25 by official Google docs research (pricing page
+ * + image-generation guide): the free tier is "Not available" for
+ * input AND output on EVERY image model (free RPM/RPD/TPM = 0) — the
+ * live 429 "quota exceeded ... limit: 0" on this key matches exactly.
+ * Tested 2026-11-24/25 against the real free-tier key via the Muse
+ * Gemini connector: gemini-2.5-flash-image, gemini-3.1-flash-image,
  * gemini-3.1-flash-lite-image and gemini-nano-banana-2.1 ALL return
- * HTTP 429 "quota exceeded ... limit: 0" on the free tier, and
- * gemini-2.0-flash-preview-image-generation is 404 (retired). Google's
- * Gemini API pricing page lists the free tier as "Not available" for
- * every image model — so Gemini is only a fallback here, used when a
- * billed key is configured. The PRIMARY image path is the free
- * Pollinations.ai provider (src/lib/freeImage.ts) — no key, no payment,
- * free for every user. See generateImage below. */
+ * HTTP 429 limit 0, and gemini-2.0-flash-preview-image-generation is
+ * 404 (retired). There is NO free path — the only fix is billing on
+ * the Google Cloud project, which the owner forbade. So Gemini stays
+ * a dormant, correctly-wired fallback (used only when a billed key is
+ * configured); quotas are per PROJECT, not per key, which is why the
+ * per-IP image quota (lib/imageRateLimit.ts) matters. The PRIMARY
+ * image path is the free Pollinations.ai provider (src/lib/freeImage.ts)
+ * — no key, no payment, free for every user. See generateImage below. */
 const IMAGE_MODEL_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-nano-banana-2.1:generateContent";
 
@@ -216,7 +222,9 @@ export async function enhanceImagePrompt(
  * Returns { image, busy }: busy=true only when the free service
  * explicitly rate-limited us — callers should then say "try again in
  * a moment". image=null + busy=false means honestly unavailable.
- * Callers must never fake an image when this returns null. */
+ * Callers must never fake an image when this returns null.
+ * Monitoring: every call records the request outcome and the
+ * provider that served it (lib/freeImage.ts recordImageRequest). */
 export async function generateImage(
   prompt: string,
   apiKey?: string | null,
@@ -234,11 +242,22 @@ export async function generateImage(
     Math.min(55_000, 60_000 - (Date.now() - started) - 5_000)
   );
   const free = await generateFreeImage(visualPrompt, ratio, remainingMs);
-  if (free.ok) return { image: free.dataUrl, busy: false };
+  if (free.ok) {
+    recordImageRequest("pollinations", "success");
+    return { image: free.dataUrl, busy: false };
+  }
   if (apiKey) {
     const gemini = await generateGeminiImage(visualPrompt, apiKey);
-    if (gemini) return { image: gemini, busy: false };
+    if (gemini) {
+      recordProviderAttempt("gemini", "success");
+      recordImageRequest("gemini", "success");
+      return { image: gemini, busy: false };
+    }
+    recordProviderAttempt("gemini", "fail");
   }
+  // No provider served an image — record the request under "none"
+  // (busy when the free service rate-limited us, fail otherwise).
+  recordImageRequest("none", free.busy ? "busy" : "fail");
   return { image: null, busy: free.busy };
 }
 
@@ -530,14 +549,24 @@ export async function transcribeAudio(
 
 /** Text-to-speech with Gemini TTS. Returns audio as a data URL
  * (e.g. data:audio/wav;base64,...), or null when the model is unavailable
- * for this key — callers must then fall back honestly, never fake audio. */
+ * for this key — callers must then fall back honestly, never fake audio.
+ * voiceName: an explicit Gemini prebuilt voice (from Settings); an
+ * unknown value falls back to the per-language default below, so a
+ * bad value can never reach the API. */
 export async function synthesizeSpeech(
   text: string,
   lang: string,
-  apiKey: string
+  apiKey: string,
+  voiceName?: string
 ): Promise<string | null> {
-  const voiceName =
-    lang === "ps" || lang === "fa" ? "Kore" : lang === "en" ? "Puck" : "Kore";
+  const voice =
+    voiceName && isGeminiVoice(voiceName)
+      ? voiceName
+      : lang === "ps" || lang === "fa"
+        ? "Kore"
+        : lang === "en"
+          ? "Puck"
+          : "Kore";
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60000);
   try {
@@ -551,7 +580,7 @@ export async function synthesizeSpeech(
           generationConfig: {
             responseModalities: ["AUDIO"],
             speechConfig: {
-              voiceConfig: { prebuiltVoiceConfig: { voiceName } },
+              voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } },
             },
           },
         }),

@@ -5,6 +5,7 @@ import { getFreeWebAnswer, detectLang, isFactualQuestion } from "@/lib/freeweb";
 import { isAdultRequest, ADULT_REFUSAL_PS } from "@/lib/safety";
 import { normalizeFounderName, guardChatStream } from "@/lib/nameGuard";
 import { rateLimited, clientIp } from "@/lib/ratelimit";
+import { checkImageRateLimit } from "@/lib/imageRateLimit";
 import {
   generateFile,
   validateSpec,
@@ -398,6 +399,15 @@ export async function POST(req: NextRequest) {
   // Free-first: generateImage tries the free Pollinations provider
   // with no key, then Gemini only if a server key is configured.
   if (!lastImage && isImageGenRequest(lastText)) {
+    // Per-IP image quota (10/hour, lib/imageRateLimit.ts): one IP
+    // must not exhaust the shared free image quota. Denied requests
+    // get the SAME busy message as a provider rate-limit, and the
+    // user's message stays in the chat so Regenerate retries it.
+    // This check runs ONLY on the image branch — the text-chat path
+    // below never touches it, so a limited IP can still chat.
+    if (!checkImageRateLimit(clientIp(req)).allowed) {
+      return textStream(IMAGE_GEN_BUSY, "gemini");
+    }
     const { image, busy } = await generateImage(lastText, apiKey);
     if (image) {
       return new Response(

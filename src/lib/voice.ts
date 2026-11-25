@@ -6,6 +6,8 @@
  */
 
 import type { Lang } from "./i18n";
+import { store } from "./store";
+import { isGeminiVoice } from "./voices";
 
 /** BCP-47 language tag for speech recognition, from the UI language. */
 export function recognitionLang(lang: Lang): string {
@@ -201,16 +203,23 @@ export type GeminiAudio = {
 
 /** Play Gemini TTS audio for text in `lang`.
  * Returns null when the TTS model is unavailable for this key —
- * the caller must then fall back honestly, never fake the voice. */
+ * the caller must then fall back honestly, never fake the voice.
+ * `voice`: an explicit voice to use (e.g. a Settings Preview);
+ * otherwise the voice chosen in Settings follows automatically
+ * ("" = the per-language default). */
 export async function playGeminiSpeech(
   text: string,
   lang: "ps" | "fa" | "en",
-  onEnd: () => void
+  onEnd: () => void,
+  voice?: string
 ): Promise<GeminiAudio | null> {
+  const chosen = voice ?? store.settings().voice;
+  const body: { text: string; lang: string; voice?: string } = { text, lang };
+  if (chosen && isGeminiVoice(chosen)) body.voice = chosen;
   const res = await fetch("/api/speech", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, lang }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) return null;
   const data = (await res.json()) as { audio?: string | null };
