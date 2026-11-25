@@ -314,12 +314,16 @@ body {
   transform-origin: 50% 28%;
 }
 
-/* Answering avatar video (ROUND 3C) — /avatar-video.mp4 is Samim
-   typing/coding at a laptop with headphones (720×720, 5s loop). His face
-   sits left of centre (≈ 40% / 21%, face width ≈ 24%) and stays
-   there through the clip (checked at 1s and 4s), so the video gets
-   its own crop: 1.9× zoom at 40% / 22% keeps the whole head plus
-   shoulders and a sliver of laptop in the circle. Same sizing as
+/* Answering avatar video (ROUND 3C, re-framed 2026-11-25) —
+   /avatar-video.mp4 is Samim typing/coding at a laptop with
+   headphones (720×720, 5s loop). His face sits left of centre
+   (≈ 40% / 21%) and BOTH hands stay on the keyboard (≈ y 68–78%)
+   through the whole clip (checked at 1s, 3s and 5s). The OLD crop
+   (1.9× zoom at 40% / 22%) showed the face only and cut the hands
+   out entirely — the user asked 2026-11-25 that the hands MUST be
+   visible coding. New crop: 1.15× at 50% / 42% keeps the face,
+   shoulders, both hands on the keyboard and the laptop in the
+   circle, so it is fully clear he is coding. Same sizing as
    .ai-avatar-img so it swaps in place with no layout shift. The
    video plays while an answer streams AND stays on the latest
    finished reply (ChatMessage), and on the home hero (page.tsx) —
@@ -331,8 +335,8 @@ body {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transform: scale(1.9);
-  transform-origin: 40% 22%;
+  transform: scale(1.15);
+  transform-origin: 50% 42%;
 }
 
 /* Voice orb bars (live call + voice mode). */

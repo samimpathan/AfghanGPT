@@ -59,7 +59,15 @@ function thinkingConfigFor(model: string) {
     ? { thinkingConfig: { thinkingBudget: 0 } }
     : {};
 }
-const TTS_MODEL = "gemini-2.5-flash-preview-tts";
+/* TTS models (verified live 2026-11-25 on the free key via the
+ * Gemini connector): gemini-2.5-flash-preview-tts returns an EMPTY
+ * response (finishReason OTHER, no content parts) — the Preview
+ * button and read-aloud both failed with the honest "online AI is
+ * not available" note. gemini-3.8-flash-tts and
+ * gemini-3.8-flash-lite-tts both return real audio (140–148 KB WAV
+ * for the same prompt + voice). Primary 3.8-flash-tts, fallback
+ * 3.8-flash-lite-tts. */
+const TTS_MODELS = ["gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts"];
 
 function modelStreamUrl(model: string): string {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`;
@@ -570,37 +578,53 @@ export async function synthesizeSpeech(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 60000);
   try {
-    const res = await fetch(
-      `${modelUrl(TTS_MODEL, "generateContent")}?key=${encodeURIComponent(apiKey)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text }] }],
-          generationConfig: {
-            responseModalities: ["AUDIO"],
-            speechConfig: {
-              voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } },
-            },
-          },
-        }),
-        signal: controller.signal,
+    // Try each TTS model in turn and return the first audio received.
+    // A model can answer 200 with NO audio (gemini-2.5-flash-preview-tts
+    // did exactly that on this key) — that counts as a miss, not a
+    // success, so the next model gets its turn.
+    for (const model of TTS_MODELS) {
+      let res: Response;
+      try {
+        res = await fetch(
+          `${modelUrl(model, "generateContent")}?key=${encodeURIComponent(apiKey)}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text }] }],
+              generationConfig: {
+                responseModalities: ["AUDIO"],
+                speechConfig: {
+                  voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } },
+                },
+              },
+            }),
+            signal: controller.signal,
+          }
+        );
+      } catch {
+        if (controller.signal.aborted) return null;
+        continue;
       }
-    );
-    if (!res.ok) return null;
-    const json = (await res.json()) as {
-      candidates?: {
-        content?: {
-          parts?: { inlineData?: { mimeType?: string; data?: string } }[];
-        };
-      }[];
-    };
-    const parts = json?.candidates?.[0]?.content?.parts ?? [];
-    const audio = parts.find((p) => p.inlineData?.data);
-    if (!audio?.inlineData?.data) return null;
-    const mime = audio.inlineData.mimeType ?? "audio/wav";
-    return `data:${mime};base64,${audio.inlineData.data}`;
-  } catch {
+      if (!res.ok) continue;
+      let json: {
+        candidates?: {
+          content?: {
+            parts?: { inlineData?: { mimeType?: string; data?: string } }[];
+          };
+        }[];
+      };
+      try {
+        json = (await res.json()) as typeof json;
+      } catch {
+        continue;
+      }
+      const parts = json?.candidates?.[0]?.content?.parts ?? [];
+      const audio = parts.find((p) => p.inlineData?.data);
+      if (!audio?.inlineData?.data) continue;
+      const mime = audio.inlineData.mimeType ?? "audio/wav";
+      return `data:${mime};base64,${audio.inlineData.data}`;
+    }
     return null;
   } finally {
     clearTimeout(timeout);

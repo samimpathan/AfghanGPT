@@ -721,6 +721,26 @@ export default function ChatMessage({
                   </p>
                 );
               },
+              blockquote({ children }: { children?: ReactNode }) {
+                // A substantial quote becomes a prompt card too. The model
+                // usually emits a requested prompt as a quote block under a
+                // heading ("د پرامپټ نمونه (په انګلیسي):") rather than a
+                // literal "Prompt:" paragraph, so the "Prompt:"-only trigger
+                // missed it (preview test 2026-11-25). Only Latin-heavy
+                // quotes become cards (prompt samples are English); a
+                // Pashto/Dari quote stays a plain blockquote.
+                const text = plainTextOf(children).trim();
+                const latin = (text.match(/[A-Za-z]/g) || []).length;
+                const arabic = (text.match(/[؀-ۿ]/g) || []).length;
+                if (text.length > 40 && latin >= 20 && latin > arabic) {
+                  return <PromptCard text={text} lang={lang} />;
+                }
+                return (
+                  <blockquote dir="auto" className="bidi-plaintext">
+                    {children}
+                  </blockquote>
+                );
+              },
               li({ children }: { children?: ReactNode }) {
                 return (
                   <li dir="auto" className="bidi-plaintext">
