@@ -152,6 +152,63 @@ export async function generateGeminiImage(
   }
 }
 
+/** Rewrite an image request as a concise English image prompt.
+ * ROOT CAUSE (2026-11-25, his phone): he asked in Pashto "د AfghanGPT
+ * یوه عکس راته جوړ کړه" and got a random BEDROOM — the image model
+ * does not understand Pashto, so it guessed from fragments ("Afghan"
+ * → an Afghan-style room). The fix: Gemini (which understands
+ * Pashto/Dari/English) rewrites the request first, so Pollinations
+ * always receives a clear English visual prompt that matches what
+ * the user actually asked for — like Gemini image generation does.
+ * Single light call (primary model only, 8s timeout, ~150 tokens);
+ * on ANY failure returns the original prompt unchanged, so the
+ * image path never breaks because the rewrite failed. Only runs
+ * when a server key is configured (apiKey null → skipped). */
+export async function enhanceImagePrompt(
+  prompt: string,
+  apiKey: string
+): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8_000);
+  try {
+    const res = await fetch(
+      `${modelUrl(CHAT_MODELS[0], "generateContent")}?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          system_instruction: {
+            parts: [
+              {
+                text: "You rewrite image requests as concise English image-generation prompts. The request may be in Pashto, Dari, English or Arabic. Keep the subject, style and details the user asked for; drop instruction words like 'make an image of' or 'عکس راته جوړ کړه'. If the user asks for a picture of a named thing (e.g. a logo for AfghanGPT), describe that thing visually. Reply with ONLY the prompt, no explanation, no quotes, no extra text.",
+              },
+            ],
+          },
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.3, maxOutputTokens: 150 },
+        }),
+        signal: controller.signal,
+      }
+    );
+    if (!res.ok) return prompt;
+    const json = (await res.json()) as {
+      candidates?: { content?: { parts?: { text?: string }[] } }[];
+    };
+    const text = json?.candidates?.[0]?.content?.parts
+      ?.map((p) => p.text ?? "")
+      .join("")
+      .trim()
+      .replace(/^["']|["']$/g, "")
+      .replace(/\s+/g, " ")
+      .slice(0, 500);
+    return text || prompt;
+  } catch {
+    return prompt;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 /** Image generation for the app — FREE FIRST, no key required.
  * Tries the free Pollinations.ai provider first (no key, no payment,
  * free for every user). Only if that fails AND a Gemini key was passed
@@ -165,10 +222,21 @@ export async function generateImage(
   apiKey?: string | null,
   ratio = "1:1"
 ): Promise<{ image: string | null; busy: boolean }> {
-  const free = await generateFreeImage(prompt, ratio);
+  const started = Date.now();
+  // Relevance: rewrite the request into a clear English visual
+  // prompt first (only when a key exists; otherwise the raw prompt
+  // goes to the free provider as before). The rewrite is capped at
+  // 8s, and the free provider's retry budget shrinks by the time it
+  // took, so the whole call still fits the routes' 60s limit.
+  const visualPrompt = apiKey ? await enhanceImagePrompt(prompt, apiKey) : prompt;
+  const remainingMs = Math.max(
+    20_000,
+    Math.min(55_000, 60_000 - (Date.now() - started) - 5_000)
+  );
+  const free = await generateFreeImage(visualPrompt, ratio, remainingMs);
   if (free.ok) return { image: free.dataUrl, busy: false };
   if (apiKey) {
-    const gemini = await generateGeminiImage(prompt, apiKey);
+    const gemini = await generateGeminiImage(visualPrompt, apiKey);
     if (gemini) return { image: gemini, busy: false };
   }
   return { image: null, busy: free.busy };

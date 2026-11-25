@@ -90,7 +90,8 @@ function mimeFor(buf: Buffer): string {
  */
 export async function generateFreeImage(
   prompt: string,
-  ratio = "1:1"
+  ratio = "1:1",
+  budgetMs = 55_000
 ): Promise<FreeImageResult> {
   const started = Date.now();
   const { width, height } = pollinationsSize(ratio);
@@ -136,12 +137,15 @@ export async function generateFreeImage(
   }
 
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-  // Room for one more attempt (~6s for a generation) inside 55s.
-  // A 402's "Retry after Ns" is ~45s minus the time since the last
-  // success, so a full wait + generation is ~50s — inside the
-  // routes' 60s, but only just; the budget check keeps it honest.
+  // Room for one more attempt (~6s for a generation) inside the
+  // budget (55s by default; generateImage shrinks it by the time
+  // the prompt rewrite took, so the whole call fits the routes'
+  // 60s limit). A 402's "Retry after Ns" is ~45s minus the time
+  // since the last success, so a full wait + generation is ~50s —
+  // inside the routes' 60s, but only just; the budget check keeps
+  // it honest.
   const fitsRetry = (waitMs: number) =>
-    Date.now() - started + waitMs + 6_000 <= 55_000;
+    Date.now() - started + waitMs + 6_000 <= budgetMs;
 
   const first = await attempt();
   if (first.kind === "ok") return { ok: true, dataUrl: first.dataUrl };
