@@ -7,6 +7,27 @@
 
 import type { FileSpec } from "@/lib/filegen";
 import { detectLang } from "@/lib/store";
+import { supabase } from "@/lib/supabaseClient";
+
+/** Current session access token, for server-side founder checks
+ * (image generation is founder-only — see lib/founderAuth.ts).
+ * Null for guests and when Supabase is not configured. Never throws. */
+export async function getAccessToken(): Promise<string | null> {
+  try {
+    if (!supabase) return null;
+    const { data } = await supabase.auth.getSession();
+    return data.session?.access_token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Authorization header for /api/* calls that need the founder
+ * check. Guests send no header and are refused server-side. */
+export async function authHeaders(): Promise<Record<string, string>> {
+  const token = await getAccessToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 export type ApiChatMsg = {
   role: "user" | "assistant";
@@ -48,7 +69,7 @@ export async function* streamChat(
 ): AsyncGenerator<string> {
   const res = await fetch("/api/chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify({ messages, mode: opts.mode ?? "auto", system: opts.system ?? "" }),
   });
   if (!res.ok) throw new Error(`chat ${res.status}`);
@@ -87,7 +108,7 @@ export async function chatText(
 ): Promise<{ text: string; mode: string }> {
   const res = await fetch("/api/chat", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(await authHeaders()) },
     body: JSON.stringify({ messages, mode, system, format: "json" }),
   });
   if (!res.ok) throw new Error(`chat ${res.status}`);

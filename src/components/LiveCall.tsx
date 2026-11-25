@@ -5,6 +5,7 @@ import { Icon } from "@/components/icons";
 import Image from "next/image";
 import { t, type Lang } from "@/lib/i18n";
 import { store } from "@/lib/store";
+import { authHeaders } from "@/lib/client";
 import { resolveVoice } from "@/lib/voices";
 import {
   transcribeRecording,
@@ -865,7 +866,7 @@ export default function LiveCall({
     ) => {
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(await authHeaders()) },
         body: JSON.stringify({ messages, mode: "auto" }),
       });
       if (!res.ok || !res.body) throw new Error("chat failed");

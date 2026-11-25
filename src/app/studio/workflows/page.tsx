@@ -20,7 +20,7 @@ import {
   type WorkflowRun,
   type WorkflowStep,
 } from "@/lib/store";
-import { chatJson, chatText, downloadFileSpec, type ApiChatMsg } from "@/lib/client";
+import { chatJson, chatText, downloadFileSpec, authHeaders, type ApiChatMsg } from "@/lib/client";
 import type { FileSpec } from "@/lib/filegen";
 import { Btn, Card, Field, Input, Select, Spinner, Textarea, Badge } from "@/components/ui";
 
@@ -210,11 +210,17 @@ export default function WorkflowsPage() {
             const hint = step.prompt.trim() ? `, ${step.prompt.trim()}` : "";
             const res = await fetch("/api/image", {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: { "Content-Type": "application/json", ...(await authHeaders()) },
               body: JSON.stringify({ prompt: `${current.slice(0, 900)}${hint}` }),
             });
             if (!res.ok) {
               const j = (await res.json().catch(() => ({}))) as { error?: string };
+              // Founder-only (user order 2026-11-25): a non-founder's
+              // image step is refused with the same text as the
+              // Image Studio, in the user's language.
+              if (res.status === 403 || j.error === "founder_only") {
+                throw new Error(t("imageFounderOnly"));
+              }
               throw new Error(imageErrorMessage(j.error ?? "", res.status));
             }
             const j = (await res.json()) as { image?: string };

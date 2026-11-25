@@ -3,6 +3,7 @@ import { generateImage } from "@/lib/gemini";
 import { isAdultRequest } from "@/lib/safety";
 import { rateLimited, clientIp } from "@/lib/ratelimit";
 import { checkImageRateLimit } from "@/lib/imageRateLimit";
+import { isFounderRequest } from "@/lib/founderAuth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,17 +11,32 @@ export const dynamic = "force-dynamic";
  * so the route needs more than the 10s Hobby default. */
 export const maxDuration = 60;
 
-/** POST /api/image — text-to-image (best-effort, FREE for everyone).
- * Body: { prompt, ratio? }. Returns { image } (data URL) or an
- * honest error — never a fake image. No API key is needed from anyone:
- * the free Pollinations.ai provider runs first (no key, no account,
- * no payment); Gemini runs only as a fallback when a server key is
- * configured. 429 image-busy when the free service rate-limits us;
- * 502 when no provider could make an image. */
+/** POST /api/image — text-to-image, FOUNDER-ONLY (user order
+ * 2026-11-25). Only the founder, logged in with his account
+ * (samimpatan8@gmail.com), may generate images; everyone else gets
+ * HTTP 403 { error: "founder_only" } and no image is generated.
+ * The caller's Supabase JWT is verified server-side (see
+ * lib/founderAuth.ts) — the client sends its session access token
+ * as `Authorization: Bearer <token>`. A guest sends no token and
+ * is refused. Body: { prompt, ratio? }. Returns { image } (data
+ * URL) or an honest error — never a fake image. No API key is
+ * needed from anyone: the free Pollinations.ai provider runs first
+ * (no key, no account, no payment); Gemini runs only as a fallback
+ * when a server key is configured. 429 image-busy when the free
+ * service rate-limits us; 502 when no provider could make an image. */
 export async function POST(req: NextRequest) {
   if (rateLimited(clientIp(req), 20, 60_000)) {
     return new Response(JSON.stringify({ error: "rate-limited" }), {
       status: 429,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  // Founder gate, before any validation or quota: a non-founder
+  // spends no quota and reaches no provider. The founder's own
+  // flow below is unchanged.
+  if (!(await isFounderRequest(req))) {
+    return new Response(JSON.stringify({ error: "founder_only" }), {
+      status: 403,
       headers: { "Content-Type": "application/json" },
     });
   }

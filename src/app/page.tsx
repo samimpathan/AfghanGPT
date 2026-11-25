@@ -14,7 +14,7 @@ import { t, dirOf } from "@/lib/i18n";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { isAdminEmail } from "@/lib/admin";
 import { store } from "@/lib/store";
-import { downloadFileSpec } from "@/lib/client";
+import { downloadFileSpec, authHeaders } from "@/lib/client";
 import type { FileSpec } from "@/lib/filegen";
 import {
   listChats,
@@ -838,11 +838,17 @@ export default function HomePage() {
       }
       // All answers go through /api/chat — one model (AfghanGPT Auto),
       // free web answers when the online AI is unavailable. No user
-      // provider keys exist anymore.
+      // provider keys exist anymore. The session token rides along
+      // so the server can verify the founder for image generation
+      // (founder-only) — guests send no token and are refused
+      // server-side; the text-chat path never needs it.
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            ...(await authHeaders()),
+          },
           body: JSON.stringify({ messages: history, mode, system: memorySystem }),
           signal: controller.signal,
         });

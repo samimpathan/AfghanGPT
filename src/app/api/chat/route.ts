@@ -6,6 +6,7 @@ import { isAdultRequest, ADULT_REFUSAL_PS } from "@/lib/safety";
 import { normalizeFounderName, guardChatStream } from "@/lib/nameGuard";
 import { rateLimited, clientIp } from "@/lib/ratelimit";
 import { checkImageRateLimit } from "@/lib/imageRateLimit";
+import { isFounderRequest, refusalTextFor } from "@/lib/founderAuth";
 import {
   generateFile,
   validateSpec,
@@ -396,9 +397,17 @@ export async function POST(req: NextRequest) {
   }
 
   // Image generation (text-only request, no photo attached).
-  // Free-first: generateImage tries the free Pollinations provider
-  // with no key, then Gemini only if a server key is configured.
+  // FOUNDER-ONLY (user order 2026-11-25): only the founder, logged
+  // in with his account, may generate images. Anyone else — guest
+  // or any other logged-in user — gets the refusal text in their
+  // own language, deterministically, and NO image generation runs:
+  // no Pollinations/Gemini call and no quota is consumed. The check
+  // runs BEFORE the quota check so a refused request never spends
+  // quota. The founder's own flow below is unchanged.
   if (!lastImage && isImageGenRequest(lastText)) {
+    if (!(await isFounderRequest(req))) {
+      return textStream(refusalTextFor(lastText), "refused");
+    }
     // Per-IP image quota (10/hour, lib/imageRateLimit.ts): one IP
     // must not exhaust the shared free image quota. Denied requests
     // get the SAME busy message as a provider rate-limit, and the

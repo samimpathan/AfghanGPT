@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { Icon } from "@/components/icons";
 import AppShell from "@/components/AppShell";
 import { useLang } from "@/lib/i18n";
+import { authHeaders } from "@/lib/client";
 import { store, uid, type StudioImage } from "@/lib/store";
 import { Btn, Card, Field, Select, Spinner, Textarea } from "@/components/ui";
 
@@ -65,12 +66,18 @@ export default function ImageStudioPage() {
   }
 
   async function callImageApi(text: string, ratioValue: string): Promise<string> {
+    // The session token rides along so the server can verify the
+    // founder (image generation is founder-only). A guest sends no
+    // token and gets the refusal text below, in their language.
     const res = await fetch("/api/image", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(await authHeaders()) },
       body: JSON.stringify({ prompt: text, ratio: ratioValue }),
     });
     const json = (await res.json().catch(() => ({}))) as { image?: string; error?: string };
+    if (res.status === 403 || json.error === "founder_only") {
+      throw new Error(t("imageFounderOnly"));
+    }
     if (!res.ok || !json.image) {
       throw new Error(errorMessage(res.status, json.error ?? ""));
     }
