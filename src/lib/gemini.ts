@@ -17,15 +17,129 @@ export type ChatMsg = {
 };
 
 /**
- * Model chain for text chat. gemini-3-flash-preview is the primary model;
- * if it fails (503 high demand, 429, timeout, network error) we retry once
- * with gemini-flash-lite-latest (verified working for this key 2026-11-22
- * 17:08) before giving up. Known NOT to use for this key:
- * gemini-2.5-flash (404 "no longer available to new users"),
- * gemini-2.0-flash and gemini-2.5-flash-lite (404),
- * gemini-3.8-flash and gemini-flash-latest (503 high demand).
+ * Model chain for text chat. Order is chosen per request by
+ * chatModelOrder() (founder order 2026-11-25 20:42): the FAST model
+ * (gemini-flash-lite-latest) answers first by default — it answered a
+ * Pashto greeting in 0.9s vs 2.4s for the thinking model, measured the
+ * same day — and gemini-3-flash-preview stays as the fallback/second
+ * model. Smart mode and complex questions (see isComplexQuestion)
+ * still put the thinking model first, so accuracy is kept where it
+ * matters. generateText/transcribeAudio (studios, transcription)
+ * keep the old order [preview, lite] on purpose — strict JSON and
+ * transcription need the stronger model first.
+ * Known NOT to use for this key: gemini-2.5-flash (404 "no longer
+ * available to new users"), gemini-2.0-flash and gemini-2.5-flash-lite
+ * (404), gemini-3.8-flash and gemini-flash-latest (503 high demand).
  */
-const CHAT_MODELS = ["gemini-3-flash-preview", "gemini-flash-lite-latest"] as const;
+const PREVIEW_MODEL = "gemini-3-flash-preview";
+const LITE_MODEL = "gemini-flash-lite-latest";
+const CHAT_MODELS = [PREVIEW_MODEL, LITE_MODEL] as const;
+
+/** First-chunk deadline PER MODEL (founder order 2026-11-25 20:42):
+ * the fast model answers in ~1s, so if it has no first token in 8s
+ * it is hung — fail over instead of waiting the old 20s. The
+ * thinking model needs longer (it reasons before its first word),
+ * so it keeps 20s. */
+function firstChunkMsFor(model: string): number {
+  return model === LITE_MODEL ? 8000 : 20000;
+}
+
+/** One LIMITED retry on a fast server failure (429/503/500): a single
+ * retry after a short backoff, then the fallback model. Retry-After
+ * is honoured when present and short. Timeouts and network errors
+ * are NEVER retried — a hung model will hang again. */
+const RETRY_BACKOFF_MS = 1500;
+const MAX_RETRY_AFTER_MS = 5000;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+function retryWaitMs(retryAfter: string | null): number {
+  const seconds = retryAfter ? Number.parseInt(retryAfter, 10) : Number.NaN;
+  if (Number.isFinite(seconds) && seconds > 0) {
+    return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS);
+  }
+  return RETRY_BACKOFF_MS;
+}
+
+/** Conservative complexity heuristic (founder order 2026-11-25 20:42):
+ * only clearly complex questions go to the thinking model first in
+ * Auto mode. Long questions, explicit detail requests, how/why
+ * mechanism questions, and technical/scientific vocabulary
+ * (Pashto/Dari/English) count as complex. Everything else — greetings,
+ * short facts, small talk — goes to the fast model first. */
+export function isComplexQuestion(text: string): boolean {
+  const t = text.trim();
+  if (t.length >= 400) return true;
+  const lower = t.toLowerCase();
+  const markers = [
+    // explicit detail / explanation requests
+    "په تفصیل",
+    "تفصیل سره",
+    "تشریح",
+    "in detail",
+    "in depth",
+    "explain in detail",
+    "step by step",
+    "ګام په ګام",
+    // mechanism / cause questions
+    "څنګه کار کوي",
+    "how does",
+    "how do",
+    "why does",
+    "why do",
+    // code / programming
+    "کوډ",
+    "code",
+    "program",
+    "پروګرام",
+    "python",
+    "javascript",
+    "html",
+    "css",
+    "java",
+    "c++",
+    "algorithm",
+    "الګوریتم",
+    // science / maths
+    "فزیک",
+    "کیمیا",
+    "بیولوژي",
+    "ریاضي",
+    "physics",
+    "chemistry",
+    "biology",
+    "mathematics",
+    "science",
+    "ساینس",
+    "theorem",
+    "proof",
+    // technical
+    "سرور",
+    "server",
+    "database",
+    "ډیټابیس",
+    "network",
+    "شبکه",
+    "security",
+    "امنیت",
+    "api",
+  ];
+  return markers.some((m) => lower.includes(m));
+}
+
+/** Model order for chat (founder order 2026-11-25 20:42). Fast mode
+ * always puts the fast model first; Smart mode always puts the
+ * thinking model first (the old behaviour); Auto mode uses the
+ * complexity heuristic. The order is changeable in the app — the
+ * model picker (Auto/Fast/Smart) in the header controls it. */
+export function chatModelOrder(
+  mode: GeminiMode,
+  lastUserText: string
+): readonly string[] {
+  if (mode === "fast") return [LITE_MODEL, PREVIEW_MODEL];
+  if (mode === "smart") return [PREVIEW_MODEL, LITE_MODEL];
+  return isComplexQuestion(lastUserText)
+    ? [PREVIEW_MODEL, LITE_MODEL]
+    : [LITE_MODEL, PREVIEW_MODEL];
+}
 
 /** ROUND 6 — first-attempt failure fix (2026-11-23, proven live).
  * The primary model was observed hanging for a full 60s (and 503ing)
@@ -34,13 +148,13 @@ const CHAT_MODELS = ["gemini-3-flash-preview", "gemini-flash-lite-latest"] as co
  * 60s-per-model timeout let ONE hung model eat the whole Vercel 60s
  * function budget, so the function was killed (504) before the
  * fallback model — or the graceful offline fallback — could run.
- * Each model now gets at most FIRST_CHUNK_MS for its FIRST token;
- * the whole chain is bounded by the caller's deadline (the route
- * passes request start + 50s, leaving margin for cold start). Once
- * the first token arrives, the rest of the stream gets the remaining
- * budget instead (a full reply can take ~45s; cutting it at 20s
- * would truncate good answers). */
-const FIRST_CHUNK_MS = 20000;
+ * Each model now gets at most its per-model first-chunk deadline
+ * (firstChunkMsFor: 8s for the fast model, 20s for the thinking
+ * model) for its FIRST token; the whole chain is bounded by the
+ * caller's deadline (the route passes request start + 50s, leaving
+ * margin for cold start). Once the first token arrives, the rest of
+ * the stream gets the remaining budget instead (a full reply can take
+ * ~45s; cutting it at 20s would truncate good answers). */
 const DEFAULT_BUDGET_MS = 50000;
 
 /** Absolute deadline (Date.now() ms) by which a Gemini call must
@@ -293,11 +407,14 @@ function modeTokens(mode: GeminiMode): number {
 }
 
 /** Stream Gemini reply text chunk by chunk, with model fallback.
- * Tries CHAT_MODELS in order; a failed model (non-2xx, timeout, network
- * error) is retried with the next model. Throws only when every model
- * failed — the error message carries the last HTTP status, never the key.
- * A failure AFTER the first chunk was already yielded is also thrown, so
- * the caller can tell a mid-stream break from a total failure. */
+ * Tries the models in chatModelOrder(mode, last user text) order — the
+ * fast model first by default. A failed model (non-2xx, timeout,
+ * network error) is retried with the next model. A fast 429/503/500
+ * gets ONE limited retry on the same model first (short backoff);
+ * timeouts are never retried. Throws only when every model failed —
+ * the error message carries the last HTTP status, never the key.
+ * A failure AFTER the first chunk was already yielded is also thrown,
+ * so the caller can tell a mid-stream break from a total failure. */
 export async function* streamGemini(
   messages: ChatMsg[],
   apiKey: string,
@@ -309,59 +426,112 @@ export async function* streamGemini(
     (systemOverride ? `${systemOverride}\n` : "") + SYSTEM_PROMPT + modePrompt(mode);
   const maxTokens = modeTokens(mode);
   const deadline = opts.deadline ?? Date.now() + DEFAULT_BUDGET_MS;
+  const lastUserText =
+    [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
   let lastError: Error | null = null;
 
-  for (const model of CHAT_MODELS) {
+  for (const model of chatModelOrder(mode, lastUserText)) {
     // No budget left for another attempt — stop, don't start a call
     // that the function timeout would kill mid-flight.
-    const remaining = deadline - Date.now();
-    if (remaining <= 0) break;
-    const controller = new AbortController();
-    // First token only: a hung model must not eat the whole budget.
-    let timer = setTimeout(
-      () => controller.abort(),
-      Math.min(remaining, FIRST_CHUNK_MS)
-    );
-    let res: Response;
-    try {
-      res = await fetch(`${modelStreamUrl(model)}&key=${encodeURIComponent(apiKey)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: system }] },
-          contents: toGeminiContents(messages),
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: maxTokens,
-            ...thinkingConfigFor(model),
-          },
-        }),
-        signal: controller.signal,
-      });
-    } catch (e) {
-      clearTimeout(timer);
-      lastError = new Error(
-        e instanceof Error && e.name === "AbortError"
-          ? `Gemini request timed out (${model})`
-          : `Could not reach Gemini (${model})`
-      );
-      continue; // try the next model
-    }
+    if (deadline - Date.now() <= 0) break;
+    const firstChunkMs = firstChunkMsFor(model);
 
-    if (!res.ok) {
-      clearTimeout(timer);
-      const status = res.status;
-      await res.text().catch(() => "");
-      lastError = new Error(`Gemini error ${status} (${model})`);
-      // 400/401/403 mean the key itself is bad — a different model will not help.
-      if (status === 400 || status === 401 || status === 403) break;
-      continue; // try the next model (e.g. 503/429 on the primary)
+    // Fetch with ONE limited retry on a fast 429/503/500 failure.
+    // A timeout or network error is never retried on the same model.
+    let res: Response | null = null;
+    let streamController: AbortController | null = null;
+    let badKey = false;
+    // First-token deadline is SHARED by the fetch and the stream
+    // phases of one attempt, measured from the attempt start — the
+    // two phases must not add (a 7s fetch + an 8s stream wait would
+    // be 15s before failover). Found by verification 2026-11-25.
+    let attemptStart = 0;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      attemptStart = Date.now();
+      const controller = new AbortController();
+      // First token only: a hung model must not eat the whole budget.
+      const attemptTimer = setTimeout(
+        () => controller.abort(),
+        Math.min(remaining, firstChunkMs)
+      );
+      try {
+        const r = await fetch(`${modelStreamUrl(model)}&key=${encodeURIComponent(apiKey)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            system_instruction: { parts: [{ text: system }] },
+            contents: toGeminiContents(messages),
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: maxTokens,
+              ...thinkingConfigFor(model),
+            },
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(attemptTimer);
+        if (!r.ok) {
+          const status = r.status;
+          lastError = new Error(`Gemini error ${status} (${model})`);
+          // 400/401/403 mean the key itself is bad — a different model will not help.
+          if (status === 400 || status === 401 || status === 403) {
+            badKey = true;
+            await r.text().catch(() => "");
+            res = r;
+            break;
+          }
+          if (
+            attempt === 0 &&
+            (status === 429 || status === 503 || status >= 500)
+          ) {
+            const wait = retryWaitMs(r.headers.get("retry-after"));
+            await r.text().catch(() => "");
+            // Only retry if enough budget remains for the retry AND
+            // the fallback model afterwards.
+            if (deadline - Date.now() > wait + 5000) {
+              await sleep(wait);
+              continue;
+            }
+          } else {
+            await r.text().catch(() => "");
+          }
+          res = r;
+          break;
+        }
+        res = r;
+        streamController = controller;
+        break;
+      } catch (e) {
+        clearTimeout(attemptTimer);
+        lastError = new Error(
+          e instanceof Error && e.name === "AbortError"
+            ? `Gemini request timed out (${model})`
+            : `Could not reach Gemini (${model})`
+        );
+        break; // timeout/network — never retry the same model
+      }
     }
+    if (badKey) break;
+    if (!res || !res.ok || !streamController) continue; // try the next model
     if (!res.body) {
-      clearTimeout(timer);
       lastError = new Error(`Gemini returned an empty response (${model})`);
       continue;
     }
+
+    // The fetch already returned; the first token gets only the
+    // REMAINDER of this attempt's shared first-chunk budget — not a
+    // fresh full budget (see the note above).
+    const controller = streamController;
+    const firstTokenLeft = Math.max(
+      0,
+      firstChunkMs - (Date.now() - attemptStart)
+    );
+    let timer = setTimeout(
+      () => controller.abort(),
+      Math.min(Math.max(0, deadline - Date.now()), firstTokenLeft)
+    );
 
     // This model works — stream it. A stall BEFORE the first token is
     // a model failure like any other: try the next model. (The old
@@ -451,7 +621,11 @@ export async function generateText(
     (systemOverride ? `${systemOverride}\n` : "") + SYSTEM_PROMPT + modePrompt(mode);
   const maxTokens = modeTokens(mode);
   // Same budget as the stream: a hung model must not eat the whole
-  // function budget (see FIRST_CHUNK_MS above).
+  // function budget (see firstChunkMsFor above). NOTE: this is a
+  // TOTAL response timeout (non-streaming call), not a first-chunk
+  // deadline — keep 20s for both models so a long studio JSON spec
+  // from the fallback model is not cut off.
+  const GENERATE_TEXT_TIMEOUT_MS = 20000;
   const deadline = opts.deadline ?? Date.now() + DEFAULT_BUDGET_MS;
   let lastError: Error | null = null;
   for (const model of CHAT_MODELS) {
@@ -460,7 +634,7 @@ export async function generateText(
     const controller = new AbortController();
     const timeout = setTimeout(
       () => controller.abort(),
-      Math.min(remaining, FIRST_CHUNK_MS)
+      Math.min(remaining, GENERATE_TEXT_TIMEOUT_MS)
     );
     try {
       const res = await fetch(

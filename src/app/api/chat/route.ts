@@ -164,6 +164,13 @@ async function handleFileRequest(
   // see the failure message. The retry shares the same absolute
   // deadline, so it can never push the request past its budget.
   let spec: FileSpec | null = null;
+  // Did the spec fail because Gemini was busy/rate-limited (429/503/
+  // timeout)? Then the user gets the honest "busy" message instead of
+  // the generic failure text — the founder's 2026-11-25 presentation
+  // failed exactly this way while the free key was rate-limited, and
+  // the generic text hid the cause (and made a re-send look like it
+  // had never run). Malformed-spec failures keep the generic text.
+  let specBusy = false;
   for (let attempt = 0; attempt < 2 && !spec; attempt++) {
     let raw = "";
     try {
@@ -171,12 +178,16 @@ async function handleFileRequest(
         raw += chunk;
       }
     } catch (e) {
-      console.error("File spec failed:", e instanceof Error ? e.message : "unknown");
+      const msg = e instanceof Error ? e.message : "unknown";
+      console.error("File spec failed:", msg);
+      specBusy = /429|503|timed out|Could not reach/i.test(msg);
       if (attempt === 1) {
         return textStream(
-          pashto
-            ? "بښنه غواړم، فایل جوړ نه شو — بیا هڅه وکړه."
-            : "Sorry, the file could not be made — please try again.",
+          specBusy
+            ? busyMessageFor(lastText)
+            : pashto
+              ? "بښنه غواړم، فایل جوړ نه شو — بیا هڅه وکړه."
+              : "Sorry, the file could not be made — please try again.",
           "busy"
         );
       }

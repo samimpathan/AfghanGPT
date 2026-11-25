@@ -1042,14 +1042,33 @@ export default function HomePage() {
       const idx = chat.messages.findIndex((m) => m.id === msgId);
       if (idx < 0) return;
       const edited = chat.messages[idx];
-      if (edited.content === newText) return;
+      // NO early return when the text is unchanged: tapping Edit and
+      // re-sending the SAME text is a deliberate re-execution
+      // (Regenerate) — the founder's 2026-11-25 report was exactly
+      // this: edit + resend of the same failed presentation request
+      // did nothing at all, because the old code returned here and
+      // no request ever ran. The trailing reply is dropped below
+      // and send() always runs, changed text or not.
       const trailing = chat.messages.slice(idx + 1);
       const newMessages: UiMessage[] = [
         ...chat.messages.slice(0, idx),
         { ...edited, content: newText },
       ];
       setChats((prev) =>
-        prev.map((c) => (c.id === chat.id ? { ...c, messages: newMessages } : c))
+        prev.map((c) =>
+          c.id === chat.id
+            ? {
+                ...c,
+                // The chat title comes from the first message —
+                // editing it must retitle the chat, or the sidebar
+                // keeps showing the old text (founder's edit round,
+                // 2026-11-25: the message was replaced but the old
+                // text still showed in the chat list).
+                title: idx === 0 ? chatTitleFrom(newText) : c.title,
+                messages: newMessages,
+              }
+            : c
+        )
       );
       // Database sync is best-effort: on a slow/flaky connection a
       // Supabase network failure THROWS here, and the throw used to
@@ -1060,6 +1079,7 @@ export default function HomePage() {
         try {
           await updateMessage(edited.id, newText);
           for (const m of trailing) await deleteMessage(m.id);
+          if (idx === 0) await renameChatDb(chat.dbId, chatTitleFrom(newText));
         } catch {
           // DB sync failed — the edited reply still regenerates below.
         }
