@@ -394,7 +394,6 @@ export default function AppShell({
             </div>
           </div>
           {children}
-          <p className="mt-10 text-center text-xs text-[var(--muted)]">{t(lang, "notMuse")}</p>
         </main>
       </div>
     </div>

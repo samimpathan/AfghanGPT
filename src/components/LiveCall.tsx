@@ -59,7 +59,6 @@ import {
  * transcribe -> voice reply) and says so clearly, naming WHICH
  * step failed (token mint / socket open / setup) instead of one
  * generic fallback note, so a re-test can tell them apart.
- * A live call uses a lot of data — a Wi-Fi note is shown.
  * The adult-refusal rule is in the Live session system instruction.
  */
 
@@ -137,6 +136,24 @@ export default function LiveCall({
    * elapsed time and close code only. */
   const [diag, setDiag] = useState<{ step: string; detail: string } | null>(null);
   const [diagCopied, setDiagCopied] = useState(false);
+  /** Voice-screen composer text: the bottom pill is a REAL input
+   * (reference voice screen) — the user can type there, not only
+   * talk. */
+  const [voiceText, setVoiceText] = useState("");
+  const [voiceSending, setVoiceSending] = useState(false);
+  /** "Poor connection" line under the orb: shown while the call
+   * has been connecting for a while (>8s) — a slow handshake or
+   * setup on a weak connection, from the phase state the component
+   * already tracks. No new network probe is invented. */
+  const [slowConnect, setSlowConnect] = useState(false);
+  useEffect(() => {
+    if (phase !== "connecting") {
+      setSlowConnect(false);
+      return;
+    }
+    const timer = setTimeout(() => setSlowConnect(true), 8000);
+    return () => clearTimeout(timer);
+  }, [phase]);
   /** Ref mirrors of phase/errorNote for the WS callbacks, which
    * close over stale state. The onclose handler must know whether
    * the session was really live and whether a diagnostic note
@@ -914,6 +931,48 @@ export default function LiveCall({
     [addLine, lang, onNote]
   );
 
+  /** Send a typed message from the voice-screen composer. Live
+   * session open: send it as a Live text turn (the model answers
+   * by voice and the transcriptions fill the reply area).
+   * Otherwise (connecting / fallback): answer through /api/chat
+   * + read the reply aloud, exactly like the push-to-talk flow.
+   * The user line is added once, before the answer, so the reply
+   * area (and the shrunk orb) appear at once. */
+  const sendVoiceText = useCallback(async () => {
+    const text = voiceText.trim();
+    if (!text || voiceSending || fallbackBusy) return;
+    setVoiceText("");
+    addLine("user", text);
+    if (phase === "live") {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(
+            JSON.stringify({
+              clientContent: {
+                turns: [{ role: "user", parts: [{ text }] }],
+                turnComplete: true,
+              },
+            })
+          );
+        } catch {
+          // one lost text turn must not break the call
+        }
+      }
+      return;
+    }
+    setVoiceSending(true);
+    try {
+      await answerFallbackByVoice(
+        transcriptRef.current.map((l) => ({ role: l.role, content: l.text }))
+      );
+    } catch {
+      onNote?.(t(lang, "errorGeneric"));
+    } finally {
+      setVoiceSending(false);
+    }
+  }, [voiceText, voiceSending, fallbackBusy, phase, addLine, answerFallbackByVoice, lang, onNote]);
+
   const fallbackToggleMic = async () => {
     if (fallbackBusy) return;
     if (fallbackListening) {
@@ -1071,6 +1130,193 @@ export default function LiveCall({
     await sendFallbackImage(file);
   };
 
+  /** Shared status line under the orb (big and small layouts). */
+  const statusText =
+    phase === "connecting"
+      ? t(lang, "liveConnecting")
+      : phase === "live"
+        ? speaking
+          ? t(lang, "liveSpeaking")
+          : t(lang, "liveListening")
+        : fallbackListening
+          ? t(lang, "recording")
+          : fallbackBusy || voiceSending
+            ? t(lang, "voiceTranscribing")
+            : phase === "fallback"
+              ? t(lang, "livePushToTalkAction")
+              : t(lang, "liveTapToTalk");
+
+  /** "Poor connection" line (reference voice screen): shown while
+   * the call has been connecting for a while (see slowConnect). */
+  const poorLine =
+    slowConnect && phase === "connecting" ? (
+      <p className="mt-2 text-center text-sm font-medium text-amber-600 dark:text-amber-300">
+        {tx("poorConnection", "Poor connection")}
+      </p>
+    ) : null;
+
+  /** Live / screen-sharing badges under the status line. */
+  const badgeRow = (
+    <p className="mt-2 flex items-center justify-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
+      {phase === "live" && (
+        <span className="flex items-center gap-1.5 rounded-full bg-red-500/25 px-2.5 py-1 text-[11px] font-bold text-red-600 dark:text-red-300">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-red-500 dark:bg-red-400" />
+          {t(lang, "liveNow")}
+        </span>
+      )}
+      {screenOn && (
+        <span className="flex items-center gap-1.5 rounded-full bg-[#2457FF]/20 px-2.5 py-1 text-[11px] font-bold text-sky-700 dark:bg-[#2457FF]/30 dark:text-sky-300">
+          <span className="h-2 w-2 animate-pulse rounded-full bg-[#00D4FF]" />
+          {t(lang, "liveScreenSharing")}
+        </span>
+      )}
+    </p>
+  );
+
+  /** The orb: big centre ball, or the small bottom ball while a
+   * reply is on screen (reference voice screen). Same blue/cyan
+   * gradient and breathing animation at both sizes; the founder
+   * photo sits inside it, shown FULL (no zoom) at every size. */
+  const orb = (small: boolean) => (
+    <div
+      className={`voice-orb flex items-center justify-center rounded-full ${
+        small ? "h-20 w-20" : "h-72 w-72 sm:h-80 sm:w-80"
+      } ${speaking ? "voice-orb-speaking" : ""}`}
+    >
+      <span
+        className={`ai-avatar-frame ring-4 ring-white/60 ${small ? "h-9 w-9" : "h-32 w-32"}`}
+      >
+        <Image
+          src="/avatar.jpg"
+          alt="AfghanGPT"
+          width={128}
+          height={128}
+          className="ai-avatar-img"
+          priority
+        />
+      </span>
+    </div>
+  );
+
+  /** Friendly fallback note (unchanged text, shared by both
+   * layouts). */
+  const errorBlock = errorNote ? (
+    <p className="mx-auto mt-4 w-full max-w-md rounded-2xl bg-black/5 px-4 py-2.5 text-center text-xs leading-relaxed text-amber-800 dark:bg-white/10 dark:text-amber-200">
+      {errorNote}
+    </p>
+  ) : null;
+
+  /* Diagnostic block (founder order 2026-11-25): the failing
+     step + model + timing + close code of the last live-call
+     failure, so the founder can read it on his phone and copy
+     it to Muse. It sits directly under the friendly message
+     and never replaces it. It holds no token: diag comes
+     from failDetail(), which is built from step, model,
+     elapsed time and close code only. */
+  const diagBlock = diag ? (
+    <div className="mx-auto mt-2 w-full max-w-md rounded-2xl bg-black/[0.04] px-4 py-2.5 text-start ring-1 ring-black/10 dark:bg-white/5 dark:ring-white/10">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+          {tx("liveDiag", "Diagnostics")}
+        </p>
+        <button
+          type="button"
+          onClick={async () => {
+            const text = `Live call failed — step: ${diag.step} — ${diag.detail}`;
+            try {
+              await navigator.clipboard.writeText(text);
+            } catch {
+              // Clipboard unavailable — the text stays visible
+              // above, so nothing is lost.
+            }
+            setDiagCopied(true);
+            setTimeout(() => setDiagCopied(false), 1500);
+          }}
+          className="shrink-0 rounded-full bg-black/10 px-2.5 py-1 text-[11px] font-bold text-slate-600 transition active:scale-95 dark:bg-white/10 dark:text-slate-300"
+        >
+          <Icon name="copy" size={12} className="me-1 inline-block align-middle" />
+          {diagCopied ? t(lang, "copied") : t(lang, "copy")}
+        </button>
+      </div>
+      <p dir="ltr" className="mt-1 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+        Step: {diag.step}
+      </p>
+      <p dir="ltr" className="break-words text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+        {diag.detail}
+      </p>
+    </div>
+  ) : null;
+
+  /* Push-to-talk fallback banner, made VISIBLE: when the Live call
+     is off, the old screen looked identical to the live one
+     minus the red pill — the mic button was the only fallback
+     and tapping it just re-showed the denial toast, so the
+     08:01 test saw "no push-to-talk fallback". This banner
+     names the mode and gives it a labelled button; the button
+     runs the real fallbackToggleMic path (record ->
+     transcribe -> voice reply through /api/chat). It hides
+     while recording/transcribing, when the status line
+     already says so. */
+  const fallbackBanner =
+    phase === "fallback" && !fallbackListening && !fallbackBusy ? (
+      <div className="mx-auto mt-4 w-full max-w-md rounded-2xl bg-[#2457FF]/10 px-4 py-3 text-center ring-1 ring-[#2457FF]/25 dark:bg-[#2457FF]/20 dark:ring-[#2457FF]/40">
+        <p className="text-xs font-medium leading-relaxed text-slate-700 dark:text-slate-200">
+          {t(lang, "livePushToTalk")}
+        </p>
+        <div className="mt-2.5 flex flex-wrap items-center justify-center gap-2">
+          <button
+            type="button"
+            onClick={toggleMic}
+            className="rounded-full bg-[#2457FF] px-4 py-2 text-xs font-bold text-white shadow transition active:scale-95"
+          >
+            <Icon name="mic" size={14} className="me-1.5 inline-block align-middle" />
+            {t(lang, "livePushToTalkAction")}
+          </button>
+          {/* Retry the live call — the connection failed, so the
+              user can try again without closing and reopening
+              the call. Runs the same model loop (with its own
+              retry) from the "connecting" phase. */}
+          <button
+            type="button"
+            onClick={retryLive}
+            className="rounded-full border border-[#2457FF]/40 px-4 py-2 text-xs font-bold text-[#2457FF] transition active:scale-95 dark:text-sky-300"
+          >
+            <Icon name="regenerate" size={14} className="me-1.5 inline-block align-middle" />
+            {t(lang, "liveRetry")}
+          </button>
+        </div>
+      </div>
+    ) : null;
+
+  /** Camera / screen preview — what the AI sees. */
+  const cameraBlock =
+    cameraOn || screenOn ? (
+      <div className="relative mx-auto mt-4 w-full max-w-md">
+        <video
+          ref={videoElRef}
+          autoPlay
+          muted
+          playsInline
+          className="max-h-44 w-full rounded-2xl bg-black object-cover ring-1 ring-black/10 dark:ring-white/20"
+        />
+        {screenOn && (
+          <span className="absolute start-2 top-2 flex items-center gap-1.5 rounded-full bg-red-500 px-2.5 py-1 text-[11px] font-bold text-white shadow">
+            <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
+            {t(lang, "liveScreenSharing")}
+          </span>
+        )}
+        <p className="mt-1.5 text-center text-[11px] text-slate-400">
+          {screenOn ? t(lang, "liveScreenPreview") : t(lang, "liveCameraPreview")}
+        </p>
+      </div>
+    ) : null;
+
+  /** Compact layout (reference voice screen after a reply): once
+   * any reply text is on screen, the conversation fills the middle
+   * and the orb shrinks to a small ball at the bottom centre,
+   * above the composer. Until then the big centre orb shows. */
+  const showConversation = transcript.length > 0 && showTranscript;
+
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-[var(--surface)] text-[var(--foreground)]">
       {/* Header (photo 4 — ChatGPT voice screen): two white circles,
@@ -1100,189 +1346,64 @@ export default function LiveCall({
         </button>
       </div>
 
-      {/* BIG glowing gold orb (ChatGPT-style voice screen) with the
-          AI photo inside it — it breathes while listening and pulses
-          harder while the AI speaks. The orb is large on a phone
-          (photo 4: about half the screen width). */}
-      <div className="flex flex-1 flex-col items-center justify-center px-6">
-        <div
-          className={`voice-orb flex h-72 w-72 items-center justify-center rounded-full sm:h-80 sm:w-80 ${
-            speaking ? "voice-orb-speaking" : ""
-          }`}
-        >
-          {/* Face-zoom frame (see globals.css .ai-avatar-frame):
-              /avatar.jpg is a 3:4 full-body portrait, so a plain
-              128px object-cover circle left the face a speck inside
-              the 288px orb. The frame clips a 2.3x zoom on the face. */}
-          <span className="ai-avatar-frame h-32 w-32 ring-4 ring-white/60">
-            <Image
-              src="/avatar.jpg"
-              alt="AfghanGPT"
-              width={128}
-              height={128}
-              className="ai-avatar-img"
-              priority
-            />
-          </span>
+      {showConversation ? (
+        /* Compact layout (reference voice screen after a reply):
+           the conversation fills the middle, the orb shrinks to a
+           small ball at the bottom centre, above the composer. */
+        <div className="flex min-h-0 flex-1 flex-col px-4">
+          <div className="chat-scroll min-h-0 flex-1 overflow-y-auto">
+            {errorBlock}
+            {diagBlock}
+            {fallbackBanner}
+            <div className="mx-auto w-full max-w-md pb-2 pt-3">
+              {transcript.map((l, idx) =>
+                l.role === "user" ? (
+                  <div key={idx} dir="ltr" className="mb-3 flex justify-end">
+                    <p
+                      dir="auto"
+                      className="bidi-plaintext max-w-[85%] rounded-3xl rounded-br-lg bg-[#2457FF] px-4 py-2.5 text-sm leading-relaxed text-white"
+                    >
+                      {l.text}
+                    </p>
+                  </div>
+                ) : (
+                  <p
+                    key={idx}
+                    dir="auto"
+                    className="bidi-plaintext mb-3 text-sm leading-relaxed"
+                  >
+                    {l.text}
+                  </p>
+                )
+              )}
+            </div>
+          </div>
+          <div className="flex flex-col items-center pb-1 pt-2">
+            {orb(true)}
+            <p className="mt-2 text-xs font-medium text-slate-600 dark:text-slate-300">
+              {statusText}
+            </p>
+            {poorLine}
+            {badgeRow}
+          </div>
+          {cameraBlock}
         </div>
-        <p className="mt-5 text-lg font-bold">{t(lang, "appShort")}</p>
-        <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
-          {phase === "connecting"
-            ? t(lang, "liveConnecting")
-            : phase === "live"
-              ? speaking
-                ? t(lang, "liveSpeaking")
-                : t(lang, "liveListening")
-              : fallbackListening
-                ? t(lang, "recording")
-                : fallbackBusy
-                  ? t(lang, "voiceTranscribing")
-                  : // Fallback idle: do NOT claim "the AI is
-                    // listening" — with no mic granted nothing is
-                    // listening. Say what to do instead.
-                    phase === "fallback"
-                    ? t(lang, "livePushToTalkAction")
-                    : t(lang, "liveTapToTalk")}
-        </p>
-        <p className="mt-2 flex items-center gap-2 text-[11px] text-slate-500 dark:text-slate-400">
-          {phase === "live" && (
-            <span className="flex items-center gap-1.5 rounded-full bg-red-500/25 px-2.5 py-1 text-[11px] font-bold text-red-600 dark:text-red-300">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-red-500 dark:bg-red-400" />
-              {t(lang, "liveNow")}
-            </span>
-          )}
-          {screenOn && (
-            <span className="flex items-center gap-1.5 rounded-full bg-[#2457FF]/20 px-2.5 py-1 text-[11px] font-bold text-sky-700 dark:bg-[#2457FF]/30 dark:text-sky-300">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-[#00D4FF]" />
-              {t(lang, "liveScreenSharing")}
-            </span>
-          )}
-        </p>
-        {errorNote && (
-          <p className="mt-4 max-w-md rounded-2xl bg-black/5 px-4 py-2.5 text-center text-xs leading-relaxed text-amber-800 dark:bg-white/10 dark:text-amber-200">
-            {errorNote}
+      ) : (
+        /* Big-orb layout: the orb fills the centre while listening. */
+        <div className="flex flex-1 flex-col items-center justify-center px-6">
+          {orb(false)}
+          <p className="mt-5 text-lg font-bold">{t(lang, "appShort")}</p>
+          <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
+            {statusText}
           </p>
-        )}
-        {/* Diagnostic block (founder order 2026-11-25): the failing
-            step + model + timing + close code of the last live-call
-            failure, so the founder can read it on his phone and copy
-            it to Muse. It sits directly under the friendly message
-            and never replaces it. It holds no token: diag comes
-            from failDetail(), which is built from step, model,
-            elapsed time and close code only. */}
-        {diag && (
-          <div className="mt-2 w-full max-w-md rounded-2xl bg-black/[0.04] px-4 py-2.5 text-start ring-1 ring-black/10 dark:bg-white/5 dark:ring-white/10">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
-                {tx("liveDiag", "Diagnostics")}
-              </p>
-              <button
-                type="button"
-                onClick={async () => {
-                  const text = `Live call failed — step: ${diag.step} — ${diag.detail}`;
-                  try {
-                    await navigator.clipboard.writeText(text);
-                  } catch {
-                    // Clipboard unavailable — the text stays visible
-                    // above, so nothing is lost.
-                  }
-                  setDiagCopied(true);
-                  setTimeout(() => setDiagCopied(false), 1500);
-                }}
-                className="shrink-0 rounded-full bg-black/10 px-2.5 py-1 text-[11px] font-bold text-slate-600 transition active:scale-95 dark:bg-white/10 dark:text-slate-300"
-              >
-                <Icon name="copy" size={12} className="me-1 inline-block align-middle" />
-                {diagCopied ? t(lang, "copied") : t(lang, "copy")}
-              </button>
-            </div>
-            <p dir="ltr" className="mt-1 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
-              Step: {diag.step}
-            </p>
-            <p dir="ltr" className="break-words text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
-              {diag.detail}
-            </p>
-          </div>
-        )}
-        {/* Push-to-talk fallback, made VISIBLE: when the Live call
-            is off, the old screen looked identical to the live one
-            minus the red pill — the mic button was the only fallback
-            and tapping it just re-showed the denial toast, so the
-            08:01 test saw "no push-to-talk fallback". This banner
-            names the mode and gives it a labelled button; the button
-            runs the real fallbackToggleMic path (record ->
-            transcribe -> voice reply through /api/chat). It hides
-            while recording/transcribing, when the status line
-            already says so. */}
-        {phase === "fallback" && !fallbackListening && !fallbackBusy && (
-          <div className="mt-4 w-full max-w-md rounded-2xl bg-[#2457FF]/10 px-4 py-3 text-center ring-1 ring-[#2457FF]/25 dark:bg-[#2457FF]/20 dark:ring-[#2457FF]/40">
-            <p className="text-xs font-medium leading-relaxed text-slate-700 dark:text-slate-200">
-              {t(lang, "livePushToTalk")}
-            </p>
-            <div className="mt-2.5 flex flex-wrap items-center justify-center gap-2">
-              <button
-                type="button"
-                onClick={toggleMic}
-                className="rounded-full bg-[#2457FF] px-4 py-2 text-xs font-bold text-white shadow transition active:scale-95"
-              >
-                <Icon name="mic" size={14} className="me-1.5 inline-block align-middle" />
-                {t(lang, "livePushToTalkAction")}
-              </button>
-              {/* Retry the live call — the connection failed, so the
-                  user can try again without closing and reopening
-                  the call. Runs the same model loop (with its own
-                  retry) from the "connecting" phase. */}
-              <button
-                type="button"
-                onClick={retryLive}
-                className="rounded-full border border-[#2457FF]/40 px-4 py-2 text-xs font-bold text-[#2457FF] transition active:scale-95 dark:text-sky-300"
-              >
-                <Icon name="regenerate" size={14} className="me-1.5 inline-block align-middle" />
-                {t(lang, "liveRetry")}
-              </button>
-            </div>
-          </div>
-        )}
-        <p className="mt-3 text-center text-[11px] text-slate-400">
-          <Icon name="wifi" size={14} className="me-1 inline-block align-middle" /> {t(lang, "liveNeedsWifi")}
-        </p>
-
-        {/* Live transcript (hidden with the sliders button). */}
-        {transcript.length > 0 && showTranscript && (
-          <div className="chat-scroll mt-4 max-h-44 w-full max-w-md overflow-y-auto rounded-2xl bg-black/[0.04] p-3 text-start text-sm leading-relaxed dark:bg-white/5">
-            <p className="mb-1 text-xs font-bold text-slate-400">{t(lang, "liveTranscript")}</p>
-            {transcript.slice(-6).map((l, i) => (
-              <p key={i} dir="auto" className="bidi-plaintext mb-1">
-                <span className="font-bold text-sky-600 dark:text-sky-300">
-                  {l.role === "user" ? t(lang, "youSaid") : t(lang, "aiSaid")}{" "}
-                </span>
-                {l.text}
-              </p>
-            ))}
-          </div>
-        )}
-
-        {/* Camera / screen preview — what the AI sees */}
-        {(cameraOn || screenOn) && (
-          <div className="relative mt-4 w-full max-w-md">
-            <video
-              ref={videoElRef}
-              autoPlay
-              muted
-              playsInline
-              className="max-h-44 w-full rounded-2xl bg-black object-cover ring-1 ring-black/10 dark:ring-white/20"
-            />
-            {screenOn && (
-              <span className="absolute start-2 top-2 flex items-center gap-1.5 rounded-full bg-red-500 px-2.5 py-1 text-[11px] font-bold text-white shadow">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
-                {t(lang, "liveScreenSharing")}
-              </span>
-            )}
-            <p className="mt-1.5 text-center text-[11px] text-slate-400">
-              {screenOn ? t(lang, "liveScreenPreview") : t(lang, "liveCameraPreview")}
-            </p>
-          </div>
-        )}
-      </div>
+          {poorLine}
+          {badgeRow}
+          {errorBlock}
+          {diagBlock}
+          {fallbackBanner}
+          {cameraBlock}
+        </div>
+      )}
 
       {/* Bottom sheet (Gemini-style): Screen share / Photos / Files.
           Screen share + Photos toggle the live camera/screen feeds;
@@ -1357,9 +1478,31 @@ export default function LiveCall({
             >
               <Icon name="plus" size={24} />
             </button>
-            <span className="min-w-0 flex-1 truncate text-sm text-slate-500">
-              {t(lang, "askSamim")}
-            </span>
+            <input
+              value={voiceText}
+              onChange={(e) => setVoiceText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void sendVoiceText();
+                }
+              }}
+              placeholder={tx("askSamim", "Ask AfghanGPT")}
+              disabled={voiceSending}
+              className="min-w-0 flex-1 bg-transparent text-sm text-[var(--foreground)] outline-none placeholder:text-slate-500 disabled:opacity-50 dark:text-white"
+              aria-label={tx("askSamim", "Ask AfghanGPT")}
+            />
+            {voiceText.trim() !== "" && (
+              <button
+                type="button"
+                onClick={() => void sendVoiceText()}
+                disabled={voiceSending}
+                className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2457FF] text-white transition active:scale-95 disabled:opacity-40"
+                aria-label={t(lang, "send")}
+              >
+                <Icon name="arrowUp" size={20} />
+              </button>
+            )}
           </div>
           <button
             type="button"

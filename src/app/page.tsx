@@ -2161,7 +2161,6 @@ export default function HomePage() {
                   {t(lang, "login")}
                 </Link>
               )}
-              <p className="mt-1 text-xs text-[var(--muted)]">{t(lang, "notMuse")}</p>
             </div>
               </>
             )}
@@ -3206,7 +3205,7 @@ export default function HomePage() {
           </div>
         </form>
         <p className="mt-2 text-center text-[11px] text-slate-400">
-          AfghanGPT • {t(lang, "notMuse")}
+          AfghanGPT
         </p>
       </div>
 
