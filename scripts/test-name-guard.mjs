@@ -115,6 +115,53 @@ async function main() {
     normalizeFounderName("Afghan GPT"),
     "AfghanGPT"
   );
+  // 13. Brand transliterations in Pashto script -> "AfghanGPT".
+  check(
+    '13a. greeting "زه افغان‌ګي‌پي (AfghanGPT) یم" -> "زه AfghanGPT یم"',
+    normalizeFounderName("سلام! زه افغان‌ګي‌پي (AfghanGPT) یم"),
+    "سلام! زه AfghanGPT یم"
+  );
+  check(
+    '13b. "افغان‌جي‌پي‌ټي" -> "AfghanGPT"',
+    normalizeFounderName("افغان‌جي‌پي‌ټي"),
+    "AfghanGPT"
+  );
+  check(
+    '13c. "افغانجيپیټي" -> "AfghanGPT"',
+    normalizeFounderName("افغانجيپیټي"),
+    "AfghanGPT"
+  );
+  check(
+    '13d. "افغان جی پی ټي" -> "AfghanGPT"',
+    normalizeFounderName("افغان جی پی ټي"),
+    "AfghanGPT"
+  );
+  check(
+    '13e. "افغانGPT" -> "AfghanGPT"',
+    normalizeFounderName("افغانGPT"),
+    "AfghanGPT"
+  );
+  // 14. Real words after افغان must NOT be touched.
+  check(
+    '14a. "افغان ټیم وګټله" unchanged',
+    normalizeFounderName("افغان ټیم وګټله"),
+    "افغان ټیم وګټله"
+  );
+  check(
+    '14b. "افغانستان یو ښکلی هېواد دی" unchanged',
+    normalizeFounderName("افغانستان یو ښکلی هېواد دی"),
+    "افغانستان یو ښکلی هېواد دی"
+  );
+  check(
+    '14c. "زه AfghanGPT یم" unchanged',
+    normalizeFounderName("زه AfghanGPT یم"),
+    "زه AfghanGPT یم"
+  );
+  check(
+    '14d. "زه افغان (AfghanGPT) یم" -> "زه AfghanGPT یم"',
+    normalizeFounderName("زه افغان (AfghanGPT) یم"),
+    "زه AfghanGPT یم"
+  );
 
   // 12. Streaming: guardChatStream must equal normalizeFounderName
   //    of the full text, at 1-char and 3-char chunk sizes.
@@ -129,6 +176,20 @@ async function main() {
     let streamed = "";
     for await (const chunk of guardChatStream(gen())) streamed += chunk;
     check(`12${size === 1 ? "a" : "b"}. streaming ${size}-char chunks`, streamed, expected);
+  }
+
+  // 15. Streaming: a transliteration split across chunks is caught.
+  const fullBrand = "سلام! زه افغان‌ګي‌پي (AfghanGPT) یم";
+  const expectedBrand = normalizeFounderName(fullBrand);
+  for (const size of [1, 3]) {
+    async function* genBrand() {
+      for (let i = 0; i < fullBrand.length; i += size) {
+        yield fullBrand.slice(i, i + size);
+      }
+    }
+    let streamed = "";
+    for await (const chunk of guardChatStream(genBrand())) streamed += chunk;
+    check(`15${size === 1 ? "a" : "b"}. streaming brand ${size}-char chunks`, streamed, expectedBrand);
   }
 
   console.log(`\n${passes} passed, ${failures} failed.`);

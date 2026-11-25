@@ -29,6 +29,13 @@ const PHOTO_OFFLINE_NOTE =
 const IMAGE_GEN_UNAVAILABLE =
   "بښنه غواړم، د عکس جوړول اوس شتون نه لری — لږ وروسته بیا هڅه وکړه. / Sorry, image generation isn't available right now — please try again later.";
 
+/** The free image service is rate-limited right now — the request
+ * itself is fine, it just has to wait. Shown (instead of the
+ * "not available" text above) when generateImage reports busy:
+ * the user asked for this exact wording (2026-11-25). */
+const IMAGE_GEN_BUSY =
+  "د عکس جوړولو خدمت اوس بوخت دی، مهرباني وکړئ لږ انتظار وکړئ. / The image generation service is busy right now — please wait a moment.";
+
 /* ================= File creation (v3.2) =================
  * The user wants REAL files (docx/xlsx/pptx/pdf/txt/md/csv/json/
  * html/zip), not just talk about them. Detection needs BOTH a
@@ -391,7 +398,7 @@ export async function POST(req: NextRequest) {
   // Free-first: generateImage tries the free Pollinations provider
   // with no key, then Gemini only if a server key is configured.
   if (!lastImage && isImageGenRequest(lastText)) {
-    const { image } = await generateImage(lastText, apiKey);
+    const { image, busy } = await generateImage(lastText, apiKey);
     if (image) {
       return new Response(
         JSON.stringify({
@@ -407,6 +414,11 @@ export async function POST(req: NextRequest) {
         }
       );
     }
+    // Busy (rate-limited) is NOT "unavailable": the request itself
+    // is fine, it just has to wait — say so plainly, and keep the
+    // user's message in the chat so Regenerate retries the same
+    // request (the frontend keeps it; nothing is dropped here).
+    if (busy) return textStream(IMAGE_GEN_BUSY, "gemini");
     return textStream(IMAGE_GEN_UNAVAILABLE, "gemini");
   }
 

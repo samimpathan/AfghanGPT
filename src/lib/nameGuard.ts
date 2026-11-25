@@ -43,7 +43,10 @@ const EN_NAME = "Abdul Samim Niazai";
  *   real surname arrives after the eagerly added one) collapses to
  *   a single "عبدالصمیم نیازی".
  * - Latin: "Abdul Sami / Samie / Samee + Niazai/Niazi" → EN_NAME.
- * - Brand: "افغان GPT" / "Afghan GPT" → "AfghanGPT".
+ * - Brand: "افغان GPT" / "Afghan GPT" → "AfghanGPT"; Pashto-script
+ *   transliterations of the product name (افغان‌ګي‌پي / افغان‌جي‌پي‌ټي /
+ *   افغانجيپیټي / افغان جی پی ټي) → "AfghanGPT"; "AfghanGPT (AfghanGPT)"
+ *   and "افغان (AfghanGPT)" collapse to a single "AfghanGPT".
  * Bare "Abdul Sami" WITHOUT the surname is left alone — it could
  * be a different person the user asked about.
  */
@@ -73,6 +76,29 @@ export function normalizeFounderName(text: string): string {
   // Brand — "Afghan GPT" / "افغان GPT" (with a space) → "AfghanGPT".
   out = out.replace(/افغان\s+GPT/g, "AfghanGPT");
   out = out.replace(/Afghan\s+GPT/g, "AfghanGPT");
+  // Brand — "افغانGPT" (no space) → "AfghanGPT".
+  out = out.replace(/افغانGPT/g, "AfghanGPT");
+  // Brand — Pashto-script transliterations of "AfghanGPT". The model
+  // sometimes spells the product name phonetically in Pashto script
+  // (افغان‌ګي‌پي / افغان‌جي‌پي‌ټي / افغانجيپیټي / افغان جی پی ټي).
+  // A transliteration is 2–3 syllables: a G-syllable ([ګگج] + vowel)
+  // then a P-syllable ([پ] + vowel) then an optional T-syllable
+  // ([ټت] + vowel), with only spaces/ZWNJ between (or inside)
+  // syllables. The syllable structure is load-bearing: a PARTIAL
+  // transliteration can never match (no P-syllable yet, or a T
+  // starting without its vowel), so the streaming guard can never
+  // correct half of one and orphan the rest ("AfghanGPT‌پي").
+  // Real words are never touched: "افغان ټیم" (Afghan team) and
+  // "افغانستان" have no G-syllable after افغان.
+  out = out.replace(
+    /افغان(?:[\u200C\s]*[ګگج][\u200C\s]*[يیيې])(?:[\u200C\s]*[پ][\u200C\s]*[يیيې])(?:(?:[\u200C\s]*[ټت][\u200C\s]*[يیيې])|(?![\u200C\s]*[ټت]))/g,
+    "AfghanGPT"
+  );
+  // Brand — the name must not appear twice in a row: "AfghanGPT
+  // (AfghanGPT)" (a transliteration replaced above, keeping its
+  // parenthetical) and "افغان (AfghanGPT)" both collapse to one.
+  out = out.replace(/AfghanGPT\s*\(AfghanGPT\)/g, "AfghanGPT");
+  out = out.replace(/افغان\s*\(AfghanGPT\)/g, "AfghanGPT");
   return out;
 }
 

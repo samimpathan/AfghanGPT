@@ -71,30 +71,97 @@ function mimeFor(buf: Buffer): string {
 
 /** Generate one image with the free provider. Returns a data URL on
  * success; on failure { ok:false } with busy=true only when the service
- * explicitly rate-limited us (429/402) — otherwise busy=false. */
+ * explicitly rate-limited us (429/402) — otherwise busy=false.
+ *
+ * LIMITED, SAFE RETRY (2026-11-25): the anonymous tier allows ~1
+ * image per 45s per IP, so a burst of requests hits 402 FREE_LIMIT
+ * ("Retry after Ns") and the service is flaky under load (5xx /
+ * dropped connections). One retry, once, is worth it — a user who
+ * asked for one image should not fail just because the previous
+ * image was made 20 seconds ago:
+ * - 429/402: parse "Retry after Ns" from the error body (default
+ *   15s, capped at 40s) and retry once after that wait.
+ * - any other transient failure (5xx, bad bytes, network error):
+ *   retry once after 3s.
+ * - the retry only happens when the whole call still fits in a
+ *   55s budget (the calling routes allow 60s); otherwise the
+ *   failure is returned honestly. Never more than 2 attempts,
+ *   never longer than ~55s, no extra cost — same free provider.
+ */
 export async function generateFreeImage(
   prompt: string,
   ratio = "1:1"
 ): Promise<FreeImageResult> {
+  const started = Date.now();
   const { width, height } = pollinationsSize(ratio);
-  const seed = Math.floor(Math.random() * 1_000_000);
-  const url =
+  const url = (seed: number) =>
     `${POLLINATIONS_URL}${encodeURIComponent(prompt)}` +
     `?width=${width}&height=${height}&seed=${seed}&nologo=true`;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FREE_IMAGE_TIMEOUT_MS);
-  try {
-    const res = await fetch(url, { signal: controller.signal });
-    if (res.status === 429 || res.status === 402) return { ok: false, busy: true };
-    if (!res.ok) return { ok: false, busy: false };
-    const type = res.headers.get("content-type") ?? "";
-    if (!type.startsWith("image/")) return { ok: false, busy: false };
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (!isImageBytes(buf)) return { ok: false, busy: false };
-    return { ok: true, dataUrl: `data:${mimeFor(buf)};base64,${buf.toString("base64")}` };
-  } catch {
-    return { ok: false, busy: false };
-  } finally {
-    clearTimeout(timeout);
+
+  type Attempt =
+    | { kind: "ok"; dataUrl: string }
+    | { kind: "busy"; retryAfterSec: number }
+    | { kind: "fail" };
+
+  async function attempt(): Promise<Attempt> {
+    const seed = Math.floor(Math.random() * 1_000_000);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FREE_IMAGE_TIMEOUT_MS);
+    try {
+      const res = await fetch(url(seed), { signal: controller.signal });
+      if (res.status === 429 || res.status === 402) {
+        // The 402 body is JSON: {"error":{"message":"... Retry
+        // after 38s, ..."}} — honour its wait when it parses.
+        let retryAfterSec = 15;
+        try {
+          const body = await res.text();
+          const m = /Retry after (\d+)s/i.exec(body);
+          if (m) retryAfterSec = Math.min(Number(m[1]), 40);
+        } catch {
+          // ignore — default wait stands
+        }
+        return { kind: "busy", retryAfterSec };
+      }
+      if (!res.ok) return { kind: "fail" };
+      const type = res.headers.get("content-type") ?? "";
+      if (!type.startsWith("image/")) return { kind: "fail" };
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (!isImageBytes(buf)) return { kind: "fail" };
+      return { kind: "ok", dataUrl: `data:${mimeFor(buf)};base64,${buf.toString("base64")}` };
+    } catch {
+      return { kind: "fail" };
+    } finally {
+      clearTimeout(timeout);
+    }
   }
+
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  // Room for one more attempt (~6s for a generation) inside 55s.
+  // A 402's "Retry after Ns" is ~45s minus the time since the last
+  // success, so a full wait + generation is ~50s — inside the
+  // routes' 60s, but only just; the budget check keeps it honest.
+  const fitsRetry = (waitMs: number) =>
+    Date.now() - started + waitMs + 6_000 <= 55_000;
+
+  const first = await attempt();
+  if (first.kind === "ok") return { ok: true, dataUrl: first.dataUrl };
+  if (first.kind === "busy") {
+    const waitMs = first.retryAfterSec * 1_000;
+    if (fitsRetry(waitMs)) {
+      await sleep(waitMs);
+      const second = await attempt();
+      if (second.kind === "ok") return { ok: true, dataUrl: second.dataUrl };
+      if (second.kind === "busy") return { ok: false, busy: true };
+      return { ok: false, busy: false };
+    }
+    return { ok: false, busy: true };
+  }
+  // Transient failure: one quick retry after 3s.
+  if (fitsRetry(3_000)) {
+    await sleep(3_000);
+    const second = await attempt();
+    if (second.kind === "ok") return { ok: true, dataUrl: second.dataUrl };
+    if (second.kind === "busy") return { ok: false, busy: true };
+  }
+  return { ok: false, busy: false };
 }

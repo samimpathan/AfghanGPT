@@ -27,15 +27,15 @@ type Generated = { dataUrl: string; prompt: string; ratio: string };
 
 function errorMessage(status: number, code: string): string {
   if (status === 503 || code === "no-key")
-    return "Image generation is not available right now. No image was created.";
+    return "Image generation is not available right now. Your prompt is still here — please try again later.";
   if (status === 502 || code === "model-unavailable")
-    return "The image model is unavailable right now. No image was created. Please try again later.";
+    return "The free image service could not be reached right now, even after retrying. Your prompt is still here — please try again in a moment.";
   if (status === 429 || code === "rate-limited" || code === "image-busy")
-    return "The free image service is busy right now — please wait a moment and try again. No image was created.";
+    return "The free image service is busy right now — please wait a moment and try again. Your prompt is still here.";
   if (status === 400 && code === "refused")
     return "This prompt was refused for safety reasons. No image was created.";
   if (status === 400 && code === "empty-prompt") return "Please write a prompt first.";
-  return `Image generation failed (${status || "network error"}${code ? ` ${code}` : ""}). No image was created.`;
+  return `Image generation failed (${status || "network error"}${code ? ` ${code}` : ""}). Your prompt is still here — please try again in a moment.`;
 }
 
 export default function ImageStudioPage() {
