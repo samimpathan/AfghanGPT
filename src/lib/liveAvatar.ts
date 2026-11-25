@@ -1,7 +1,7 @@
 /**
  * liveAvatar.ts — the LIVE-CALL avatar system (independent from the
- * chat WritingHero in src/app/page.tsx: different component, different
- * state, no shared timers).
+ * chat second header (ChatSubHeader) in src/app/page.tsx: different
+ * component, different state, no shared timers).
  *
  * ENGINE VERDICT (researched + measured 2026-11-25, full note in
  * ~/workspace/afghangpt-live-avatar-research.md):

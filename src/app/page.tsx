@@ -16,6 +16,7 @@ import { isAdminEmail } from "@/lib/admin";
 import { store } from "@/lib/store";
 import { STUDIOS } from "@/lib/studios";
 import { LIVE_CALL_BUTTON_VAR_STYLE } from "@/lib/liveCallColor";
+import { TRUNCATED_SENTINEL, MAX_CONTINUATIONS } from "@/lib/autoContinue";
 import { downloadFileSpec, authHeaders } from "@/lib/client";
 import type { FileSpec } from "@/lib/filegen";
 import {
@@ -130,62 +131,64 @@ function downscaleImage(file: File): Promise<string> {
   });
 }
 
-/** Three animated dots + the AI avatar + shimmer lines while generating. */
-/** Raised avatar state (founder order 2026-11-25): while the AI is
-    genuinely writing (streaming === true) the avatar stands RAISED
-    like the hero in the founder's screenshot — the WHOLE seated
-    photo, prominent, with the real answering VIDEO playing in the
-    circle on top and the real "thinking" status. It mounts and
-    unmounts from the real streaming state only — never a timer.
-    When streaming ends it unmounts and the chat is back to the
-    normal standing state (static photo in the empty-state hero and
-    in the completed message). The big photo uses .ai-avatar-stage
-    (object-fit contain, no transform, no zoom, no crop — head,
-    hands and knees all inside the frame). The video circle is
-    circular by design, exactly as in the screenshot; the subject
-    (face + hands + laptop) stays fully inside it and the old
-    1.15× zoom is removed. If the video fails, the photo shows in
-    the circle instead. No fake movement is added: the only motion
-    is the real video footage and the three thinking dots (a UI
-    indicator, not body movement). */
-function WritingHero({ name, lang }: { name: string; lang: Lang }) {
+/** Second header (founder order 2026-11-25 18:24, Muse-style): a
+    separate header BELOW the main header, only in a chat. The AI
+    avatar is CENTRED here — in the middle of the chat, at a balanced
+    56px — never beside the main header (the old 36px HeaderAvatar
+    chip there looked wrong and is gone). At answer time
+    (streaming === true) it is the real typing VIDEO
+    (/avatar-video.mp4); at all other times the static seated PHOTO
+    (/avatar.jpg); photo fallback if the video fails. Beside it the
+    name "AfghanGPT" and, while answering, the thinking status with
+    dots; otherwise the status line stays empty so the row never
+    jumps. It is a normal shrink-0 row above the scroll area, so it
+    never covers messages, text, or buttons. The home screen keeps
+    its own big top photo and shows no second header. */
+function ChatSubHeader({ streaming, lang }: { streaming: boolean; lang: Lang }) {
   const [videoFailed, setVideoFailed] = useState(false);
   return (
     <div
-      data-testid="writing-hero"
-      className="msg-in mx-auto w-full max-w-sm text-center"
+      data-testid="chat-subheader"
+      className="flex min-w-0 shrink-0 items-center justify-center gap-3 border-b border-[var(--border-subtle)] bg-[var(--background)] px-3 py-2"
     >
-      <div className="relative pt-10">
-        <span className="ai-avatar-stage mx-auto block aspect-square w-full max-w-[260px]">
-          <img src="/avatar.jpg" alt="" className="ai-avatar-stage-img" />
+      <span
+        data-testid="subheader-avatar"
+        data-state={streaming ? "speaking" : "idle"}
+        className="ai-avatar-frame h-14 w-14 shrink-0 ring-2 ring-white/80 dark:ring-[var(--card-border)]"
+      >
+        {streaming && !videoFailed ? (
+          <video
+            src="/avatar-video.mp4"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="auto"
+            aria-hidden="true"
+            onError={() => setVideoFailed(true)}
+            className="ai-avatar-video"
+          />
+        ) : (
+          <img src="/avatar.jpg" alt="AfghanGPT" className="ai-avatar-img" />
+        )}
+      </span>
+      <span className="min-w-0 text-start">
+        <span className="block truncate text-base font-bold text-[var(--foreground)]">
+          AfghanGPT
         </span>
-        <span className="ai-avatar-frame absolute left-1/2 top-0 h-20 w-20 -translate-x-1/2 ring-4 ring-white/80 dark:ring-[var(--card-border)]">
-          {!videoFailed ? (
-            <video
-              src="/avatar-video.mp4"
-              autoPlay
-              muted
-              loop
-              playsInline
-              preload="auto"
-              aria-hidden="true"
-              onError={() => setVideoFailed(true)}
-              className="ai-avatar-video"
-            />
+        <span className="mt-0.5 flex items-center gap-1.5 text-xs text-[var(--muted)]">
+          {streaming ? (
+            <>
+              <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[var(--muted)]" />
+              <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[var(--muted)]" />
+              <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[var(--muted)]" />
+              {t(lang, "thinking")}
+            </>
           ) : (
-            <img src="/avatar.jpg" alt="" className="ai-avatar-img" />
+            "\u00A0"
           )}
         </span>
-      </div>
-      <div className="mt-3 inline-block rounded-2xl bg-[var(--card)] px-3.5 py-1.5 shadow-sm ring-1 ring-black/5 dark:ring-[var(--card-border)]">
-        <span className="block text-base text-[var(--foreground)]">{name}</span>
-        <span className="mt-0.5 flex items-center justify-center gap-1.5 text-xs text-[var(--muted)]">
-          <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[var(--muted)]" />
-          <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[var(--muted)]" />
-          <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[var(--muted)]" />
-          {t(lang, "thinking")}
-        </span>
-      </div>
+      </span>
     </div>
   );
 }
@@ -841,14 +844,29 @@ export default function HomePage() {
       // so the server can verify the founder for image generation
       // (founder-only) — guests send no token and are refused
       // server-side; the text-chat path never needs it.
-      try {
+      // AUTO-CONTINUE (founder order 2026-11-25 18:24): one part of a
+      // long reply can be cut by the server's 50s budget. fetchPart
+      // returns true when the server marked the stream as cut
+      // (TRUNCATED_SENTINEL, invisible); the loop below then requests
+      // the next part automatically — same bubble, streaming stays on
+      // until the final part, saved to the database only once at the
+      // end. The user never writes "دوام".
+      const fetchPart = async (
+        partHistory: typeof history,
+        isContinuation: boolean
+      ): Promise<boolean> => {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
             ...(await authHeaders()),
           },
-          body: JSON.stringify({ messages: history, mode, system: memorySystem }),
+          body: JSON.stringify({
+            messages: partHistory,
+            mode,
+            system: memorySystem,
+            ...(isContinuation ? { continue: true } : {}),
+          }),
           signal: controller.signal,
         });
         const headerMode = res.headers.get("X-SamimAI-Mode");
@@ -883,6 +901,7 @@ export default function HomePage() {
                 : c
             )
           );
+          return false;
         } else if (headerMode === "file") {
           // Generated file: JSON body with a base64 file + summary text.
           const data = (await res.json()) as {
@@ -905,6 +924,7 @@ export default function HomePage() {
                 : c
             )
           );
+          return false;
         } else {
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
@@ -926,6 +946,37 @@ export default function HomePage() {
               )
             );
           }
+          full += decoder.decode();
+          if (full.endsWith(TRUNCATED_SENTINEL)) {
+            // Cut part: strip the invisible mark (never saved, never
+            // shown) and signal the loop to fetch the next part.
+            full = full.slice(0, -TRUNCATED_SENTINEL.length);
+            const snapshot = full;
+            setChats((prev) =>
+              prev.map((c) =>
+                c.id === chatId
+                  ? {
+                      ...c,
+                      messages: c.messages.map((m) =>
+                        m.id === assistantId ? { ...m, content: snapshot, mode: replyMode } : m
+                      ),
+                    }
+                  : c
+              )
+            );
+            return true;
+          }
+          return false;
+        }
+      };
+      try {
+        let cut = true;
+        for (let part = 1; cut && part <= 1 + MAX_CONTINUATIONS; part++) {
+          const isContinuation = part > 1;
+          const partHistory = isContinuation
+            ? [...history, { role: "assistant" as const, content: full }]
+            : history;
+          cut = await fetchPart(partHistory, isContinuation);
         }
       } catch (e) {
         if (e instanceof Error && e.name === "AbortError") {
@@ -945,6 +996,8 @@ export default function HomePage() {
             )
           );
         }
+        // A failed continuation (full non-empty) keeps the partial
+        // reply as it is — the user can Regenerate.
       } finally {
         setStreaming(false);
         abortRef.current = null;
@@ -998,9 +1051,18 @@ export default function HomePage() {
       setChats((prev) =>
         prev.map((c) => (c.id === chat.id ? { ...c, messages: newMessages } : c))
       );
+      // Database sync is best-effort: on a slow/flaky connection a
+      // Supabase network failure THROWS here, and the throw used to
+      // kill applyEdit BEFORE send() ran — the founder's 2026-11-25
+      // edit gave no answer at all. The local regeneration must
+      // never depend on the database write succeeding.
       if (chat.dbId) {
-        await updateMessage(edited.id, newText);
-        for (const m of trailing) await deleteMessage(m.id);
+        try {
+          await updateMessage(edited.id, newText);
+          for (const m of trailing) await deleteMessage(m.id);
+        } catch {
+          // DB sync failed — the edited reply still regenerates below.
+        }
       }
       send(newText, true, newMessages);
     },
@@ -2725,6 +2787,12 @@ export default function HomePage() {
 
       </header>
 
+      {/* Second header (founder order 2026-11-25 18:24, Muse-style):
+          directly below the main header, only in a chat. */}
+      {messages.length > 0 && (
+        <ChatSubHeader streaming={streaming} lang={lang} />
+      )}
+
       {!isSupabaseConfigured && (
         <div className="break-words bg-amber-500/15 px-3 py-2 text-center text-[11px] leading-relaxed text-amber-800 sm:text-xs dark:text-amber-200">
           {t(lang, "setupNeeded")}
@@ -2761,7 +2829,7 @@ export default function HomePage() {
                 works. The avatar is the STATIC founder photo
                 (/avatar.jpg) — the typing video (/avatar-video.mp4)
                 plays ONLY while the AI is actually answering (in the
-                WritingHero and the in-progress reply), never on the
+                second header and the in-progress reply), never on the
                 idle home screen (owner, 2026-11-25). The
                 .ai-avatar-frame zoom still applies to the photo (see
                 globals.css); the <a> itself is the frame.
@@ -2930,9 +2998,6 @@ export default function HomePage() {
                 actionsDisabled={streaming}
               />
             ))}
-            {streaming && (
-              <WritingHero name={userName ?? t(lang, "appShort")} lang={lang} />
-            )}
             <div ref={bottomRef} />
           </div>
         )}

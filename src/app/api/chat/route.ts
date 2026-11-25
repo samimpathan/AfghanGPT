@@ -7,6 +7,8 @@ import { normalizeFounderName, guardChatStream } from "@/lib/nameGuard";
 import { rateLimited, clientIp } from "@/lib/ratelimit";
 import { checkImageRateLimit } from "@/lib/imageRateLimit";
 import { isFounderRequest, refusalTextFor } from "@/lib/founderAuth";
+import { fetchSlideImages } from "@/lib/slideImages";
+import { TRUNCATED_SENTINEL, CONTINUE_INSTRUCTION } from "@/lib/autoContinue";
 import {
   generateFile,
   validateSpec,
@@ -47,7 +49,7 @@ const IMAGE_GEN_BUSY =
 const FILE_CREATE_VERB =
   /(جوړ|جوړوه|جوړ کړه|راکړه|راکړی|ولېږه|make|create|build|generate|write|download|دانلود|فایل|file)/i;
 
-function detectFileRequest(text: string): FileType | null {
+function detectFileRequestDirect(text: string): FileType | null {
   if (!FILE_CREATE_VERB.test(text)) return null;
   const lower = text.toLowerCase();
   if (/(pptx|powerpoint|presentation|پریزنټیشن|پرزنټیشن|پریزنتیشن|slides?|سلایډ)/.test(lower)) return "pptx";
@@ -63,6 +65,37 @@ function detectFileRequest(text: string): FileType | null {
   return null;
 }
 
+/** Follow-up file requests: "بل جوړ که" / "make another one"
+ * carries no file-type word, but it means "another file like the
+ * last one". The founder's 2026-11-25 follow-up ("بل جوړ که عصري")
+ * fell through to plain text instead of a new deck. When the
+ * message has a creation verb + an "another/new" marker, reuse the
+ * most recent file type from the conversation history. */
+const FILE_FOLLOWUP =
+  /(بل|بله|نوی|نور|another|one more|\bnew\b|\bnext\b)/i;
+function detectFileRequest(text: string, messages: ChatMsg[] = []): FileType | null {
+  const direct = detectFileRequestDirect(text);
+  if (direct) return direct;
+  if (!FILE_CREATE_VERB.test(text)) {
+    // Bare "another / again" as the whole message, right after a
+    // file request — e.g. a single "بل" / "بیا" tap. Unambiguous in
+    // context; anything longer without a creation verb is not a
+    // file request.
+    const bare = text.trim().toLowerCase();
+    if (bare !== "بل" && bare !== "بیا" && bare !== "again" && bare !== "another") return null;
+  } else if (!FILE_FOLLOWUP.test(text)) {
+    return null;
+  }
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m && m.role === "user" && typeof m.content === "string") {
+      const t = detectFileRequestDirect(m.content);
+      if (t) return t;
+    }
+  }
+  return null;
+}
+
 function fileSpecSchema(type: FileType): string {
   switch (type) {
     case "docx":
@@ -70,7 +103,7 @@ function fileSpecSchema(type: FileType): string {
     case "xlsx":
       return `{"type":"xlsx","filename":"name.xlsx","xlsx":{"sheets":[{"name":"Sheet1","rows":[["col1","col2"],["a","b"]]}]}}`;
     case "pptx":
-      return `{"type":"pptx","filename":"name.pptx","pptx":{"title":"...","slides":[{"title":"...","bullets":["..."],"notes":"..."}]}}`;
+      return `{"type":"pptx","filename":"name.pptx","pptx":{"title":"...","slides":[{"title":"...","bullets":["...","...","...","..."],"notes":"...","imageQuery":"..."}]}}`;
     case "pdf":
       return `{"type":"pdf","filename":"name.pdf","pdf":{"title":"...","lines":["..."]}}`;
     case "zip":
@@ -115,34 +148,59 @@ async function handleFileRequest(
     `Reply with ONLY strict JSON (no markdown fences, no explanation, no extra text) matching this schema exactly: ` +
     fileSpecSchema(type) +
     ` Keep it complete but reasonable in size (max 200 slides/rows, max 50 files in a zip).` +
+    (type === "pptx"
+      ? ` Every main slide needs 4-6 substantive bullets. Each bullet must be a complete, informative sentence with real detail about the topic — not a two-word fragment. Fill each slide completely with real content before moving to the next slide: a slide with only one or two short lines is not acceptable. Do not pad with filler and do not repeat the same point in different words. Notes are one sentence of speaker notes. For every slide, write a short ENGLISH image search phrase of 2-4 words in "imageQuery" — concrete visual nouns ONLY (e.g. "cloud servers data center"), different for each slide, "" when no image fits.`
+      : "") +
     ` For a zip of code, put each file's full code in "content" (e.g. index.html + style.css + script.js for a website).`;
   const specMessages: ChatMsg[] = [
     ...messages.slice(0, -1),
     { role: "user", content: instruction },
   ];
-  let raw = "";
-  try {
-    for await (const chunk of streamGemini(specMessages, apiKey, "smart", undefined, { deadline })) {
-      raw += chunk;
+  // One safe retry: the model call is idempotent (it only drafts
+  // a spec), and a first attempt often dies on a transient Gemini
+  // 503/429/timeout or on malformed JSON — the founder's 2026-11-25
+  // first presentation request failed exactly like this and the
+  // second one worked. Only after BOTH attempts fail does the user
+  // see the failure message. The retry shares the same absolute
+  // deadline, so it can never push the request past its budget.
+  let spec: FileSpec | null = null;
+  for (let attempt = 0; attempt < 2 && !spec; attempt++) {
+    let raw = "";
+    try {
+      for await (const chunk of streamGemini(specMessages, apiKey, "smart", undefined, { deadline })) {
+        raw += chunk;
+      }
+    } catch (e) {
+      console.error("File spec failed:", e instanceof Error ? e.message : "unknown");
+      if (attempt === 1) {
+        return textStream(
+          pashto
+            ? "بښنه غواړم، فایل جوړ نه شو — بیا هڅه وکړه."
+            : "Sorry, the file could not be made — please try again.",
+          "busy"
+        );
+      }
+      continue;
     }
-  } catch (e) {
-    console.error("File spec failed:", e instanceof Error ? e.message : "unknown");
-    return textStream(
-      pashto
-        ? "بښنه غواړم، فایل جوړ نه شو — بیا هڅه وکړه."
-        : "Sorry, the file could not be made — please try again.",
-      "busy"
-    );
+    // Repair pass: strip fences, then take the outermost {...} object.
+    let jsonText = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
+    const first = jsonText.indexOf("{");
+    const last = jsonText.lastIndexOf("}");
+    if (first >= 0 && last > first) jsonText = jsonText.slice(first, last + 1);
+    try {
+      spec = JSON.parse(jsonText) as FileSpec;
+    } catch {
+      if (attempt === 1) {
+        return textStream(
+          pashto
+            ? "بښنه غواړم، فایل جوړ نه شو — بیا هڅه وکړه."
+            : "Sorry, the file could not be made — please try again.",
+          "busy"
+        );
+      }
+    }
   }
-  // Repair pass: strip fences, then take the outermost {...} object.
-  let jsonText = raw.trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/i, "").trim();
-  const first = jsonText.indexOf("{");
-  const last = jsonText.lastIndexOf("}");
-  if (first >= 0 && last > first) jsonText = jsonText.slice(first, last + 1);
-  let spec: FileSpec;
-  try {
-    spec = JSON.parse(jsonText) as FileSpec;
-  } catch {
+  if (!spec) {
     return textStream(
       pashto
         ? "بښنه غواړم، فایل جوړ نه شو — بیا هڅه وکړه."
@@ -158,6 +216,40 @@ async function handleFileRequest(
         : "Sorry, the file could not be made — please try again.",
       "busy"
     );
+  }
+  // PPTX topic images (chat decks had none — founder 2026-11-25):
+  // the model wrote an imageQuery per slide; fetch a real photo
+  // per slide (Openverse first, Wikimedia fallback — free, no key)
+  // and attach it as slide.image, which buildPptx downloads and
+  // embeds as a separate picture shape. Bounded by the remaining
+  // request budget (minus a reserve for the build): when the fetch
+  // runs out of time the deck still exports text-only, and a
+  // failed fetch never breaks the file.
+  if (type === "pptx" && spec.pptx?.slides) {
+    const queries = spec.pptx.slides.map((s) => {
+      const q = (s as { imageQuery?: unknown }).imageQuery;
+      return typeof q === "string" ? q.trim().slice(0, 80) : "";
+    });
+    if (queries.some(Boolean)) {
+      const remaining = deadline - Date.now();
+      const budget = Math.min(15000, Math.max(0, remaining - 5000));
+      if (budget > 3000) {
+        try {
+          const images = await Promise.race([
+            fetchSlideImages(queries),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), budget)),
+          ]);
+          if (images) {
+            spec.pptx.slides.forEach((s, i) => {
+              const img = images[i];
+              if (img) s.image = { url: img.url, credit: img.credit };
+            });
+          }
+        } catch {
+          // images are optional — the deck still exports text-only
+        }
+      }
+    }
   }
   let buffer: Buffer;
   try {
@@ -324,7 +416,13 @@ export async function POST(req: NextRequest) {
       headers: { "Content-Type": "application/json" },
     });
   }
-  let body: { messages?: ChatMsg[]; mode?: string; system?: string; format?: string };
+  let body: {
+    messages?: ChatMsg[];
+    mode?: string;
+    system?: string;
+    format?: string;
+    continue?: boolean;
+  };
   try {
     body = await req.json();
   } catch {
@@ -336,6 +434,14 @@ export async function POST(req: NextRequest) {
   if (messages.length === 0) {
     return new Response("No messages", { status: 400 });
   }
+
+  // AUTO-CONTINUE (founder order 2026-11-25 18:24): the client sends
+  // continue=true when the previous part was cut by the 50s budget.
+  // A continuation is a pure chat stream: it skips file/image/no-key
+  // branches (a cut reply can only come from a Gemini stream), and a
+  // failure returns 503 so the client stops the loop and keeps the
+  // partial reply — never a fallback text glued onto it.
+  const isContinue = body.continue === true;
 
   const lastUser = [...messages].reverse().find((m) => m.role === "user");
   const lastText = lastUser?.content ?? "";
@@ -362,7 +468,9 @@ export async function POST(req: NextRequest) {
   const system = typeof body.system === "string" ? body.system.slice(0, 4000) : "";
   const chatMode: GeminiMode =
     body.mode === "fast" || body.mode === "smart" ? body.mode : "auto";
-  if (body.format === "json") {
+  // A continuation never takes the studio JSON path: it is always a
+  // plain chat stream continuing the previous part.
+  if (!isContinue && body.format === "json") {
     if (!apiKey) {
       const web = await webFallback(lastText);
       if (web) return web;
@@ -389,7 +497,9 @@ export async function POST(req: NextRequest) {
 
   // Real file creation (docx/xlsx/pptx/pdf/txt/md/csv/json/html/zip).
   // Adult content was already refused above, so this is safe to run.
-  const fileType = !lastImage ? detectFileRequest(lastText) : null;
+  // A continuation never creates a file: it only continues text.
+  const fileType =
+    !isContinue && !lastImage ? detectFileRequest(lastText, messages) : null;
   if (fileType) {
     const fileRes = await handleFileRequest(messages, lastText, fileType, apiKey, deadline);
     if (fileRes) return fileRes;
@@ -404,7 +514,8 @@ export async function POST(req: NextRequest) {
   // no Pollinations/Gemini call and no quota is consumed. The check
   // runs BEFORE the quota check so a refused request never spends
   // quota. The founder's own flow below is unchanged.
-  if (!lastImage && isImageGenRequest(lastText)) {
+  // A continuation never generates an image: it only continues text.
+  if (!isContinue && !lastImage && isImageGenRequest(lastText)) {
     if (!(await isFounderRequest(req))) {
       return textStream(refusalTextFor(lastText), "refused");
     }
@@ -443,7 +554,16 @@ export async function POST(req: NextRequest) {
 
   // No key (or empty) → offline brain first for conversation, web
   // only for a clearly factual question, else the honest fallback.
+  // A continuation without a key returns 503 (the client stops the
+  // loop and keeps the partial reply). After this guard apiKey is a
+  // string for the rest of the handler.
   if (!apiKey) {
+    if (isContinue) {
+      return new Response(JSON.stringify({ error: "continue-failed" }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     return noKeyFallback(lastText);
   }
 
@@ -454,6 +574,15 @@ export async function POST(req: NextRequest) {
   // honest "busy" message. A failure mid-stream (after chunks were
   // already sent) just closes the stream; the partial reply stays.
   // (chatMode and system were defined above, before the JSON branch.)
+  // A continuation appends the continue instruction to the model's
+  // context only (the client already sent the partial reply in the
+  // history, so the model knows where it stopped); it is never saved
+  // in the chat. A continuation failure returns 503 — the client
+  // stops the loop and keeps the partial reply, never a fallback
+  // text glued onto it.
+  const streamMessages: ChatMsg[] = isContinue
+    ? [...messages, { role: "user", content: CONTINUE_INSTRUCTION }]
+    : messages;
   let gen: AsyncGenerator<string>;
   let first: IteratorResult<string>;
   try {
@@ -462,24 +591,45 @@ export async function POST(req: NextRequest) {
     // sometimes writes عبدالسمیع for عبدالصمیم) is corrected
     // before the user sees it — even split across chunks.
     gen = guardChatStream(
-      streamGemini(messages, apiKey, chatMode, system, { deadline })
+      streamGemini(streamMessages, apiKey, chatMode, system, { deadline })
     );
     first = await gen.next();
   } catch (e) {
     // Server log only: status/message, never the key.
     console.error("Gemini failed:", e instanceof Error ? e.message : "unknown");
+    if (isContinue) {
+      return new Response(JSON.stringify({ error: "continue-failed" }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     return geminiFailureFallback(lastText, deadline);
   }
   if (first.done) {
     console.error("Gemini failed: empty response");
+    if (isContinue) {
+      return new Response(JSON.stringify({ error: "continue-failed" }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     return geminiFailureFallback(lastText, deadline);
   }
   try {
     const encoder = new TextEncoder();
     const firstChunk = first.value;
+    // AUTO-CONTINUE MARK (founder order 2026-11-25 18:24, REPLACES
+    // the old "write دوام" note the founder rejected): the generator
+    // stops at the shared 50s deadline, so a long reply ends with no
+    // sign. When the stream was cut — by the deadline, or by a
+    // mid-stream error — the server appends TRUNCATED_SENTINEL
+    // (four invisible zero-width characters, lib/autoContinue.ts).
+    // The client strips it and automatically requests the next part;
+    // the user never sees it and never types anything.
     const stream = new ReadableStream({
       async start(controller) {
         controller.enqueue(encoder.encode(firstChunk));
+        let truncatedNoted = false;
         try {
           for await (const chunk of gen) {
             controller.enqueue(encoder.encode(chunk));
@@ -489,7 +639,14 @@ export async function POST(req: NextRequest) {
             "Gemini stream broke mid-reply:",
             e instanceof Error ? e.message : "unknown"
           );
-          // Partial reply already sent — just stop here.
+          // Partial reply already sent — mark it as cut, once only.
+          controller.enqueue(encoder.encode(TRUNCATED_SENTINEL));
+          truncatedNoted = true;
+        }
+        // Append once only: a mid-stream error AND the deadline can
+        // both hit, and the mark must not appear twice.
+        if (Date.now() >= deadline && !truncatedNoted) {
+          controller.enqueue(encoder.encode(TRUNCATED_SENTINEL));
         }
         controller.close();
       },
@@ -503,6 +660,12 @@ export async function POST(req: NextRequest) {
     });
   } catch (e) {
     console.error("Gemini failed:", e instanceof Error ? e.message : "unknown");
+    if (isContinue) {
+      return new Response(JSON.stringify({ error: "continue-failed" }), {
+        status: 503,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
     return geminiFailureFallback(lastText, deadline);
   }
 }
