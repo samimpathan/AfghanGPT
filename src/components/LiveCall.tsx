@@ -129,6 +129,14 @@ export default function LiveCall({
 }) {
   const [phase, setPhase] = useState<Phase>("connecting");
   const [errorNote, setErrorNote] = useState<string | null>(null);
+  /** Diagnostic detail of the last live-call failure (step + model
+   * + timing + close code), shown in a small block under the
+   * friendly fallback message so the founder can read it on his
+   * phone and copy it to Muse (founder order 2026-11-25). It
+   * never holds a token: failDetail() builds it from step, model,
+   * elapsed time and close code only. */
+  const [diag, setDiag] = useState<{ step: string; detail: string } | null>(null);
+  const [diagCopied, setDiagCopied] = useState(false);
   /** Ref mirrors of phase/errorNote for the WS callbacks, which
    * close over stale state. The onclose handler must know whether
    * the session was really live and whether a diagnostic note
@@ -722,6 +730,9 @@ export default function LiveCall({
           wsRef.current = null;
           setPhase("fallback");
           setNote(t(lang, denied ? "micPermission" : "micNotSupported"));
+          // The call connected — there is no connect failure to
+          // diagnose, so no diagnostic block for this note.
+          setDiag(null);
         }
         return;
       }
@@ -733,14 +744,17 @@ export default function LiveCall({
     }
     if (stoppedRef.current) return;
     // No Live model worked for this key — honest fallback, not a fake
-    // call. The user-facing bubble shows ONLY the friendly text;
-    // the technical detail (step, model, timing) goes to the
-    // console, never into the UI — the old "(step: detail)" suffix
-    // leaked model names and timings into the user's bubble.
+    // call. The user-facing bubble keeps the friendly text; the
+    // technical detail (step, model, timing, close code) goes to the
+    // console AND to a small diagnostic block under the bubble
+    // (founder order 2026-11-25) so he can read it on his phone
+    // and copy it to Muse. It never holds a token: failDetail()
+    // builds it from step, model, elapsed time and close code only.
     setPhase("fallback");
     const f = lastFail;
     if (!f) {
       setNote(t(lang, "liveUnavailable"));
+      setDiag(null);
       return;
     }
     const base =
@@ -748,6 +762,7 @@ export default function LiveCall({
         ? t(lang, f.noKey ? "liveNoKey" : "liveTokenFailed")
         : t(lang, "liveUnavailable");
     setNote(base);
+    setDiag({ step: f.step, detail: f.detail });
     console.error(`[live] ${f.step}: ${f.detail}`);
   }, [connectWithModel, startMic, lang, setNote]);
 
@@ -757,6 +772,8 @@ export default function LiveCall({
   const retryLive = useCallback(() => {
     if (phaseRef.current !== "fallback") return;
     setNote(null);
+    setDiag(null);
+    setDiagCopied(false);
     setPhase("connecting");
     void startLive();
   }, [startLive, setNote]);
@@ -1145,6 +1162,46 @@ export default function LiveCall({
           <p className="mt-4 max-w-md rounded-2xl bg-black/5 px-4 py-2.5 text-center text-xs leading-relaxed text-amber-800 dark:bg-white/10 dark:text-amber-200">
             {errorNote}
           </p>
+        )}
+        {/* Diagnostic block (founder order 2026-11-25): the failing
+            step + model + timing + close code of the last live-call
+            failure, so the founder can read it on his phone and copy
+            it to Muse. It sits directly under the friendly message
+            and never replaces it. It holds no token: diag comes
+            from failDetail(), which is built from step, model,
+            elapsed time and close code only. */}
+        {diag && (
+          <div className="mt-2 w-full max-w-md rounded-2xl bg-black/[0.04] px-4 py-2.5 text-start ring-1 ring-black/10 dark:bg-white/5 dark:ring-white/10">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                {tx("liveDiag", "Diagnostics")}
+              </p>
+              <button
+                type="button"
+                onClick={async () => {
+                  const text = `Live call failed — step: ${diag.step} — ${diag.detail}`;
+                  try {
+                    await navigator.clipboard.writeText(text);
+                  } catch {
+                    // Clipboard unavailable — the text stays visible
+                    // above, so nothing is lost.
+                  }
+                  setDiagCopied(true);
+                  setTimeout(() => setDiagCopied(false), 1500);
+                }}
+                className="shrink-0 rounded-full bg-black/10 px-2.5 py-1 text-[11px] font-bold text-slate-600 transition active:scale-95 dark:bg-white/10 dark:text-slate-300"
+              >
+                <Icon name="copy" size={12} className="me-1 inline-block align-middle" />
+                {diagCopied ? t(lang, "copied") : t(lang, "copy")}
+              </button>
+            </div>
+            <p dir="ltr" className="mt-1 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+              Step: {diag.step}
+            </p>
+            <p dir="ltr" className="break-words text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">
+              {diag.detail}
+            </p>
+          </div>
         )}
         {/* Push-to-talk fallback, made VISIBLE: when the Live call
             is off, the old screen looked identical to the live one

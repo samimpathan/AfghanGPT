@@ -29,6 +29,7 @@ export type IconName =
   | "stop"
   | "menu"
   | "search"
+  | "select"
   | "settings"
   | "share"
   | "pin"
@@ -162,6 +163,14 @@ const PATHS: Record<IconName, JSX.Element> = {
     <>
       <circle cx="11" cy="11" r="7" />
       <path d="M21 21l-4.3-4.3" />
+    </>
+  ),
+  // Text selection (long-press menu): an I-beam text cursor — the
+  // standard "select text" glyph.
+  select: (
+    <>
+      <path d="M12 4v16" />
+      <path d="M8 4h8M8 20h8" />
     </>
   ),
   settings: (

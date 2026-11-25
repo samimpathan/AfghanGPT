@@ -286,19 +286,16 @@ body {
   transform: scale(1);
 }
 
-/* AI avatar face crop (ROUND 3C) — /avatar.jpg is now Samim's real
-   SQUARE portrait (1600×1600, clean grey background; face centre
-   ≈ 50% / 26% of the frame, face width ≈ 28% of the width). The old
-   2.3× zoom at 50% / 41% was tuned for the previous 3:4 full-body
-   photo and would crop this one to just eyes/nose. A 1.8× zoom
-   centred on the face shows the whole head plus shoulders (the
-   visible window is ~56% of the frame: hair top ≈ 9% and chin
-   ≈ 43% sit inside it with margin), so the face fills ~50% of the
-   circle at every size — the way Muse's avatar does. The frame
-   MUST wrap the img (overflow hidden) — a scaled img without it
-   would spill over the message text. Only the founder photo uses
-   this; uploaded user photos keep plain object-cover (see
-   UserAvatar). */
+/* AI avatar photo (no zoom — founder order 2026-11-25) — /avatar.jpg
+   is Samim's real SQUARE portrait (1600×1600, clean grey
+   background). It is shown WHOLE: no transform, centred,
+   object-fit cover crops only the corners of the square into the
+   circle, so he appears FULLY (head to torso), not just his face.
+   The old 1.8× face zoom (ROUND 3C) cropped it to head + shoulders
+   only. The frame MUST wrap the img (overflow hidden) — an img
+   without it would spill over the message text. Only the founder
+   photo uses this; uploaded user photos keep plain object-cover
+   (see UserAvatar). */
 .ai-avatar-frame {
   display: inline-block;
   overflow: hidden;
@@ -310,8 +307,6 @@ body {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transform: scale(1.8);
-  transform-origin: 50% 28%;
 }
 
 /* Answering avatar video (ROUND 3C, re-framed 2026-11-25) —
@@ -325,9 +320,9 @@ body {
    shoulders, both hands on the keyboard and the laptop in the
    circle, so it is fully clear he is coding. Same sizing as
    .ai-avatar-img so it swaps in place with no layout shift. The
-   video plays while an answer streams AND stays on the latest
-   finished reply (ChatMessage), and on the home hero (page.tsx) —
-   the avatar is a video, the photo is only the fallback. The clip
+   video plays ONLY while an answer streams (TypingDots, and the
+   streaming reply in ChatMessage) — completed replies and the home
+   hero show the static photo (founder order 2026-11-25). The clip
    is preloaded in the root layout so slow connections have it
    cached before the first reply. */
 .ai-avatar-video {

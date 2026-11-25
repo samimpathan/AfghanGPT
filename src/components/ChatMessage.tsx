@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { Icon } from "@/components/icons";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -427,6 +427,18 @@ export default function ChatMessage({
   const [shareMenuMaxHeight, setShareMenuMaxHeight] = useState<number | null>(null);
   const shareBtnRef = useRef<HTMLButtonElement | null>(null);
   const shareMenuRef = useRef<HTMLDivElement | null>(null);
+  /** ChatGPT-style long-press menu (owner, 2026-11-25): touch-hold
+   * (~500ms, no movement) or right-click opens a popup at the press
+   * point — Copy / Select text / Edit message / Share prompt for
+   * user messages, Copy / Select text / Share for AI replies. */
+  const [lpMenu, setLpMenu] = useState<{ x: number; y: number } | null>(null);
+  const [lpPos, setLpPos] = useState<{ left: number; top: number } | null>(null);
+  const lpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lpStartRef = useRef<{ x: number; y: number } | null>(null);
+  const lpMenuRef = useRef<HTMLDivElement | null>(null);
+  /** The selectable text of this message (user bubble / AI markdown)
+   * — "Select text" selects its whole contents natively. */
+  const contentRef = useRef<HTMLDivElement | null>(null);
   /** R3-B: the gradient the user picked in Settings (Avatar colour),
    * threaded in via userAvatar.gradientId (page.tsx syncs
    * settings.avatarGradient into userGradient). Null = Auto/empty:
@@ -506,21 +518,43 @@ export default function ChatMessage({
     return () => window.removeEventListener("resize", clamp);
   }, [shareMenuOpen]);
 
-  // Escape closes the open menus (••• / Share) and the feedback
-  // sheet — the sheet also has a close button and a backdrop, but
-  // Escape is the standard way out of a menu.
+  // Long-press menu clamp: keep the popup inside the viewport —
+  // open upward when there is no room below the press point, and
+  // never past the right edge.
   useEffect(() => {
-    if (!moreOpen && !shareMenuOpen && !feedbackOpen) return;
+    if (!lpMenu) {
+      setLpPos(null);
+      return;
+    }
+    const el = lpMenuRef.current;
+    if (!el) {
+      setLpPos({ left: lpMenu.x, top: lpMenu.y });
+      return;
+    }
+    const w = el.offsetWidth;
+    const h = el.offsetHeight;
+    const left = Math.max(8, Math.min(lpMenu.x, window.innerWidth - w - 8));
+    let top = lpMenu.y;
+    if (top + h > window.innerHeight - 8) top = Math.max(8, lpMenu.y - h - 8);
+    setLpPos({ left, top });
+  }, [lpMenu]);
+
+  // Escape closes the open menus (••• / Share / long-press) and the
+  // feedback sheet — the sheet also has a close button and a
+  // backdrop, but Escape is the standard way out of a menu.
+  useEffect(() => {
+    if (!moreOpen && !shareMenuOpen && !feedbackOpen && !lpMenu) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setMoreOpen(false);
         setShareMenuOpen(false);
         setFeedbackOpen(false);
+        setLpMenu(null);
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [moreOpen, shareMenuOpen, feedbackOpen]);
+  }, [moreOpen, shareMenuOpen, feedbackOpen, lpMenu]);
 
   const setReactionStored = (value: "like" | "dislike") => {
     const next = value === reaction ? null : value;
@@ -569,6 +603,174 @@ export default function ChatMessage({
     window.open(`${base}${encodeURIComponent(msg.content)}`, "_blank", "noopener,noreferrer");
   };
 
+  // ---- Long-press menu (ChatGPT-style) ----
+  const cancelLpTimer = () => {
+    if (lpTimerRef.current) {
+      clearTimeout(lpTimerRef.current);
+      lpTimerRef.current = null;
+    }
+    lpStartRef.current = null;
+  };
+  /** Touch-hold only (mouse uses right-click, below): a press that
+   * stays put for ~500ms opens the menu at the press point. Any
+   * movement cancels it, so scrolling never opens the menu; a press
+   * starting on a link or button is left alone entirely, so taps
+   * and link holds keep their native behaviour. */
+  const onLpPointerDown = (e: ReactPointerEvent) => {
+    if (e.pointerType !== "touch") return;
+    if ((e.target as HTMLElement).closest("a,button")) return;
+    lpStartRef.current = { x: e.clientX, y: e.clientY };
+    lpTimerRef.current = setTimeout(() => {
+      setLpMenu({ x: e.clientX, y: e.clientY });
+      lpTimerRef.current = null;
+    }, 500);
+  };
+  const onLpPointerMove = (e: ReactPointerEvent) => {
+    const start = lpStartRef.current;
+    if (!start) return;
+    if (Math.abs(e.clientX - start.x) > 10 || Math.abs(e.clientY - start.y) > 10) cancelLpTimer();
+  };
+  /** Right-click on desktop (and long-press where the browser fires
+   * a context menu): same popup at the cursor. Links/buttons keep
+   * their native menu. */
+  const onLpContextMenu = (e: ReactMouseEvent) => {
+    if ((e.target as HTMLElement).closest("a,button")) return;
+    e.preventDefault();
+    cancelLpTimer();
+    setLpMenu({ x: e.clientX, y: e.clientY });
+  };
+  const lpCopy = async () => {
+    setLpMenu(null);
+    try {
+      await navigator.clipboard.writeText(msg.content);
+      onNote?.(t(lang, "copied"));
+    } catch {
+      // ignore
+    }
+  };
+  /** Enable native text selection on this message: select its whole
+   * contents, so the user gets the system selection handles and can
+   * narrow the selection to any part of it. */
+  const lpSelectText = () => {
+    setLpMenu(null);
+    const el = contentRef.current;
+    if (!el) return;
+    try {
+      const sel = window.getSelection();
+      if (!sel) return;
+      sel.removeAllRanges();
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      sel.addRange(range);
+    } catch {
+      // ignore
+    }
+  };
+  const lpEdit = () => {
+    setLpMenu(null);
+    onEditToComposer?.();
+  };
+  const lpShare = () => {
+    setLpMenu(null);
+    void shareMessage();
+  };
+
+  /** The Share options menu (native sheet where it exists, else
+   * Copy text / WhatsApp / Telegram) — shared by the assistant
+   * action row and the user action row: one copy, used in both
+   * branches below. */
+  const shareMenuJsx = shareMenuOpen ? (
+    <>
+      <button
+        type="button"
+        aria-label={t(lang, "closeMenu")}
+        onClick={() => setShareMenuOpen(false)}
+        className="fixed inset-0 z-20 cursor-default"
+      />
+      <div
+        ref={shareMenuRef}
+        style={shareMenuMaxHeight ? { maxHeight: shareMenuMaxHeight } : undefined}
+        className={
+          shareMenuFlipUp
+            ? `absolute bottom-full right-0 z-30 mb-1 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md${shareMenuMaxHeight ? " overflow-y-auto" : ""}`
+            : `absolute right-0 top-full z-30 mt-1 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md${shareMenuMaxHeight ? " overflow-y-auto" : ""}`
+        }
+      >
+        <button
+          type="button"
+          onClick={copyShareText}
+          className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-[var(--surface-hover)]"
+        >
+          <Icon name="copy" size={14} className="me-2 inline-block align-middle" /> {t(lang, "copyText")}
+        </button>
+        <button
+          type="button"
+          onClick={() => openShareApp("https://wa.me/?text=")}
+          className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-[var(--surface-hover)]"
+        >
+          <Icon name="external" size={14} className="me-2 inline-block align-middle" /> {t(lang, "shareViaWhatsApp")}
+        </button>
+        <button
+          type="button"
+          onClick={() => openShareApp("https://t.me/share/url?url=&text=")}
+          className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-[var(--surface-hover)]"
+        >
+          <Icon name="external" size={14} className="me-2 inline-block align-middle" /> {t(lang, "shareViaTelegram")}
+        </button>
+      </div>
+    </>
+  ) : null;
+
+  /** The long-press popup — same shell for both roles; the items
+   * differ (user messages can be edited, AI replies cannot). */
+  const lpMenuJsx = lpMenu ? (
+    <>
+      <button
+        type="button"
+        aria-label={t(lang, "closeMenu")}
+        onClick={() => setLpMenu(null)}
+        className="fixed inset-0 z-40 cursor-default"
+      />
+      <div
+        ref={lpMenuRef}
+        role="menu"
+        style={lpPos ? { left: lpPos.left, top: lpPos.top } : { left: lpMenu.x, top: lpMenu.y }}
+        className="fixed z-50 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md"
+      >
+        <button
+          type="button"
+          onClick={() => void lpCopy()}
+          className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-[var(--surface-hover)]"
+        >
+          <Icon name="copy" size={14} className="me-2 inline-block align-middle" /> {t(lang, "copy")}
+        </button>
+        <button
+          type="button"
+          onClick={lpSelectText}
+          className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-[var(--surface-hover)]"
+        >
+          <Icon name="select" size={14} className="me-2 inline-block align-middle" /> {t(lang, "selectText")}
+        </button>
+        {isUser && (
+          <button
+            type="button"
+            onClick={lpEdit}
+            className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-[var(--surface-hover)]"
+          >
+            <Icon name="pencil" size={14} className="me-2 inline-block align-middle" /> {t(lang, "editMessage")}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={lpShare}
+          className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-[var(--surface-hover)]"
+        >
+          <Icon name="share" size={14} className="me-2 inline-block align-middle" /> {isUser ? t(lang, "sharePrompt") : t(lang, "shareMessage")}
+        </button>
+      </div>
+    </>
+  ) : null;
+
   const submitReport = () => {
     try {
       const raw = localStorage.getItem(REPORTS_KEY);
@@ -596,7 +798,16 @@ export default function ChatMessage({
     // bidi. The user's own avatar sits at the right end, like Muse
     // shows it.
     return (
-      <div dir="ltr" className="msg-in flex min-w-0 items-start justify-end gap-2">
+      <div
+        dir="ltr"
+        className="msg-in flex min-w-0 items-start justify-end gap-2"
+        onPointerDown={onLpPointerDown}
+        onPointerMove={onLpPointerMove}
+        onPointerUp={cancelLpTimer}
+        onPointerCancel={cancelLpTimer}
+        onPointerLeave={cancelLpTimer}
+        onContextMenu={onLpContextMenu}
+      >
         <div className="min-w-0 max-w-[78%]">
           {msg.image && (
             <img
@@ -606,6 +817,7 @@ export default function ChatMessage({
             />
           )}
           <div
+            ref={contentRef}
             className={`break-words rounded-[28px] px-[18px] py-3 text-[17px] leading-6 shadow-sm ${
               userBubbleGradient
                 ? "text-white"
@@ -623,7 +835,12 @@ export default function ChatMessage({
           >
             <p className="bidi-plaintext whitespace-pre-wrap">{msg.content}</p>
           </div>
+          {/* Your own message's action row (ChatGPT-style, owner
+              2026-11-25): Copy, Edit (back into the composer),
+              Share (native sheet or Copy/WhatsApp/Telegram), Delete.
+              No Like/Dislike — those are feedback on AI replies. */}
           <div className="mt-1 flex flex-wrap items-center justify-end gap-1.5 px-1">
+            <CopyButton text={msg.content} lang={lang} />
             <button
               type="button"
               disabled={actionsDisabled}
@@ -632,7 +849,19 @@ export default function ChatMessage({
             >
               <Icon name="pencil" size={13} className="me-1 inline-block align-middle" /> {t(lang, "edit")}
             </button>
-            <CopyButton text={msg.content} lang={lang} />
+            <div className="relative">
+              <button
+                type="button"
+                ref={shareBtnRef}
+                disabled={actionsDisabled}
+                onClick={shareMessage}
+                className={actionBtn}
+                aria-label={t(lang, "shareMessage")}
+              >
+                <Icon name="share" size={13} className="me-1 inline-block align-middle" /> {t(lang, "shareMessage")}
+              </button>
+              {shareMenuJsx}
+            </div>
             <button
               type="button"
               disabled={actionsDisabled}
@@ -652,6 +881,7 @@ export default function ChatMessage({
           size={32}
           className="mt-1"
         />
+        {lpMenuJsx}
       </div>
     );
   }
@@ -663,18 +893,26 @@ export default function ChatMessage({
   // (see the user row above): the AI answer is ALWAYS on the LEFT,
   // avatar at the far left, in both RTL and LTR.
   return (
-    <div dir="ltr" className="msg-in flex min-w-0 items-start gap-3">
-      {/* AI avatar through the face-zoom frame (ROUND 3C, see
-          globals.css .ai-avatar-frame): /avatar.jpg is the square
-          founder portrait, zoomed 1.8× to the face. The avatar IS
-          the answering video (/avatar-video.mp4, muted loop) — it
-          plays while this answer streams AND stays playing on the
-          latest finished reply (isLastAssistant), so the avatar is
-          a video, not just a photo; older messages show the photo
-          (one playing video at a time). If the video fails, the
-          photo shows instead. */}
+    <div
+      dir="ltr"
+      className="msg-in flex min-w-0 items-start gap-3"
+      onPointerDown={onLpPointerDown}
+      onPointerMove={onLpPointerMove}
+      onPointerUp={cancelLpTimer}
+      onPointerCancel={cancelLpTimer}
+      onPointerLeave={cancelLpTimer}
+      onContextMenu={onLpContextMenu}
+    >
+      {/* AI avatar frame (see globals.css .ai-avatar-frame):
+          /avatar.jpg is the square founder portrait, shown whole
+          (no zoom — founder order 2026-11-25). The typing video
+          (/avatar-video.mp4, muted loop) plays ONLY while this answer
+          is still streaming (isStreaming) — a finished reply is not
+          typing any more, so completed replies (including the latest)
+          show the static photo (owner, 2026-11-25). If the video
+          fails, the photo shows instead. */}
       <span className="ai-avatar-frame mt-1 h-8 w-8 ring-1 ring-black/5 dark:ring-[var(--card-border)]">
-        {(isStreaming || isLastAssistant) && !avatarVideoFailed ? (
+        {isStreaming && !avatarVideoFailed ? (
           <video
             src="/avatar-video.mp4"
             autoPlay
@@ -690,7 +928,7 @@ export default function ChatMessage({
           <img src="/avatar.jpg" alt="" className="ai-avatar-img" />
         )}
       </span>
-      <div className="min-w-0 flex-1 break-words">
+      <div ref={contentRef} className="min-w-0 flex-1 break-words">
         {msg.image && (
           <img
             src={msg.image}
@@ -831,47 +1069,7 @@ export default function ChatMessage({
             >
               <Icon name="share" size={16} />
             </button>
-            {shareMenuOpen && (
-              <>
-                <button
-                  type="button"
-                  aria-label={t(lang, "closeMenu")}
-                  onClick={() => setShareMenuOpen(false)}
-                  className="fixed inset-0 z-20 cursor-default"
-                />
-                <div
-                  ref={shareMenuRef}
-                  style={shareMenuMaxHeight ? { maxHeight: shareMenuMaxHeight } : undefined}
-                  className={
-                    shareMenuFlipUp
-                      ? `absolute bottom-full right-0 z-30 mb-1 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md${shareMenuMaxHeight ? " overflow-y-auto" : ""}`
-                      : `absolute right-0 top-full z-30 mt-1 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md${shareMenuMaxHeight ? " overflow-y-auto" : ""}`
-                  }
-                >
-                  <button
-                    type="button"
-                    onClick={copyShareText}
-                    className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-[var(--surface-hover)]"
-                  >
-                    <Icon name="copy" size={14} className="me-2 inline-block align-middle" /> {t(lang, "copyText")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openShareApp("https://wa.me/?text=")}
-                    className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-[var(--surface-hover)]"
-                  >
-                    <Icon name="external" size={14} className="me-2 inline-block align-middle" /> {t(lang, "shareViaWhatsApp")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => openShareApp("https://t.me/share/url?url=&text=")}
-                    className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-[var(--surface-hover)]"
-                  >
-                    <Icon name="external" size={14} className="me-2 inline-block align-middle" /> {t(lang, "shareViaTelegram")}
-                  </button>
-                </div>
-              </>
-            )}
+            {shareMenuJsx}
           </div>
           <div className="relative">
             <button
@@ -1027,6 +1225,7 @@ export default function ChatMessage({
             </div>
           </div>
         )}
+        {lpMenuJsx}
       </div>
     </div>
   );

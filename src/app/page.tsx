@@ -14,6 +14,7 @@ import { t, dirOf } from "@/lib/i18n";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { isAdminEmail } from "@/lib/admin";
 import { store } from "@/lib/store";
+import { STUDIOS } from "@/lib/studios";
 import { downloadFileSpec, authHeaders } from "@/lib/client";
 import type { FileSpec } from "@/lib/filegen";
 import {
@@ -72,17 +73,6 @@ function loadChatMeta(): Record<string, ChatMeta> {
   }
 }
 
-/** The 8 merged studios (from the AfghanGPT studios). */
-const STUDIOS = [
-  { href: "/studio/write", key: "writing", icon: "pencil", feature: "writing" },
-  { href: "/studio/code", key: "coding", icon: "code", feature: "coding" },
-  { href: "/studio/builder", key: "builder", icon: "layers", feature: "builder" },
-  { href: "/studio/image", key: "image", icon: "image", feature: "image" },
-  { href: "/studio/slides", key: "slides", icon: "presentation", feature: "slides" },
-  { href: "/studio/docs", key: "docs", icon: "fileText", feature: "docs" },
-  { href: "/research", key: "research", icon: "search", feature: "research" },
-  { href: "/studio/workflows", key: "workflows", icon: "workflow", feature: "workflows" },
-] as const;
 const uid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
 
 /** Logged-in user's display name: full_name saved at register, else the email prefix. */
@@ -149,9 +139,9 @@ function TypingDots() {
     // and LTR. Without it the avatar lands on the right in Pashto/
     // Dari while the answer it precedes has its avatar on the left.
     <div dir="ltr" className="msg-in flex min-w-0 items-start gap-3">
-      {/* AI avatar through the face-zoom frame (ROUND 3C, see
-          globals.css .ai-avatar-frame): /avatar.jpg is the square
-          founder portrait, zoomed 1.8× to the face. TypingDots
+      {/* AI avatar frame (see globals.css .ai-avatar-frame):
+          /avatar.jpg is the square founder portrait, shown whole
+          (no zoom — founder order 2026-11-25). TypingDots
           only mounts while an answer is being generated, so the
           answering video (/avatar-video.mp4, muted loop) plays
           here in place of the photo; if it fails, the photo
@@ -208,18 +198,14 @@ export default function HomePage() {
    * its text sits in the composer until sent (or cancelled). */
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [streaming, setStreaming] = useState(false);
-  /** The home hero avatar is the answering video; if it fails to
-   * load, the founder photo shows instead (same fallback as the
-   * message avatars). */
-  const [heroVideoFailed, setHeroVideoFailed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   // Edge swipe (ChatGPT-style): drag right from the left edge to
   // open the sidebar, drag left to close it (touch only).
   useEdgeSwipeDrawer(sidebarOpen, () => setSidebarOpen(true), () => setSidebarOpen(false));
-  /** R3-E: which drawer section was just tapped (Images / Library /
-   * Explore) — it flashes a highlight so the tap is visibly
-   * answered even when the target is already in view. */
-  const [flashTarget, setFlashTarget] = useState<"library" | "studios" | null>(null);
+  /** R3-E: which drawer section was just tapped (Images / Library)
+   * — it flashes a highlight so the tap is visibly answered even
+   * when the target is already in view. */
+  const [flashTarget, setFlashTarget] = useState<"library" | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -309,8 +295,7 @@ export default function HomePage() {
   const screenVideoRef = useRef<HTMLVideoElement | null>(null);
   const chatsRef = useRef<LocalChat[]>([]);
   chatsRef.current = chats;
-  /** Scroll targets for the sidebar nav (Images / Library / Explore). */
-  const studiosRef = useRef<HTMLDivElement | null>(null);
+  /** Scroll target for the sidebar nav (Images / Library). */
   const libraryRef = useRef<HTMLDivElement | null>(null);
 
   // Escape closes every open menu (avatar menu, model picker,
@@ -587,11 +572,11 @@ export default function HomePage() {
 
   /** R3-E — scroll a drawer section into view AND flash it, so a
    * tap is visibly answered even when the section is already in
-   * view (before this, tapping Images / Library / Explore when
+   * view (before this, tapping Images / Library when
    * the target was already visible did nothing on screen, so the
    * buttons looked dead). */
   const flashSection = useCallback(
-    (target: "library" | "studios", ref: { current: HTMLDivElement | null }) => {
+    (target: "library", ref: { current: HTMLDivElement | null }) => {
       ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       setFlashTarget(target);
       if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
@@ -1722,6 +1707,9 @@ export default function HomePage() {
   const otherChats = visibleChats.filter((c) => !pins.includes(c.id));
   const folders = Array.from(new Set(otherChats.map((c) => folderOf(c.id)).filter(Boolean))).sort();
   const unfiledChats = otherChats.filter((c) => !folderOf(c.id));
+  /** Studio pills on the new-chat empty state (NOT the sidebar —
+   * the drawer list is gone, but the home suggestions still link
+   * the studios). Visibility follows the settings feature flags. */
   const visibleStudios = STUDIOS.filter((s) => studioFeatures[s.feature] !== false);
 
   const modelLabel =
@@ -1844,6 +1832,10 @@ export default function HomePage() {
                 >
                   <Icon name="compose" size={20} />
                 </button>
+                {/* Collapsed rail studio icons — kept (the Explore move
+                    removed only the DRAWER list, not the rail: the rail
+                    is the collapsed sidebar's icon row, like the Chat
+                    and Settings buttons). */}
                 {visibleStudios.map((s) => (
                   <Link
                     key={s.href}
@@ -1920,30 +1912,26 @@ export default function HomePage() {
                 />
               </div>
             )}
-            {/* Nav — ONLY features that really exist. Images + Library
-                scroll to the saved-images gallery below; Explore
-                scrolls to the AI Studios list. R3-E: the three
-                scroll rows also FLASH their target (see
-                flashSection) — before this, tapping one when its
-                target was already in view did nothing visible, so
-                the buttons looked dead. Customize is omitted
-                (no custom-instructions setting exists), Projects is
-                omitted (no central projects page exists). The three
-                scroll rows deliberately KEEP the drawer open: their
-                targets (gallery / studios list) live INSIDE the
-                drawer, so closing it would hide what the user just
-                asked to see — that would be a fake button. Every
-                row that NAVIGATES (Settings below, the studio links,
-                chat rows, the blue Chat button) closes the drawer
-                on mobile; the desktop sidebar stays by design. */}
+            {/* Nav — ONLY features that really exist. Library scrolls
+                to the saved-images gallery below and FLASHES it (see
+                flashSection, R3-E) — before this, tapping it when its
+                target was already in view did nothing visible, so the
+                button looked dead. The Images button was REMOVED
+                (owner, 2026-11-25): it only scrolled to the same
+                gallery and creates no images. Explore NAVIGATES to
+                the /explore page with the 8 studio cards (owner,
+                2026-11-25) — it no longer scrolls to a list in the
+                drawer. Customize is omitted (no custom-instructions
+                setting exists), Projects is omitted (no central
+                projects page exists). The Library scroll row
+                deliberately KEEPS the drawer open: its target (the
+                gallery) lives INSIDE the drawer, so closing it would
+                hide what the user just asked to see — that would be
+                a fake button. Every row that NAVIGATES (Explore,
+                Settings below, chat rows, the blue Chat button)
+                closes the drawer on mobile; the desktop sidebar
+                stays by design. */}
             <div className="flex flex-col gap-0.5 px-3 pt-2">
-              <button
-                type="button"
-                onClick={() => flashSection("library", libraryRef)}
-                className="flex items-center gap-3.5 rounded-lg px-2 py-2.5 text-start text-base transition hover:bg-[var(--sidebar-hover)] active:scale-[0.98]"
-              >
-                <Icon name="image" size={20} /> {t(lang, "images")}
-              </button>
               <button
                 type="button"
                 onClick={() => flashSection("library", libraryRef)}
@@ -1951,13 +1939,13 @@ export default function HomePage() {
               >
                 <Icon name="book" size={20} /> {t(lang, "library")}
               </button>
-              <button
-                type="button"
-                onClick={() => flashSection("studios", studiosRef)}
+              <Link
+                href="/explore"
+                onClick={() => setSidebarOpen(false)}
                 className="flex items-center gap-3.5 rounded-lg px-2 py-2.5 text-start text-base transition hover:bg-[var(--sidebar-hover)] active:scale-[0.98]"
               >
                 <Icon name="compass" size={20} /> {t(lang, "explore")}
-              </button>
+              </Link>
               <Link
                 href="/settings"
                 onClick={() => setSidebarOpen(false)}
@@ -1966,11 +1954,11 @@ export default function HomePage() {
                 <Icon name="settings" size={20} /> {t(lang, "settings")}
               </Link>
             </div>
-            {/* R3-G: the Studios list moved INTO the scroll strip
-                below (after Chats) — it used to sit here, above the
-                strip, and its 8 rows pushed the chat list below
-                the fold of the strip on a phone, so the chats
-                looked missing. */}
+            {/* The scroll strip starts with the divider + Pinned +
+                Chats, then the Images gallery below them (the Studios
+                list used to live here too — it moved to /explore,
+                owner 2026-11-25 — so the chats are never pushed below
+                the fold on a phone). */}
             {!userEmail && (
               <p className="mx-3 mb-1 rounded-xl bg-amber-500/15 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
                 {t(lang, "guestNotice")}{" "}
@@ -1982,17 +1970,21 @@ export default function HomePage() {
             <div className="drawer-scroll chat-scroll mt-2 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
               {/* R3-G divider (ChatGPT-style): a horizontal line above
                   the chat list, so the list reads as its own section
-                  below the nav / studios — the user asked for exactly
-                  this line, and it was missing. */}
-              <div aria-hidden="true" className="mx-2 mb-1 mt-1 border-t border-[var(--border-subtle)]" />
+                  below the nav — the user asked for exactly this line,
+                  and it was missing. STICKY (owner, 2026-11-25): it
+                  used to scroll away with the list; now it stays
+                  pinned at the top of the strip while the chats scroll
+                  beneath it, on the sidebar background so no scrolling
+                  text shows through. */}
+              <div aria-hidden="true" className="sticky top-0 z-10 mx-2 mb-1 mt-1 border-t border-[var(--border-subtle)] bg-[var(--sidebar)] pb-1 pt-1" />
               {/* Pinned — the heading is ALWAYS visible (ChatGPT-style);
                   an empty-state line shows when nothing is pinned.
                   R3-G: Pinned + Chats sit at the TOP of this scroll
-                  strip, ahead of the Studios list and the Images
-                  gallery (both moved below them, inside the strip)
-                  — on a phone the studios + gallery used to push
-                  the chat list below the fold of the strip, so the
-                  section looked missing even though it was in the DOM. */}
+                  strip, ahead of the Images gallery (moved below
+                  them, inside the strip) — on a phone the gallery
+                  used to push the chat list below the fold of the
+                  strip, so the section looked missing even though it
+                  was in the DOM. */}
               <div className="mb-1">
                 <p className="px-2 pb-1.5 pt-2 text-[15px] font-bold text-[var(--foreground)]">
                   {t(lang, "pinned")}
@@ -2054,37 +2046,15 @@ export default function HomePage() {
                   </div>
                 )}
               </div>
-              {/* Studios (merged from the AfghanGPT studios) — R3-G:
-                  lives INSIDE the scroll strip, BELOW the chat list,
-                  so the strip starts with divider + Pinned + Chats
-                  instead of the 8 studio rows pushing the chats
-                  below the fold on a phone. Explore still scrolls
-                  to it (studiosRef) and flashes it (R3-E). */}
-              <div ref={studiosRef} className={`px-1 pb-1 pt-2 transition-colors duration-500 ${flashTarget === "studios" ? "rounded-xl bg-[#2457FF]/10" : ""}`}>
-                <p className="px-1 pb-1 text-xs font-bold text-[var(--muted)]">
-                  <Icon name="grid" size={16} className="me-1 inline-block align-middle" /> {t(lang, "studios")}
-                </p>
-                <div className="flex flex-col gap-0.5">
-                  {visibleStudios.map((s) => (
-                    <Link
-                      key={s.href}
-                      href={s.href}
-                      onClick={() => setSidebarOpen(false)}
-                      className="rounded-lg px-2 py-1.5 text-sm hover:bg-[var(--sidebar-hover)]"
-                    >
-                      <Icon name={s.icon} size={16} className="me-1.5 inline-block align-middle" /> {t(lang, s.key)}
-                    </Link>
-                  ))}
-                </div>
-              </div>
               {/* Images gallery — ALWAYS rendered (with an empty-state
-                  line) so the Images/Library nav buttons always have
-                  somewhere to scroll to; before ROUND 5 the section
-                  only existed when an image was saved, so both
-                  buttons did nothing visible on an empty library.
-                  R3-G: moved BELOW the chat list, so the list is
-                  the first thing in the scroll strip on a phone.
-                  R3-E: flashes when Images / Library is tapped. */}
+                  line) so the Library nav button always has somewhere
+                  to scroll to; before ROUND 5 the section only existed
+                  when an image was saved, so the button did nothing
+                  visible on an empty library. (The Images nav button
+                  was removed 2026-11-25 — it only scrolled here and
+                  creates no images.) R3-G: moved BELOW the chat list,
+                  so the list is the first thing in the scroll strip on
+                  a phone. R3-E: flashes when Library is tapped. */}
               <div ref={libraryRef} className={`mb-2 transition-colors duration-500 ${flashTarget === "library" ? "rounded-xl bg-[#2457FF]/10" : ""}`}>
                 <p className="px-2 pb-1 pt-1 text-xs font-bold text-[var(--muted)]">
                   {t(lang, "images")}
@@ -2772,13 +2742,15 @@ export default function HomePage() {
       <div className="chat-scroll min-h-0 w-full min-w-0 flex-1 overflow-x-hidden overflow-y-auto px-5 py-4">
         {messages.length === 0 ? (
           <div className="mx-auto w-full min-w-0 max-w-2xl pb-6 text-center">
-            {/* Empty state keeps the video identity: centred avatar + name pill.
-                The avatar is a plain <a> so the tap always works.
-                The avatar IS the video (Samim typing/coding at the
-                laptop, muted loop) — the founder photo is only the
-                fallback if the video fails to load. The
-                .ai-avatar-frame/.ai-avatar-video zoom to the face
-                (see globals.css); the <a> itself is the frame.
+            {/* Empty state keeps the avatar identity: centred avatar +
+                name pill. The avatar is a plain <a> so the tap always
+                works. The avatar is the STATIC founder photo
+                (/avatar.jpg) — the typing video (/avatar-video.mp4)
+                plays ONLY while the AI is actually answering (in the
+                in-progress reply, TypingDots), never on the idle home
+                screen (owner, 2026-11-25). The .ai-avatar-frame zoom
+                still applies to the photo (see globals.css); the <a>
+                itself is the frame.
                 R3-J: avatar ABOVE the name pill, never beside it.
                 The old row looked stacked in the JSX but rendered
                 side-by-side: the unlayered .ai-avatar-frame rule
@@ -2794,28 +2766,14 @@ export default function HomePage() {
                 aria-label={t(lang, "about")}
                 className="ai-avatar-frame pointer-events-auto relative z-10 h-16 w-16 cursor-pointer ring-2 ring-white/80 transition-transform active:scale-95 dark:ring-[var(--card-border)]"
               >
-                {!heroVideoFailed ? (
-                  <video
-                    src="/avatar-video.mp4"
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
-                    preload="auto"
-                    aria-label="AfghanGPT"
-                    onError={() => setHeroVideoFailed(true)}
-                    className="ai-avatar-video"
-                  />
-                ) : (
-                  <Image
-                    src="/avatar.jpg"
-                    alt="AfghanGPT"
-                    width={64}
-                    height={64}
-                    priority
-                    className="ai-avatar-img"
-                  />
-                )}
+                <Image
+                  src="/avatar.jpg"
+                  alt="AfghanGPT"
+                  width={64}
+                  height={64}
+                  priority
+                  className="ai-avatar-img"
+                />
               </a>
               <div className="mt-3 max-w-full rounded-2xl bg-[var(--card)] px-3.5 py-1.5 shadow-sm ring-1 ring-black/5 dark:ring-[var(--card-border)]">
                 <span className="block truncate text-base text-[var(--foreground)]">
