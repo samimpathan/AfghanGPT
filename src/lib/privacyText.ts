@@ -99,6 +99,7 @@ export const PRIVACY_TEXT: Record<PrivacyLang, PrivacyText> = {
         paragraphs: [
           "غږ: ستا غږ یوازې د لیکلو (transcription) لپاره استول کېږي او وروسته نه ساتل کېږي.",
           "عکسونه: هغه عکس چې ضمیمه کوې یا جوړېږي، یوازې په دې ناسته (session) کې وي. په ډیټابیس کې د عکس لپاره هېڅ ځای نشته، نو عکسونه د چټونو سره نه خوندی کېږي.",
+          "جوړ شوي عکسونه: د عکس جوړول د Pollinations.ai له وړیا خدمت څخه کېږي — هېڅ اکاونټ، هېڅ کیلي او هېڅ پیسې نه غواړي. یوازې هغه متن چې د عکس لپاره لیکې (prompt) ورته استول کېږي؛ ستا نوم، ایمیل یا بل شخصي معلومات هېڅکله نه استول کېږي. جوړ شوی عکس د هغوی پر عامه سرورونو خوندي کېږي، نو په عکس لپاره دې شخصي او محرم څه مه لیکه؛ په جوړ شوي عکس کې د Pollinations یو کوچنی نښان هم وي.",
           "فایلونه: که د فایل (لکه PDF، Word یا Excel) جوړولو غوښتنه وکړې، فایل په سرور کې جوړېږي او ستا وسیلې ته ډاونلوډ کېږي. فایل په سرور کې نه ساتل کېږي.",
         ],
       },
@@ -217,6 +218,7 @@ export const PRIVACY_TEXT: Record<PrivacyLang, PrivacyText> = {
         paragraphs: [
           "صدا: صدای شما فقط برای نوشتن متن (transcription) فرستاده می‌شود و پس از آن نگه داشته نمی‌شود.",
           "عکس‌ها: عکسی که ضمیمه می‌کنید یا ساخته می‌شود، فقط در همین نشست (session) است. در پایگاه‌داده جایی برای عکس وجود ندارد، پس عکس‌ها همراه با چت‌ها ذخیره نمی‌شوند.",
+          "عکس‌های ساخته‌شده: ساخت عکس با خدمت رایگان Pollinations.ai انجام می‌شود — نه حساب، نه کلید و نه پول می‌خواهد. فقط متنی که برای عکس می‌نویسید (prompt) فرستاده می‌شود؛ نام، ایمیل یا اطلاعات شخصی دیگر شما هرگز فرستاده نمی‌شود. عکس ساخته‌شده روی سرورهای عمومی آن‌ها نگه داشته می‌شود، پس چیز شخصی و محرمانه برای عکس ننویسید؛ روی عکس ساخته‌شده یک نشان کوچک Pollinations هم هست.",
           "فایل‌ها: اگر درخواست ساخت فایل (مانند PDF، Word یا Excel) کنید، فایل در سرور ساخته می‌شود و به دستگاه شما دانلود می‌شود. فایل در سرور نگه داشته نمی‌شود.",
         ],
       },
@@ -335,6 +337,7 @@ export const PRIVACY_TEXT: Record<PrivacyLang, PrivacyText> = {
         paragraphs: [
           "Voice: your audio is only sent to be transcribed into text, and is not kept afterwards.",
           "Photos: a photo you attach or generate exists only in this session. There is no place for photos in the database, so photos are not saved with your chats.",
+          "Generated photos: images you ask to be created are made by the free Pollinations.ai service — no account, no key, and no payment. Only the prompt text you write is sent; your name, email, or any other personal information is never sent. The finished image is kept on their public servers, so do not write anything personal or private in an image prompt; the finished image also carries a small Pollinations watermark.",
           "Files: if you ask for a file to be created (such as a PDF, Word, or Excel file), the file is made on the server and downloaded to your device. The file is not kept on the server.",
         ],
       },

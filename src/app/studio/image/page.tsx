@@ -30,8 +30,8 @@ function errorMessage(status: number, code: string): string {
     return "Image generation is not available right now. No image was created.";
   if (status === 502 || code === "model-unavailable")
     return "The image model is unavailable right now. No image was created. Please try again later.";
-  if (status === 429 || code === "rate-limited")
-    return "Too many image requests — please wait a minute and try again (429 rate-limited). No image was created.";
+  if (status === 429 || code === "rate-limited" || code === "image-busy")
+    return "The free image service is busy right now — please wait a moment and try again. No image was created.";
   if (status === 400 && code === "refused")
     return "This prompt was refused for safety reasons. No image was created.";
   if (status === 400 && code === "empty-prompt") return "Please write a prompt first.";

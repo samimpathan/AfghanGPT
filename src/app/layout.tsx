@@ -30,6 +30,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="ps" dir="rtl">
+      <head>
+        {/* Preload the answering-avatar video so it is cached before
+            the first reply — on slow mobile data the 352 KB clip
+            would otherwise arrive after the reply is already done. */}
+        <link rel="preload" href="/avatar-video.mp4" as="video" type="video/mp4" />
+      </head>
       <body className="antialiased">
         <Providers>{children}</Providers>
       </body>

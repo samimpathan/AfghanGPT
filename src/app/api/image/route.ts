@@ -5,12 +5,17 @@ import { rateLimited, clientIp } from "@/lib/ratelimit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** Free generation can take ~2-6s per image (up to 45s on a slow day),
+ * so the route needs more than the 10s Hobby default. */
+export const maxDuration = 60;
 
-/** POST /api/image — text-to-image (best-effort).
+/** POST /api/image — text-to-image (best-effort, FREE for everyone).
  * Body: { prompt, ratio? }. Returns { image } (data URL) or an
- * honest error — never a fake image. 503 no-key when no Gemini
- * key is configured; 502 when the image model is unavailable
- * for this key. */
+ * honest error — never a fake image. No API key is needed from anyone:
+ * the free Pollinations.ai provider runs first (no key, no account,
+ * no payment); Gemini runs only as a fallback when a server key is
+ * configured. 429 image-busy when the free service rate-limits us;
+ * 502 when no provider could make an image. */
 export async function POST(req: NextRequest) {
   if (rateLimited(clientIp(req), 20, 60_000)) {
     return new Response(JSON.stringify({ error: "rate-limited" }), {
@@ -31,17 +36,19 @@ export async function POST(req: NextRequest) {
   if (isAdultRequest(prompt)) {
     return new Response(JSON.stringify({ error: "refused" }), { status: 400 });
   }
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GEMINIAPIKEY;
-  if (!apiKey) {
-    return new Response(JSON.stringify({ error: "no-key" }), { status: 503 });
-  }
+  // No key gate: the free provider needs no key from anyone. The
+  // Gemini key (server env only) is used solely as a fallback.
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GEMINIAPIKEY || null;
   const ratio = String(body.ratio ?? "1:1");
   const fullPrompt = `${prompt} (aspect ratio ${ratio})`;
-  const image = await generateImage(fullPrompt, apiKey);
-  if (!image) {
-    return new Response(JSON.stringify({ error: "model-unavailable" }), { status: 502 });
+  const { image, busy } = await generateImage(fullPrompt, apiKey, ratio);
+  if (image) {
+    return new Response(JSON.stringify({ image }), {
+      headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
+    });
   }
-  return new Response(JSON.stringify({ image }), {
-    headers: { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" },
-  });
+  if (busy) {
+    return new Response(JSON.stringify({ error: "image-busy" }), { status: 429 });
+  }
+  return new Response(JSON.stringify({ error: "model-unavailable" }), { status: 502 });
 }

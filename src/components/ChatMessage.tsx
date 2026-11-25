@@ -51,6 +51,12 @@ const actionIconBtn =
   "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--muted)] transition duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] focus-visible:outline-2 focus-visible:outline-[#2457FF] disabled:opacity-40";
 const actionIconBtnActive =
   "flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--surface-hover)] text-[var(--foreground)] transition duration-150";
+/** Liked/disliked state: the chosen button turns solid black (solid
+ * white in dark mode) and the other one disappears — the owner's
+ * rule (2026-11-25). Tapping the black button again clears it and
+ * the other button comes back. */
+const actionIconBtnLiked =
+  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-black text-white transition duration-150 dark:bg-white dark:text-black";
 
 function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -339,7 +345,10 @@ export default function ChatMessage({
   /** True while this (last) assistant message is still streaming —
    * its avatar shows the answering video instead of the photo. */
   isStreaming,
-  onEditMessage,
+  /** ChatGPT-style edit: tapping Edit puts this message's text back
+   * into the composer (page.tsx) for editing + re-sending — there
+   * is no inline editor anymore (owner, 2026-11-25). */
+  onEditToComposer,
   onDeleteMessage,
   onNote,
   onBranch,
@@ -360,7 +369,7 @@ export default function ChatMessage({
   onRegenerate?: () => void;
   isLastAssistant?: boolean;
   isStreaming?: boolean;
-  onEditMessage?: (id: string, newText: string) => void;
+  onEditToComposer?: () => void;
   onDeleteMessage?: (id: string) => void;
   onNote?: (text: string) => void;
   onBranch?: (msgId: string) => void;
@@ -369,20 +378,31 @@ export default function ChatMessage({
   modelUsed?: string;
 }) {
   const isUser = msg.role === "user";
-  const [editing, setEditing] = useState(false);
-  const [editText, setEditText] = useState(msg.content);
   const [reaction, setReaction] = useState<"like" | "dislike" | null>(null);
   /** The answering video failed to load — fall back to the photo
    * for this message instead of showing an empty circle. */
   const [avatarVideoFailed, setAvatarVideoFailed] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [reportOpen, setReportOpen] = useState(false);
+  const [shareMenuOpen, setShareMenuOpen] = useState(false);
+  /** ChatGPT-style "Share feedback" bottom sheet (owner, 2026-11-25):
+   * an Issue category + optional details, opened from the ••• menu.
+   * Reports stay local-only (REPORTS_KEY, max 50) — no backend. */
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackCategory, setFeedbackCategory] = useState("wrong");
   const [reportText, setReportText] = useState("");
   const moreBtnRef = useRef<HTMLButtonElement | null>(null);
   const moreMenuRef = useRef<HTMLDivElement | null>(null);
   /** px the ••• menu is shifted right so it never leaves the viewport
    * (see the clamp effect below). 0 wherever it already fits. */
   const [moreMenuShift, setMoreMenuShift] = useState(0);
+  /** The ••• menu opens UPWARD when the button sits near the bottom
+   * of the viewport (e.g. the last message, just above the composer
+   * on a phone) — opening downward there hides the menu below the
+   * fold. Same for the Share menu (shareMenuFlipUp). */
+  const [moreMenuFlipUp, setMoreMenuFlipUp] = useState(false);
+  const [shareMenuFlipUp, setShareMenuFlipUp] = useState(false);
+  const shareBtnRef = useRef<HTMLButtonElement | null>(null);
+  const shareMenuRef = useRef<HTMLDivElement | null>(null);
   /** R3-B: the gradient the user picked in Settings (Avatar colour),
    * threaded in via userAvatar.gradientId (page.tsx syncs
    * settings.avatarGradient into userGradient). Null = Auto/empty:
@@ -407,6 +427,7 @@ export default function ChatMessage({
   useEffect(() => {
     if (!moreOpen) {
       setMoreMenuShift(0);
+      setMoreMenuFlipUp(false);
       return;
     }
     const clamp = () => {
@@ -417,11 +438,36 @@ export default function ChatMessage({
       // right edge, so its left edge would be right - width.
       const left = btn.getBoundingClientRect().right - menu.offsetWidth;
       setMoreMenuShift(Math.max(0, 8 - left));
+      // Vertical flip: opening downward needs the menu's height
+      // below the button; near the bottom (last message above the
+      // composer on a phone) that space does not exist, so the menu
+      // opens upward instead of hiding below the fold.
+      const spaceBelow = window.innerHeight - btn.getBoundingClientRect().bottom;
+      setMoreMenuFlipUp(spaceBelow < menu.offsetHeight + 8);
     };
     clamp();
     window.addEventListener("resize", clamp);
     return () => window.removeEventListener("resize", clamp);
   }, [moreOpen, isLastAssistant]);
+
+  // Share menu viewport flip — same rule as the ••• menu above:
+  // open upward when there is no room below the button.
+  useEffect(() => {
+    if (!shareMenuOpen) {
+      setShareMenuFlipUp(false);
+      return;
+    }
+    const clamp = () => {
+      const btn = shareBtnRef.current;
+      const menu = shareMenuRef.current;
+      if (!btn || !menu) return;
+      const spaceBelow = window.innerHeight - btn.getBoundingClientRect().bottom;
+      setShareMenuFlipUp(spaceBelow < menu.offsetHeight + 8);
+    };
+    clamp();
+    window.addEventListener("resize", clamp);
+    return () => window.removeEventListener("resize", clamp);
+  }, [shareMenuOpen]);
 
   const setReactionStored = (value: "like" | "dislike") => {
     const next = value === reaction ? null : value;
@@ -436,98 +482,56 @@ export default function ChatMessage({
     }
   };
 
+  // Share: the native OS share sheet where it exists (real phones);
+  // where it does not (desktop/headless browsers) a real options
+  // menu instead of silently copying — the old fallback copied the
+  // text with no options, which the owner rejected. A cancelled
+  // native sheet (AbortError) does nothing — no menu, no copy.
   const shareMessage = async () => {
     const text = msg.content;
-    try {
-      if (navigator.share) {
+    if (typeof navigator !== "undefined" && "share" in navigator) {
+      try {
         await navigator.share({ text });
         return;
-      }
-      throw new Error("no share");
-    } catch {
-      try {
-        await navigator.clipboard.writeText(text);
-        onNote?.(t(lang, "copied"));
-      } catch {
-        // ignore
+      } catch (err) {
+        if ((err as Error)?.name === "AbortError") return;
       }
     }
+    setMoreOpen(false);
+    setShareMenuOpen((v) => !v);
+  };
+
+  const copyShareText = async () => {
+    setShareMenuOpen(false);
+    try {
+      await navigator.clipboard.writeText(msg.content);
+      onNote?.(t(lang, "copied"));
+    } catch {
+      // ignore
+    }
+  };
+
+  const openShareApp = (base: string) => {
+    setShareMenuOpen(false);
+    window.open(`${base}${encodeURIComponent(msg.content)}`, "_blank", "noopener,noreferrer");
   };
 
   const submitReport = () => {
     try {
       const raw = localStorage.getItem(REPORTS_KEY);
-      const list = raw ? (JSON.parse(raw) as { msgId: string; note: string; at: string }[]) : [];
-      list.push({ msgId: msg.id, note: reportText.trim(), at: new Date().toISOString() });
+      const list = raw ? (JSON.parse(raw) as { msgId: string; category?: string; note: string; at: string }[]) : [];
+      list.push({ msgId: msg.id, category: feedbackCategory, note: reportText.trim(), at: new Date().toISOString() });
       localStorage.setItem(REPORTS_KEY, JSON.stringify(list.slice(-50)));
     } catch {
       // ignore
     }
     setReportText("");
-    setReportOpen(false);
+    setFeedbackOpen(false);
     setMoreOpen(false);
     onNote?.(t(lang, "reportSent"));
   };
 
   if (isUser) {
-    if (editing) {
-      return (
-        <div dir="ltr" className="msg-in flex min-w-0 items-start justify-end gap-2">
-          <div className="min-w-0 w-[82%] max-w-[82%]">
-            <textarea
-              dir="auto"
-              value={editText}
-              onChange={(e) => setEditText(e.target.value)}
-              rows={3}
-              style={
-                userBubbleGradient
-                  ? {
-                      background: userBubbleGradient.background,
-                      color: "#FFFFFF",
-                      textShadow: "0 1px 2px rgba(0, 0, 0, 0.30)",
-                    }
-                  : undefined
-              }
-              className={`bidi-plaintext w-full rounded-[20px] border-2 px-4 py-3 text-[17px] shadow-sm outline-none ${
-                userBubbleGradient
-                  ? "border-white/50 text-white"
-                  : "border-[#2457FF] bg-[var(--card)] text-[var(--foreground)]"
-              }`}
-            />
-            <div className="mt-1.5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setEditing(false)}
-                className={actionBtn}
-              >
-                {t(lang, "cancel")}
-              </button>
-              <button
-                type="button"
-                disabled={!editText.trim() || actionsDisabled}
-                onClick={() => {
-                  if (!editText.trim()) return;
-                  onEditMessage?.(msg.id, editText.trim());
-                  setEditing(false);
-                }}
-                className="rounded-full bg-[#2457FF] px-3 py-1 text-xs font-bold text-white transition duration-150 hover:bg-[#1a46d6] focus-visible:outline-2 focus-visible:outline-[#2457FF] disabled:opacity-40"
-              >
-                {t(lang, "save")}
-              </button>
-            </div>
-          </div>
-          <UserAvatar
-            name={userAvatar?.name}
-            email={userAvatar?.email}
-            photoUrl={userAvatar?.photoUrl}
-            fallbackPhoto={userAvatar?.fallbackPhoto}
-            gradientId={userAvatar?.gradientId}
-            size={32}
-            className="mt-1"
-          />
-        </div>
-      );
-    }
     // Message sides are PHYSICAL, not logical: the user's bubble is
     // ALWAYS on the RIGHT and the AI answer ALWAYS on the LEFT, in
     // both RTL (Pashto/Dari) and LTR (English) — like the video and
@@ -570,10 +574,7 @@ export default function ChatMessage({
             <button
               type="button"
               disabled={actionsDisabled}
-              onClick={() => {
-                setEditText(msg.content);
-                setEditing(true);
-              }}
+              onClick={() => onEditToComposer?.()}
               className={actionBtn}
             >
               <Icon name="pencil" size={13} className="me-1 inline-block align-middle" /> {t(lang, "edit")}
@@ -612,13 +613,15 @@ export default function ChatMessage({
     <div dir="ltr" className="msg-in flex min-w-0 items-start gap-3">
       {/* AI avatar through the face-zoom frame (ROUND 3C, see
           globals.css .ai-avatar-frame): /avatar.jpg is the square
-          founder portrait, zoomed 1.8× to the face. While this
-          answer streams, the video (/avatar-video.mp4, muted loop)
-          plays in its place — the <video> only mounts while
-          streaming, so finished messages never load it; if it
-          fails, the photo shows instead. */}
+          founder portrait, zoomed 1.8× to the face. The avatar IS
+          the answering video (/avatar-video.mp4, muted loop) — it
+          plays while this answer streams AND stays playing on the
+          latest finished reply (isLastAssistant), so the avatar is
+          a video, not just a photo; older messages show the photo
+          (one playing video at a time). If the video fails, the
+          photo shows instead. */}
       <span className="ai-avatar-frame mt-1 h-8 w-8 ring-1 ring-black/5 dark:ring-[var(--card-border)]">
-        {isStreaming && !avatarVideoFailed ? (
+        {(isStreaming || isLastAssistant) && !avatarVideoFailed ? (
           <video
             src="/avatar-video.mp4"
             autoPlay
@@ -710,44 +713,91 @@ export default function ChatMessage({
             removed in R3 A+B, so there is no show-more toggle here.) */}
         <div dir="ltr" className="mt-1.5 flex flex-wrap items-center gap-1 px-1">
           <CopyButton text={msg.content} lang={lang} iconOnly />
-          <button
-            type="button"
-            disabled={actionsDisabled}
-            onClick={() => setReactionStored("like")}
-            className={reaction === "like" ? actionIconBtnActive : actionIconBtn}
-            aria-label={t(lang, "like")}
-            title={t(lang, "like")}
-          >
-            <Icon name="thumbsUp" size={16} />
-          </button>
-          <button
-            type="button"
-            disabled={actionsDisabled}
-            onClick={() => setReactionStored("dislike")}
-            className={reaction === "dislike" ? actionIconBtnActive : actionIconBtn}
-            aria-label={t(lang, "dislike")}
-            title={t(lang, "dislike")}
-          >
-            <Icon name="thumbsDown" size={16} />
-          </button>
+          {reaction !== "dislike" && (
+            <button
+              type="button"
+              disabled={actionsDisabled}
+              onClick={() => setReactionStored("like")}
+              className={reaction === "like" ? actionIconBtnLiked : actionIconBtn}
+              aria-label={t(lang, "like")}
+              title={t(lang, "like")}
+            >
+              <Icon name="thumbsUp" size={16} />
+            </button>
+          )}
+          {reaction !== "like" && (
+            <button
+              type="button"
+              disabled={actionsDisabled}
+              onClick={() => setReactionStored("dislike")}
+              className={reaction === "dislike" ? actionIconBtnLiked : actionIconBtn}
+              aria-label={t(lang, "dislike")}
+              title={t(lang, "dislike")}
+            >
+              <Icon name="thumbsDown" size={16} />
+            </button>
+          )}
           <SpeakButton text={msg.content} lang={lang} onNote={onNote} />
-          <button
-            type="button"
-            disabled={actionsDisabled}
-            onClick={shareMessage}
-            className={actionIconBtn}
-            aria-label={t(lang, "shareChat")}
-            title={t(lang, "shareChat")}
-          >
-            <Icon name="share" size={16} />
-          </button>
+          <div className="relative">
+            <button
+              type="button"
+              ref={shareBtnRef}
+              disabled={actionsDisabled}
+              onClick={shareMessage}
+              className={actionIconBtn}
+              aria-label={t(lang, "shareChat")}
+              title={t(lang, "shareChat")}
+            >
+              <Icon name="share" size={16} />
+            </button>
+            {shareMenuOpen && (
+              <>
+                <button
+                  type="button"
+                  aria-label={t(lang, "closeMenu")}
+                  onClick={() => setShareMenuOpen(false)}
+                  className="fixed inset-0 z-20 cursor-default"
+                />
+                <div
+                  ref={shareMenuRef}
+                  className={
+                    shareMenuFlipUp
+                      ? "absolute bottom-full right-0 z-30 mb-1 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md"
+                      : "absolute right-0 top-full z-30 mt-1 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md"
+                  }
+                >
+                  <button
+                    type="button"
+                    onClick={copyShareText}
+                    className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-[var(--surface-hover)]"
+                  >
+                    <Icon name="copy" size={14} className="me-2 inline-block align-middle" /> {t(lang, "copyText")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openShareApp("https://wa.me/?text=")}
+                    className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-[var(--surface-hover)]"
+                  >
+                    <Icon name="external" size={14} className="me-2 inline-block align-middle" /> {t(lang, "shareViaWhatsApp")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openShareApp("https://t.me/share/url?url=&text=")}
+                    className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-[var(--surface-hover)]"
+                  >
+                    <Icon name="external" size={14} className="me-2 inline-block align-middle" /> {t(lang, "shareViaTelegram")}
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           <div className="relative">
             <button
               type="button"
               ref={moreBtnRef}
               onClick={() => {
                 setMoreOpen((v) => !v);
-                setReportOpen(false);
+                setShareMenuOpen(false);
               }}
               className={actionIconBtn}
               aria-label={t(lang, "moreActions")}
@@ -762,7 +812,6 @@ export default function ChatMessage({
                   aria-label={t(lang, "closeMenu")}
                   onClick={() => {
                     setMoreOpen(false);
-                    setReportOpen(false);
                   }}
                   className="fixed inset-0 z-20 cursor-default"
                 />
@@ -775,7 +824,11 @@ export default function ChatMessage({
                 <div
                   ref={moreMenuRef}
                   style={moreMenuShift ? { right: -moreMenuShift } : undefined}
-                  className="absolute right-0 top-full z-30 mt-1 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md"
+                  className={
+                    moreMenuFlipUp
+                      ? "absolute bottom-full right-0 z-30 mb-1 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md"
+                      : "absolute right-0 top-full z-30 mt-1 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md"
+                  }
                 >
                   {isLastAssistant && onRegenerate && (
                     <button
@@ -811,31 +864,14 @@ export default function ChatMessage({
                   </button>
                   <button
                     type="button"
-                    onClick={() => setReportOpen((v) => !v)}
+                    onClick={() => {
+                      setMoreOpen(false);
+                      setFeedbackOpen(true);
+                    }}
                     className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-[var(--surface-hover)]"
                   >
                     <Icon name="flag" size={14} className="me-2 inline-block align-middle" /> {t(lang, "report")}
                   </button>
-                  {reportOpen && (
-                    <div className="mt-1 border-t border-[var(--border-subtle)] p-2">
-                      <textarea
-                        dir="auto"
-                        value={reportText}
-                        onChange={(e) => setReportText(e.target.value)}
-                        placeholder={t(lang, "reportPlaceholder")}
-                        rows={2}
-                        className="input-field"
-                      />
-                      <button
-                        type="button"
-                        disabled={!reportText.trim()}
-                        onClick={submitReport}
-                        className="mt-1.5 w-full rounded-full bg-[#2457FF] px-3 py-1.5 text-xs font-bold text-white disabled:opacity-40"
-                      >
-                        {t(lang, "report")}
-                      </button>
-                    </div>
-                  )}
                   {/* The REAL model/mode used — never a made-up label.
                       Every answer is "AfghanGPT Auto" to the user; the
                       free-web answer carries its source note in the
@@ -861,6 +897,51 @@ export default function ChatMessage({
             </span>
           )}
         </div>
+        {/* "Share feedback" bottom sheet (ChatGPT-style): an Issue
+            category + optional details + Submit. Reports are saved
+            on this device only (REPORTS_KEY, max 50) — never sent
+            anywhere; the sheet says so plainly below the button. */}
+        {feedbackOpen && (
+          <div className="fixed inset-0 z-50 flex items-end justify-center" role="dialog" aria-modal="true" aria-label={t(lang, "shareFeedback")}>
+            <button
+              type="button"
+              aria-label={t(lang, "closeMenu")}
+              onClick={() => setFeedbackOpen(false)}
+              className="absolute inset-0 cursor-default bg-black/50"
+            />
+            <div className="relative w-full max-w-lg rounded-t-3xl bg-[var(--card)] p-5 shadow-xl">
+              <div className="mx-auto mb-4 h-1.5 w-10 rounded-full bg-[var(--border-subtle)]" />
+              <h2 className="text-center text-lg font-bold">{t(lang, "shareFeedback")}</h2>
+              <label className="mt-4 block text-sm font-semibold">{t(lang, "feedbackIssue")}</label>
+              <select
+                value={feedbackCategory}
+                onChange={(e) => setFeedbackCategory(e.target.value)}
+                className="input-field mt-1 w-full"
+              >
+                <option value="wrong">{t(lang, "feedbackCatWrong")}</option>
+                <option value="unsafe">{t(lang, "feedbackCatUnsafe")}</option>
+                <option value="bug">{t(lang, "feedbackCatBug")}</option>
+                <option value="other">{t(lang, "feedbackCatOther")}</option>
+              </select>
+              <textarea
+                dir="auto"
+                value={reportText}
+                onChange={(e) => setReportText(e.target.value)}
+                placeholder={t(lang, "feedbackDetails")}
+                rows={4}
+                className="input-field mt-3 w-full"
+              />
+              <button
+                type="button"
+                onClick={submitReport}
+                className="mt-4 w-full rounded-full bg-[#2457FF] px-4 py-3 text-sm font-bold text-white transition hover:bg-[#1a46d6]"
+              >
+                {t(lang, "feedbackSubmit")}
+              </button>
+              <p className="mt-3 text-center text-xs text-[var(--muted)]">{t(lang, "feedbackLocalNote")}</p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

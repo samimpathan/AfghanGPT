@@ -33,6 +33,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon, type IconName } from "@/components/icons";
 import { useUi } from "@/components/Providers";
+import { useEdgeSwipeDrawer } from "@/lib/useEdgeSwipe";
 import { dirOf, t, type Lang } from "@/lib/i18n";
 import { store } from "@/lib/store";
 import { supabase } from "@/lib/supabaseClient";
@@ -226,6 +227,9 @@ export default function AppShell({
   const [photo, setPhoto] = useState<string | null>(null);
   const [gradient, setGradient] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Edge swipe (ChatGPT-style): drag right from the left edge to
+  // open the drawer, drag left to close it (touch only).
+  useEdgeSwipeDrawer(drawerOpen, () => setDrawerOpen(true), () => setDrawerOpen(false));
   const [collapsed, setCollapsed] = useState(false);
 
   // Navigating closes the mobile drawer.

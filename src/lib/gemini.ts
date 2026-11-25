@@ -6,6 +6,7 @@
  */
 
 import { founderPromptBlock } from "./founder";
+import { generateFreeImage } from "./freeImage";
 
 export type ChatMsg = {
   role: "user" | "assistant";
@@ -77,10 +78,10 @@ function modelUrl(model: string, action: "generateContent"): string {
  * HTTP 429 "quota exceeded ... limit: 0" on the free tier, and
  * gemini-2.0-flash-preview-image-generation is 404 (retired). Google's
  * Gemini API pricing page lists the free tier as "Not available" for
- * every image model — image generation needs a billed key. So live
- * image generation stays honestly unavailable (route returns 502)
- * until billing is enabled; this switch only keeps the wiring on the
- * current model for that day. Do NOT present this as a live fix. */
+ * every image model — so Gemini is only a fallback here, used when a
+ * billed key is configured. The PRIMARY image path is the free
+ * Pollinations.ai provider (src/lib/freeImage.ts) — no key, no payment,
+ * free for every user. See generateImage below. */
 const IMAGE_MODEL_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-nano-banana-2.1:generateContent";
 
@@ -111,19 +112,16 @@ function toGeminiContents(messages: ChatMsg[]) {
   });
 }
 
-/** Best-effort image generation with Gemini's image model.
+/** Gemini image generation (fallback only — see generateImage).
  * Returns the image as a data URL, or null when the model is unavailable
- * for this key — callers must then say so honestly, never fake an image.
- * R3-F (2026-11-24): on the free-tier key every image model returns
- * 429 quota-exceeded (limit 0), so this currently returns null and the
- * /api/image route answers 502 model-unavailable. That is the honest
- * outcome until a billed key is configured. */
-export async function generateImage(
+ * for this key. Timeout is 20s: a hung Gemini call must not eat the
+ * caller's whole time budget (the free provider already had its turn). */
+export async function generateGeminiImage(
   prompt: string,
   apiKey: string
 ): Promise<string | null> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 60000);
+  const timeout = setTimeout(() => controller.abort(), 20000);
   try {
     const res = await fetch(`${IMAGE_MODEL_URL}?key=${encodeURIComponent(apiKey)}`, {
       method: "POST",
@@ -152,6 +150,28 @@ export async function generateImage(
   } finally {
     clearTimeout(timeout);
   }
+}
+
+/** Image generation for the app — FREE FIRST, no key required.
+ * Tries the free Pollinations.ai provider first (no key, no payment,
+ * free for every user). Only if that fails AND a Gemini key was passed
+ * does it try Gemini (which on the free key returns 429 quota 0).
+ * Returns { image, busy }: busy=true only when the free service
+ * explicitly rate-limited us — callers should then say "try again in
+ * a moment". image=null + busy=false means honestly unavailable.
+ * Callers must never fake an image when this returns null. */
+export async function generateImage(
+  prompt: string,
+  apiKey?: string | null,
+  ratio = "1:1"
+): Promise<{ image: string | null; busy: boolean }> {
+  const free = await generateFreeImage(prompt, ratio);
+  if (free.ok) return { image: free.dataUrl, busy: false };
+  if (apiKey) {
+    const gemini = await generateGeminiImage(prompt, apiKey);
+    if (gemini) return { image: gemini, busy: false };
+  }
+  return { image: null, busy: free.busy };
 }
 
 export type GeminiMode = "auto" | "fast" | "smart";

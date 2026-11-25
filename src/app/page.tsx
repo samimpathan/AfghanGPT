@@ -9,6 +9,7 @@ import LiveCall from "@/components/LiveCall";
 import UserAvatar from "@/components/UserAvatar";
 import { Icon } from "@/components/icons";
 import { useUi } from "@/components/Providers";
+import { useEdgeSwipeDrawer } from "@/lib/useEdgeSwipe";
 import { t, dirOf } from "@/lib/i18n";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { isAdminEmail } from "@/lib/admin";
@@ -203,8 +204,18 @@ export default function HomePage() {
   const [chatsLoading, setChatsLoading] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [input, setInput] = useState("");
+  /** ChatGPT-style edit: the id of the user message being edited —
+   * its text sits in the composer until sent (or cancelled). */
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
   const [streaming, setStreaming] = useState(false);
+  /** The home hero avatar is the answering video; if it fails to
+   * load, the founder photo shows instead (same fallback as the
+   * message avatars). */
+  const [heroVideoFailed, setHeroVideoFailed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Edge swipe (ChatGPT-style): drag right from the left edge to
+  // open the sidebar, drag left to close it (touch only).
+  useEdgeSwipeDrawer(sidebarOpen, () => setSidebarOpen(true), () => setSidebarOpen(false));
   /** R3-E: which drawer section was just tapped (Images / Library /
    * Explore) — it flashes a highlight so the tap is visibly
    * answered even when the target is already in view. */
@@ -953,6 +964,19 @@ export default function HomePage() {
   const stop = () => abortRef.current?.abort();
 
   /** Edit your own message: update the text, drop its reply, regenerate. */
+  /** ChatGPT-style edit: put a sent message's text back into the
+   * composer for editing + re-sending (owner, 2026-11-25). The
+   * message itself is replaced only when the user sends. */
+  const startEdit = useCallback(
+    (msgId: string, content: string) => {
+      if (streaming) return;
+      setEditingMessageId(msgId);
+      setInput(content);
+      requestAnimationFrame(() => composerRef.current?.focus());
+    },
+    [streaming]
+  );
+
   const applyEdit = useCallback(
     async (msgId: string, newText: string) => {
       const chat = chatsRef.current.find((c) => c.id === activeId) ?? null;
@@ -2744,8 +2768,10 @@ export default function HomePage() {
           <div className="mx-auto w-full min-w-0 max-w-2xl pb-6 text-center">
             {/* Empty state keeps the video identity: centred avatar + name pill.
                 The avatar is a plain <a> so the tap always works.
-                ROUND 5: the photo is a full-body portrait — the
-                .ai-avatar-frame/.ai-avatar-img zoom to the face
+                The avatar IS the video (Samim typing/coding at the
+                laptop, muted loop) — the founder photo is only the
+                fallback if the video fails to load. The
+                .ai-avatar-frame/.ai-avatar-video zoom to the face
                 (see globals.css); the <a> itself is the frame.
                 R3-J: avatar ABOVE the name pill, never beside it.
                 The old row looked stacked in the JSX but rendered
@@ -2762,14 +2788,28 @@ export default function HomePage() {
                 aria-label={t(lang, "about")}
                 className="ai-avatar-frame pointer-events-auto relative z-10 h-16 w-16 cursor-pointer ring-2 ring-white/80 transition-transform active:scale-95 dark:ring-[var(--card-border)]"
               >
-                <Image
-                  src="/avatar.jpg"
-                  alt="AfghanGPT"
-                  width={64}
-                  height={64}
-                  priority
-                  className="ai-avatar-img"
-                />
+                {!heroVideoFailed ? (
+                  <video
+                    src="/avatar-video.mp4"
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    preload="auto"
+                    aria-label="AfghanGPT"
+                    onError={() => setHeroVideoFailed(true)}
+                    className="ai-avatar-video"
+                  />
+                ) : (
+                  <Image
+                    src="/avatar.jpg"
+                    alt="AfghanGPT"
+                    width={64}
+                    height={64}
+                    priority
+                    className="ai-avatar-img"
+                  />
+                )}
               </a>
               <div className="mt-3 max-w-full rounded-2xl bg-[var(--card)] px-3.5 py-1.5 shadow-sm ring-1 ring-black/5 dark:ring-[var(--card-border)]">
                 <span className="block truncate text-base text-[var(--foreground)]">
@@ -2903,7 +2943,7 @@ export default function HomePage() {
                       }
                     : undefined
                 }
-                onEditMessage={applyEdit}
+                onEditToComposer={() => startEdit(m.id, m.content)}
                 onDeleteMessage={deleteUserMessage}
                 onNote={showNotice}
                 onBranch={branchFromMessage}
@@ -2946,6 +2986,23 @@ export default function HomePage() {
               onClick={() => setPendingImage(null)}
               className="rounded-full bg-[var(--surface-hover)] px-2 py-1 text-xs"
               aria-label={t(lang, "close")}
+            >
+              <Icon name="x" size={14} />
+            </button>
+          </div>
+        )}
+        {editingMessageId && (
+          <div className="mx-auto mb-2 flex max-w-3xl items-center gap-2 rounded-full bg-[var(--surface)] px-3 py-1.5 text-xs shadow-sm ring-1 ring-[var(--border-subtle)]">
+            <Icon name="pencil" size={13} className="shrink-0 text-[var(--muted)]" />
+            <span className="min-w-0 flex-1 truncate">{t(lang, "editingMessage")}</span>
+            <button
+              type="button"
+              onClick={() => {
+                setEditingMessageId(null);
+                setInput("");
+              }}
+              className="rounded-full bg-[var(--surface-hover)] px-2 py-1 text-xs"
+              aria-label={t(lang, "cancel")}
             >
               <Icon name="x" size={14} />
             </button>
@@ -3074,7 +3131,13 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => {
-                  if (input.trim() || pendingImage) {
+                  if (editingMessageId && input.trim()) {
+                    // ChatGPT-style edit: replace the message and
+                    // regenerate the reply, then clear the edit.
+                    void applyEdit(editingMessageId, input.trim());
+                    setEditingMessageId(null);
+                    setInput("");
+                  } else if (input.trim() || pendingImage) {
                     send(input);
                     setInput("");
                   }

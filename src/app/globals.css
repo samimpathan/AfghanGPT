@@ -315,14 +315,17 @@ body {
 }
 
 /* Answering avatar video (ROUND 3C) — /avatar-video.mp4 is Samim
-   typing at a laptop with headphones (720×720, 5s loop). His face
+   typing/coding at a laptop with headphones (720×720, 5s loop). His face
    sits left of centre (≈ 40% / 21%, face width ≈ 24%) and stays
    there through the clip (checked at 1s and 4s), so the video gets
    its own crop: 1.9× zoom at 40% / 22% keeps the whole head plus
    shoulders and a sliver of laptop in the circle. Same sizing as
    .ai-avatar-img so it swaps in place with no layout shift. The
-   element only mounts while an answer is streaming (ChatMessage /
-   TypingDots) — never on finished messages. */
+   video plays while an answer streams AND stays on the latest
+   finished reply (ChatMessage), and on the home hero (page.tsx) —
+   the avatar is a video, the photo is only the fallback. The clip
+   is preloaded in the root layout so slow connections have it
+   cached before the first reply. */
 .ai-avatar-video {
   display: block;
   width: 100%;

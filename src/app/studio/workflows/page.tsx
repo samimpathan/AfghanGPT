@@ -66,8 +66,8 @@ function imageErrorMessage(code: string, status: number): string {
     return "Image generation is not available right now.";
   if (code === "model-unavailable" || status === 502)
     return "The image model is unavailable right now.";
-  if (code === "rate-limited" || status === 429)
-    return "Too many image requests — please wait a minute and try again.";
+  if (code === "rate-limited" || code === "image-busy" || status === 429)
+    return "The free image service is busy right now — please wait a moment and try again.";
   if (code === "refused") return "That prompt was refused — adult content is not allowed.";
   return `Image generation failed (${status || code}).`;
 }

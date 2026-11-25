@@ -388,11 +388,10 @@ export async function POST(req: NextRequest) {
   }
 
   // Image generation (text-only request, no photo attached).
+  // Free-first: generateImage tries the free Pollinations provider
+  // with no key, then Gemini only if a server key is configured.
   if (!lastImage && isImageGenRequest(lastText)) {
-    if (!apiKey) {
-      return textStream(IMAGE_GEN_UNAVAILABLE, "offline");
-    }
-    const image = await generateImage(lastText, apiKey);
+    const { image } = await generateImage(lastText, apiKey);
     if (image) {
       return new Response(
         JSON.stringify({
