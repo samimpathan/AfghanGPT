@@ -92,10 +92,10 @@ export function providerInfos(opts: {
   return [
     {
       id: "gemini",
-      name: "Google Gemini",
+      name: "AfghanGPT Auto",
       description: "Default AI brain — chat, vision, voice, image generation.",
       freeTier:
-        "Google AI Studio free tier (limited requests per day/minute; 503 'busy' when overloaded — the app retries with the lite model).",
+        "AfghanGPT free tier (limited requests per day/minute; 503 'busy' when overloaded — the app retries with the lite model).",
       keySource: "Server env GEMINI_API_KEY / GEMINIAPIKEY (set by the owner in Vercel).",
       status: opts.geminiConfigured ? "ready" : "needs-key",
       models: [...GEMINI_MODELS],

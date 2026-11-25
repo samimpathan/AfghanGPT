@@ -57,6 +57,8 @@ const NAV_STUDIOS: NavItem[] = [
 
 const NAV_MORE: NavItem[] = [
   { href: "/about", labelKey: "about", icon: "info" },
+  // Round 3 item N: Privacy Policy in the sidebar (same nav as About).
+  { href: "/privacy", labelKey: "privacyPolicy", icon: "lock" },
   { href: "/settings", labelKey: "settings", icon: "settings" },
   { href: "/admin", labelKey: "admin", icon: "gauge" },
 ];

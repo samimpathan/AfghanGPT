@@ -229,14 +229,6 @@ body {
   unicode-bidi: plaintext;
 }
 
-/* Read-more collapse for long messages (about 4 lines when collapsed). */
-.clamp-4 {
-  display: -webkit-box;
-  -webkit-line-clamp: 4;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
 /* Pulsing red mic while speech recognition is listening. */
 @keyframes mic-pulse {
   0%,
@@ -294,17 +286,19 @@ body {
   transform: scale(1);
 }
 
-/* AI avatar face crop (ROUND 5) — /avatar.jpg is Samim's real 3:4
-   full-body portrait (1536×2048; face centre ≈ 50% / 41% of the
-   frame, face width ≈ 29% of the width). A plain object-cover
-   circle shows the whole body, so at 32–40px the face is a ~8px
-   speck — that is why the avatar "was still not made". The frame
-   clips a ~2.3× zoom centred on the face, so the head fills the
-   circle the way Muse's avatar does. The photo file is untouched.
-   The frame MUST wrap the img (overflow hidden) — a scaled img
-   without it would spill over the message text. Only the founder
-   photo uses this; uploaded user photos keep plain object-cover
-   (see UserAvatar). */
+/* AI avatar face crop (ROUND 3C) — /avatar.jpg is now Samim's real
+   SQUARE portrait (1600×1600, clean grey background; face centre
+   ≈ 50% / 26% of the frame, face width ≈ 28% of the width). The old
+   2.3× zoom at 50% / 41% was tuned for the previous 3:4 full-body
+   photo and would crop this one to just eyes/nose. A 1.8× zoom
+   centred on the face shows the whole head plus shoulders (the
+   visible window is ~56% of the frame: hair top ≈ 9% and chin
+   ≈ 43% sit inside it with margin), so the face fills ~50% of the
+   circle at every size — the way Muse's avatar does. The frame
+   MUST wrap the img (overflow hidden) — a scaled img without it
+   would spill over the message text. Only the founder photo uses
+   this; uploaded user photos keep plain object-cover (see
+   UserAvatar). */
 .ai-avatar-frame {
   display: inline-block;
   overflow: hidden;
@@ -316,8 +310,26 @@ body {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transform: scale(2.3);
-  transform-origin: 50% 41%;
+  transform: scale(1.8);
+  transform-origin: 50% 28%;
+}
+
+/* Answering avatar video (ROUND 3C) — /avatar-video.mp4 is Samim
+   typing at a laptop with headphones (720×720, 5s loop). His face
+   sits left of centre (≈ 40% / 21%, face width ≈ 24%) and stays
+   there through the clip (checked at 1s and 4s), so the video gets
+   its own crop: 1.9× zoom at 40% / 22% keeps the whole head plus
+   shoulders and a sliver of laptop in the circle. Same sizing as
+   .ai-avatar-img so it swaps in place with no layout shift. The
+   element only mounts while an answer is streaming (ChatMessage /
+   TypingDots) — never on finished messages. */
+.ai-avatar-video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scale(1.9);
+  transform-origin: 40% 22%;
 }
 
 /* Voice orb bars (live call + voice mode). */

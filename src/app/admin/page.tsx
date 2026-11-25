@@ -177,7 +177,7 @@ export default function AdminPage() {
             </div>
             <div className="flex min-h-11 items-center justify-between gap-4 border-t border-[var(--card-border)] pt-3">
               <span className="min-w-0 font-bold">
-                Gemini • <span className="break-all font-normal text-[var(--muted)]">{geminiModel}</span>
+                AI model • <span className="break-all font-normal text-[var(--muted)]">{geminiModel}</span>
               </span>
               <Badge tone={geminiOnline ? "green" : "amber"}>
                 {geminiOnline ? t(lang, "online") : t(lang, "offline")}

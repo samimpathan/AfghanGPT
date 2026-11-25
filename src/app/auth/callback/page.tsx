@@ -1,15 +1,25 @@
 /**
  * app/auth/callback/page.tsx — Google OAuth (and email-link) return.
  *
- * supabase-js (PKCE, detectSessionInUrl) exchanges the `code` in
- * this URL for a session automatically when the browser client
- * starts, so this page only waits for the session to appear and
- * then routes by profile completeness:
+ * The browser client uses supabase-js's DEFAULT flow (implicit:
+ * `flowType` is not set in lib/supabaseClient, and the installed
+ * @supabase/auth-js defaults flowType to 'implicit' with
+ * detectSessionInUrl: true). So there is NO `code` for this page
+ * to exchange via exchangeCodeForSession — Supabase returns the
+ * session in the URL fragment (#access_token=...), the SDK
+ * detects it automatically when the client initialises, saves
+ * the session and fires SIGNED_IN. This page therefore only
+ * waits for the session to appear (onAuthStateChange + a
+ * getSession() poll as fallback) and then routes by profile
+ * completeness:
  *   - full name + age already in user_metadata → home (/)
  *   - otherwise → /login?step=profile (the profile step)
  * If no session appears within ~10 s (e.g. the provider is not
  * configured, or the link expired), an honest error + a link back
- * to /login is shown. No session, token, or code is ever logged.
+ * to /login is shown. If Supabase returns an OAuth failure TO
+ * this page (?error=... / #error=...), that error is shown at
+ * once instead of waiting out the timeout (R3-I). No session,
+ * token, or code is ever logged.
  */
 "use client";
 
@@ -35,6 +45,25 @@ export default function AuthCallbackPage() {
     const client = supabase;
     if (!client) {
       setErrorKey("setupNeeded");
+      return;
+    }
+    // R3-I: Supabase returns OAuth failures TO this page as
+    // ?error=... / ?error_description=... (PKCE-style) or
+    // #error=... / #error_description=... (implicit-style).
+    // Show them at once instead of waiting out the 10 s
+    // timeout below. (The raw-400 "provider is not enabled"
+    // page never returns here — the /api/auth/providers
+    // pre-flight in AuthWizard is what catches that case.)
+    // Error VALUES are never logged; only which friendly key
+    // was shown matters.
+    const query = new URLSearchParams(window.location.search);
+    const hash = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const errDesc = query.get("error_description") ?? hash.get("error_description") ?? "";
+    const errCode = query.get("error") ?? hash.get("error") ?? "";
+    if (errCode || errDesc) {
+      setErrorKey(
+        /provider is not enabled/i.test(errDesc) ? "googleNotConfigured" : "googleSignInFailed"
+      );
       return;
     }
     let done = false;

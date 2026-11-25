@@ -42,6 +42,15 @@
  *              sign-in page, then /auth/callback finishes the
  *              session. There is deliberately NO in-app Google
  *              account picker — that picker belongs to Google.
+ *              R3-I (Finding F1): signInWithOAuth auto-navigates
+ *              away, so its error branch can never fire when the
+ *              provider is disabled — the user would land on
+ *              Supabase's raw 400 JSON page. The button therefore
+ *              pre-flights GET /api/auth/providers first: if the
+ *              probe says Google is certainly disabled, the
+ *              wizard shows googleNotConfigured and never
+ *              navigates; if the probe is inconclusive it fails
+ *              open and runs the normal OAuth flow.
  *
  * HONEST LIMITS (shown in the UI, never faked):
  *   - Phone SMS cannot arrive until an SMS provider (e.g. Twilio)
@@ -389,6 +398,37 @@ export default function AuthWizard() {
       return;
     }
     setBusy(true);
+    // R3-I — Finding F1 pre-flight: signInWithOAuth below
+    // auto-navigates the browser to Supabase's authorize URL, so
+    // its error branch can never fire for a disabled provider —
+    // without this check the user lands on Supabase's raw 400
+    // JSON page ("Unsupported provider: provider is not
+    // enabled"). Probe the provider server-side first (GET
+    // /api/auth/providers): enabled === false is CERTAIN
+    // (Supabase said so), so show the app's own friendly
+    // googleNotConfigured error and do NOT navigate. Any other
+    // outcome (enabled, unknown, probe error/timeout) FAILS
+    // OPEN into the normal OAuth flow — the probe must never
+    // block a sign-in it could not prove is impossible.
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      try {
+        const res = await fetch("/api/auth/providers", { signal: ctrl.signal });
+        if (res.ok) {
+          const data = (await res.json()) as { google?: { enabled?: boolean | null } };
+          if (data.google?.enabled === false) {
+            setBusy(false);
+            setError(t(lang, "googleNotConfigured"));
+            return;
+          }
+        }
+      } finally {
+        clearTimeout(timer);
+      }
+    } catch {
+      // Probe unreachable/timed out: fail open (see above).
+    }
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: { redirectTo: `${window.location.origin}/auth/callback` },
@@ -753,6 +793,12 @@ export default function AuthWizard() {
               {step === "email" && (
                 <p className="mt-4 text-center text-xs text-[var(--muted)]">{t(lang, "googlePickerNote")}</p>
               )}
+              {/* Round 3 item N: Privacy Policy link, under the sign-in buttons. */}
+              <p className="mt-4 text-center text-xs">
+                <Link href="/privacy" className="text-[var(--muted)] hover:underline">
+                  {t(lang, "privacyPolicy")}
+                </Link>
+              </p>
             </>
           )}
 

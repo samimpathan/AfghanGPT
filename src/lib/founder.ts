@@ -18,7 +18,7 @@ export const FOUNDER = {
   province: "Laghman",
   district: "Alingar",
   education: {
-    university: "Arzgan University",
+    university: "Urozgan University",
     faculty: "Faculty of Computer Science",
     semester: "Third Semester",
   },
@@ -80,7 +80,7 @@ export function founderBioShort(lang: FounderLang): string {
   }
   return (
     "Abdul Samim Niazai (Samim Pathan) is the founder of AfghanGPT and DevConnect.\n\n" +
-    "He is from Alingar, Laghman, Afghanistan, and is a 3rd-semester Computer Science student at Arzgan University. " +
+    "He is from Alingar, Laghman, Afghanistan, and is a 3rd-semester Computer Science student at Urozgan University. " +
     "He is a Founder, Creator, Web Developer, Programmer and Technology Enthusiast."
   );
 }

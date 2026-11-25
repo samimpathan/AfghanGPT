@@ -6,7 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { t, type Lang } from "@/lib/i18n";
 import { stripMathDelimiters } from "@/lib/mathText";
-import UserAvatar from "@/components/UserAvatar";
+import UserAvatar, { gradientById } from "@/components/UserAvatar";
 import {
   isSpeechSynthesisSupported,
   speakText,
@@ -30,9 +30,6 @@ export type UiMessage = {
   file?: { filename: string; mime: string; size: number; base64: string };
 };
 
-/** Long messages collapse to ~4 lines with a show more / less toggle. */
-const LONG_MESSAGE_CHARS = 600;
-
 const REACTIONS_KEY = "samim-ai-reactions";
 const REPORTS_KEY = "samim-ai-reports";
 
@@ -47,8 +44,13 @@ function loadReactions(): Record<string, "like" | "dislike"> {
 
 const actionBtn =
   "rounded-full px-2 py-1 text-xs text-[var(--muted)] transition duration-150 hover:bg-[var(--surface-hover)] focus-visible:outline-2 focus-visible:outline-[#2457FF] disabled:opacity-40";
-const actionBtnActive =
-  "rounded-full bg-[var(--surface-hover)] px-2 py-1 text-xs font-bold text-[var(--foreground)] transition duration-150";
+/** Icon-only assistant action buttons (Round 3 item K, ChatGPT-style):
+ * fixed 32px square so the six icons line up in both themes and at
+ * phone width; the active variant marks a saved reaction / speaking. */
+const actionIconBtn =
+  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--muted)] transition duration-150 hover:bg-[var(--surface-hover)] hover:text-[var(--foreground)] focus-visible:outline-2 focus-visible:outline-[#2457FF] disabled:opacity-40";
+const actionIconBtnActive =
+  "flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--surface-hover)] text-[var(--foreground)] transition duration-150";
 
 function formatSize(bytes: number): string {
   if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -56,8 +58,29 @@ function formatSize(bytes: number): string {
   return `${bytes} B`;
 }
 
-function CopyButton({ text, lang }: { text: string; lang: Lang }) {
+function CopyButton({ text, lang, iconOnly }: { text: string; lang: Lang; iconOnly?: boolean }) {
   const [done, setDone] = useState(false);
+  if (iconOnly) {
+    return (
+      <button
+        type="button"
+        onClick={async () => {
+          try {
+            await navigator.clipboard.writeText(text);
+            setDone(true);
+            setTimeout(() => setDone(false), 1500);
+          } catch {
+            // clipboard unavailable
+          }
+        }}
+        className={actionIconBtn}
+        aria-label={done ? t(lang, "copied") : t(lang, "copy")}
+        title={done ? t(lang, "copied") : t(lang, "copy")}
+      >
+        {done ? (<Icon name="check" size={16} />) : (<Icon name="copy" size={16} />)}
+      </button>
+    );
+  }
   return (
     <button
       type="button"
@@ -173,10 +196,11 @@ function SpeakButton({
     <button
       type="button"
       onClick={toggle}
-      className={speaking ? actionBtnActive : actionBtn}
-      aria-label={t(lang, "speak")}
+      className={speaking ? actionIconBtnActive : actionIconBtn}
+      aria-label={t(lang, speaking ? "stop" : "speak")}
+      title={t(lang, speaking ? "stop" : "speak")}
     >
-      {speaking ? (<><Icon name="stop" size={13} className="me-1 inline-block align-middle" />{t(lang, "stop")}</>) : (<><Icon name="speaker" size={13} className="me-1 inline-block align-middle" />{t(lang, "speak")}</>)}
+      {speaking ? (<Icon name="stop" size={16} />) : (<Icon name="speaker" size={16} />)}
     </button>
   );
 }
@@ -312,6 +336,9 @@ export default function ChatMessage({
   userAvatar,
   onRegenerate,
   isLastAssistant,
+  /** True while this (last) assistant message is still streaming —
+   * its avatar shows the answering video instead of the photo. */
+  isStreaming,
   onEditMessage,
   onDeleteMessage,
   onNote,
@@ -319,8 +346,8 @@ export default function ChatMessage({
   onExport,
   actionsDisabled,
   /** The real model/mode string used for this chat, e.g.
-   * "AfghanGPT Auto • Google Gemini" — shown at the foot of the
-   * message ••• menu ("Used …" line, Gemini-style). */
+   * "AfghanGPT Auto" — shown at the foot of the
+   * message ••• menu ("Used …" line). */
   modelUsed,
 }: {
   msg: UiMessage;
@@ -332,6 +359,7 @@ export default function ChatMessage({
   userAvatar?: { name?: string | null; email?: string | null; photoUrl?: string | null; fallbackPhoto?: string | null; gradientId?: string | null };
   onRegenerate?: () => void;
   isLastAssistant?: boolean;
+  isStreaming?: boolean;
   onEditMessage?: (id: string, newText: string) => void;
   onDeleteMessage?: (id: string) => void;
   onNote?: (text: string) => void;
@@ -343,8 +371,10 @@ export default function ChatMessage({
   const isUser = msg.role === "user";
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(msg.content);
-  const [expanded, setExpanded] = useState(false);
   const [reaction, setReaction] = useState<"like" | "dislike" | null>(null);
+  /** The answering video failed to load — fall back to the photo
+   * for this message instead of showing an empty circle. */
+  const [avatarVideoFailed, setAvatarVideoFailed] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   const [reportText, setReportText] = useState("");
@@ -353,7 +383,13 @@ export default function ChatMessage({
   /** px the ••• menu is shifted right so it never leaves the viewport
    * (see the clamp effect below). 0 wherever it already fits. */
   const [moreMenuShift, setMoreMenuShift] = useState(0);
-  const isLong = msg.content.length > LONG_MESSAGE_CHARS;
+  /** R3-B: the gradient the user picked in Settings (Avatar colour),
+   * threaded in via userAvatar.gradientId (page.tsx syncs
+   * settings.avatarGradient into userGradient). Null = Auto/empty:
+   * keep the default bubble exactly as-is. When set, the sent
+   * bubble (main row + edit row) uses this gradient with WHITE
+   * text — the same treatment as the avatar initials. */
+  const userBubbleGradient = gradientById(userAvatar?.gradientId);
 
   useEffect(() => {
     setReaction(loadReactions()[msg.id] ?? null);
@@ -443,7 +479,20 @@ export default function ChatMessage({
               value={editText}
               onChange={(e) => setEditText(e.target.value)}
               rows={3}
-              className="bidi-plaintext w-full rounded-[20px] border-2 border-[#2457FF] bg-[var(--card)] px-4 py-3 text-[17px] text-[var(--foreground)] shadow-sm outline-none"
+              style={
+                userBubbleGradient
+                  ? {
+                      background: userBubbleGradient.background,
+                      color: "#FFFFFF",
+                      textShadow: "0 1px 2px rgba(0, 0, 0, 0.30)",
+                    }
+                  : undefined
+              }
+              className={`bidi-plaintext w-full rounded-[20px] border-2 px-4 py-3 text-[17px] shadow-sm outline-none ${
+                userBubbleGradient
+                  ? "border-white/50 text-white"
+                  : "border-[#2457FF] bg-[var(--card)] text-[var(--foreground)]"
+              }`}
             />
             <div className="mt-1.5 flex justify-end gap-2">
               <button
@@ -500,27 +549,24 @@ export default function ChatMessage({
             />
           )}
           <div
-            className="break-words rounded-[28px] bg-[var(--bubble-user)] px-[18px] py-3 text-[17px] leading-6 text-[var(--foreground)] shadow-sm"
+            className={`break-words rounded-[28px] px-[18px] py-3 text-[17px] leading-6 shadow-sm ${
+              userBubbleGradient
+                ? "text-white"
+                : "bg-[var(--bubble-user)] text-[var(--foreground)]"
+            }`}
+            style={
+              userBubbleGradient
+                ? {
+                    background: userBubbleGradient.background,
+                    textShadow: "0 1px 2px rgba(0, 0, 0, 0.30)",
+                  }
+                : undefined
+            }
             dir="auto"
           >
-            <p
-              className={`bidi-plaintext whitespace-pre-wrap ${
-                !expanded && isLong ? "clamp-4" : ""
-              }`}
-            >
-              {msg.content}
-            </p>
+            <p className="bidi-plaintext whitespace-pre-wrap">{msg.content}</p>
           </div>
           <div className="mt-1 flex flex-wrap items-center justify-end gap-1.5 px-1">
-            {isLong && (
-              <button
-                type="button"
-                onClick={() => setExpanded((v) => !v)}
-                className={actionBtn}
-              >
-                {expanded ? t(lang, "readLess") : t(lang, "readMore")}
-              </button>
-            )}
             <button
               type="button"
               disabled={actionsDisabled}
@@ -564,12 +610,29 @@ export default function ChatMessage({
   // avatar at the far left, in both RTL and LTR.
   return (
     <div dir="ltr" className="msg-in flex min-w-0 items-start gap-3">
-      {/* AI avatar through the face-zoom frame (ROUND 5, see
-          globals.css .ai-avatar-frame): /avatar.jpg is a 3:4
-          full-body portrait, so a plain object-cover circle left
-          the face a ~8px speck at 32px. */}
+      {/* AI avatar through the face-zoom frame (ROUND 3C, see
+          globals.css .ai-avatar-frame): /avatar.jpg is the square
+          founder portrait, zoomed 1.8× to the face. While this
+          answer streams, the video (/avatar-video.mp4, muted loop)
+          plays in its place — the <video> only mounts while
+          streaming, so finished messages never load it; if it
+          fails, the photo shows instead. */}
       <span className="ai-avatar-frame mt-1 h-8 w-8 ring-1 ring-black/5 dark:ring-[var(--card-border)]">
-        <img src="/avatar.jpg" alt="" className="ai-avatar-img" />
+        {isStreaming && !avatarVideoFailed ? (
+          <video
+            src="/avatar-video.mp4"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="auto"
+            aria-hidden="true"
+            onError={() => setAvatarVideoFailed(true)}
+            className="ai-avatar-video"
+          />
+        ) : (
+          <img src="/avatar.jpg" alt="" className="ai-avatar-img" />
+        )}
       </span>
       <div className="min-w-0 flex-1 break-words">
         {msg.image && (
@@ -579,7 +642,7 @@ export default function ChatMessage({
             className="mb-2 block max-h-72 w-auto max-w-full rounded-2xl object-cover"
           />
         )}
-        <div className={`md-body ${!expanded && isLong ? "clamp-4" : ""}`} dir="auto">
+        <div className="md-body" dir="auto">
           <ReactMarkdown
             remarkPlugins={[remarkGfm]}
             components={{
@@ -638,22 +701,22 @@ export default function ChatMessage({
           </ReactMarkdown>
         </div>
         {msg.file && <FileCard file={msg.file} lang={lang} />}
-        <div className="mt-1.5 flex flex-wrap items-center gap-1 px-1">
-          {isLong && (
-            <button
-              type="button"
-              onClick={() => setExpanded((v) => !v)}
-              className={actionBtn}
-            >
-              {expanded ? t(lang, "readLess") : t(lang, "readMore")}
-            </button>
-          )}
+        {/* Assistant action row (Round 3 item K, ChatGPT-style):
+            icon-only buttons in EXACTLY this physical order — Copy,
+            Like, Dislike, Read aloud, Share, ••• — in both RTL and
+            LTR. The row is dir="ltr" (like the message row above),
+            so flex cannot flip the order by language; Regenerate
+            lives inside the ••• menu. (The long-message collapse was
+            removed in R3 A+B, so there is no show-more toggle here.) */}
+        <div dir="ltr" className="mt-1.5 flex flex-wrap items-center gap-1 px-1">
+          <CopyButton text={msg.content} lang={lang} iconOnly />
           <button
             type="button"
             disabled={actionsDisabled}
             onClick={() => setReactionStored("like")}
-            className={reaction === "like" ? actionBtnActive : actionBtn}
+            className={reaction === "like" ? actionIconBtnActive : actionIconBtn}
             aria-label={t(lang, "like")}
+            title={t(lang, "like")}
           >
             <Icon name="thumbsUp" size={16} />
           </button>
@@ -661,31 +724,23 @@ export default function ChatMessage({
             type="button"
             disabled={actionsDisabled}
             onClick={() => setReactionStored("dislike")}
-            className={reaction === "dislike" ? actionBtnActive : actionBtn}
+            className={reaction === "dislike" ? actionIconBtnActive : actionIconBtn}
             aria-label={t(lang, "dislike")}
+            title={t(lang, "dislike")}
           >
             <Icon name="thumbsDown" size={16} />
           </button>
-          {isLastAssistant && onRegenerate && (
-            <button
-              type="button"
-              onClick={onRegenerate}
-              className={actionBtn}
-              aria-label={t(lang, "regenerate")}
-            >
-              <Icon name="regenerate" size={13} className="me-1 inline-block align-middle" /> {t(lang, "regenerate")}
-            </button>
-          )}
+          <SpeakButton text={msg.content} lang={lang} onNote={onNote} />
           <button
             type="button"
             disabled={actionsDisabled}
             onClick={shareMessage}
-            className={actionBtn}
+            className={actionIconBtn}
             aria-label={t(lang, "shareChat")}
+            title={t(lang, "shareChat")}
           >
-            <Icon name="share" size={13} className="me-1 inline-block align-middle" /> {t(lang, "shareChat")}
+            <Icon name="share" size={16} />
           </button>
-          <CopyButton text={msg.content} lang={lang} />
           <div className="relative">
             <button
               type="button"
@@ -694,8 +749,9 @@ export default function ChatMessage({
                 setMoreOpen((v) => !v);
                 setReportOpen(false);
               }}
-              className={actionBtn}
-              aria-label="More actions"
+              className={actionIconBtn}
+              aria-label={t(lang, "moreActions")}
+              title={t(lang, "moreActions")}
             >
               <Icon name="dots" size={16} />
             </button>
@@ -703,7 +759,7 @@ export default function ChatMessage({
               <>
                 <button
                   type="button"
-                  aria-label="Close menu"
+                  aria-label={t(lang, "closeMenu")}
                   onClick={() => {
                     setMoreOpen(false);
                     setReportOpen(false);
@@ -721,6 +777,18 @@ export default function ChatMessage({
                   style={moreMenuShift ? { right: -moreMenuShift } : undefined}
                   className="absolute right-0 top-full z-30 mt-1 w-56 max-w-[90vw] rounded-2xl border border-[var(--card-border)] bg-[var(--card)] p-2 shadow-md"
                 >
+                  {isLastAssistant && onRegenerate && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMoreOpen(false);
+                        onRegenerate();
+                      }}
+                      className="block w-full rounded-xl px-3 py-2 text-start text-sm hover:bg-[var(--surface-hover)]"
+                    >
+                      <Icon name="regenerate" size={14} className="me-2 inline-block align-middle" /> {t(lang, "regenerate")}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
@@ -779,7 +847,6 @@ export default function ChatMessage({
               </>
             )}
           </div>
-          <SpeakButton text={msg.content} lang={lang} onNote={onNote} />
           {msg.image && (
             <>
               <a href={msg.image} download="afghangpt-image.png" className={actionBtn}>
@@ -787,11 +854,6 @@ export default function ChatMessage({
               </a>
               <SaveImageButton image={msg.image} lang={lang} />
             </>
-          )}
-          {msg.mode === "gemini" && (
-            <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-900/60 dark:text-emerald-200 dark:ring-emerald-800">
-              {t(lang, "onlineMode")}
-            </span>
           )}
           {msg.mode === "web" && (
             <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-900/60 dark:text-emerald-200 dark:ring-emerald-800">

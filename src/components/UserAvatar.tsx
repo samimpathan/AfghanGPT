@@ -13,11 +13,12 @@
  * Every avatar — photo, founder fallback, initials, guest "?" —
  * sits inside the same thin luminous gradient ring with a soft
  * shadow, so the whole system looks like one designed piece.
- * ROUND 5: the founder fallback ("/avatar.jpg") is a 3:4 full-body
- * portrait, so it renders through the face-zoom frame
- * (.ai-avatar-frame/.ai-avatar-img in globals.css) — otherwise the
- * face is a speck at 32–40px. An uploaded photo keeps plain
- * object-cover. An empty-string photo (Settings → Remove photo
+ * ROUND 3C: the founder fallback ("/avatar.jpg") is a square
+ * portrait with a large centred face, so it renders through the
+ * face-zoom frame (.ai-avatar-frame/.ai-avatar-img in globals.css,
+ * 1.8× zoom) — otherwise the head-and-shoulders crop looks loose
+ * at 32–40px. An uploaded photo keeps plain object-cover.
+ * An empty-string photo (Settings → Remove photo
  * stores "") means "no photo" and falls through to the fallback /
  * initials instead of rendering a broken src="".
  * If a photo fails to load, fall back to initials — an uploaded
@@ -142,8 +143,8 @@ export default function UserAvatar({
   // An uploaded photo always wins; the fallback only applies when
   // there is no uploaded photo at all.
   const src = !imgFailed ? (cleanPhoto ?? fallbackPhoto ?? null) : null;
-  // The founder fallback is the full-body portrait — zoom to the
-  // face; an uploaded photo is shown as-is.
+  // The founder fallback is the square founder portrait — zoom to
+  // the face; an uploaded photo is shown as-is.
   const isFounderFallback = !cleanPhoto && !!fallbackPhoto;
 
   const ringStyle: CSSProperties = {

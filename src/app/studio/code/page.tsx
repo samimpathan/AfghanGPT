@@ -576,7 +576,7 @@ export default function CodeStudioPage() {
               <div className="rounded-xl border border-[var(--card-border)] p-3">
                 <div className="mb-2 flex flex-wrap items-center gap-2">
                   <span className="text-sm font-bold">{aiResult.title}</span>
-                  {aiResult.mode && <Badge tone={aiResult.mode === "gemini" ? "green" : "amber"}>{aiResult.mode}</Badge>}
+                  {aiResult.mode && <Badge tone={aiResult.mode === "gemini" ? "green" : "amber"}>{aiResult.mode === "gemini" ? t("modelAuto") : aiResult.mode}</Badge>}
                   {aiAction === null && aiResult.title === "Optimised code" && (
                     <Btn size="sm" className="ms-auto" onClick={applyOptimised}>
                       Apply to file

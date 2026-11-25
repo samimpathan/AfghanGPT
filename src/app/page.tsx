@@ -49,6 +49,7 @@ const MODEL_KEY = "samim-ai-model";
 const SAVED_IMAGES_KEY = "samim-ai-saved-images";
 const META_KEY = "samim-ai-chat-meta";
 
+
 /** GUEST PRIVACY (2026-11-22): guest chats are IN-MEMORY ONLY.
  * There is deliberately NO guest-chat storage key anymore — no
  * localStorage, no sessionStorage, no IndexedDB, no Supabase.
@@ -139,18 +140,37 @@ function downscaleImage(file: File): Promise<string> {
 
 /** Three animated dots + the AI avatar + shimmer lines while generating. */
 function TypingDots() {
+  /** The answering video failed to load — fall back to the photo. */
+  const [videoFailed, setVideoFailed] = useState(false);
   return (
     // dir="ltr" — same fix as the assistant message rows (commit
     // 5d736e2): the AI avatar + dots sit on the LEFT in both RTL
     // and LTR. Without it the avatar lands on the right in Pashto/
     // Dari while the answer it precedes has its avatar on the left.
     <div dir="ltr" className="msg-in flex min-w-0 items-start gap-3">
-      {/* AI avatar through the face-zoom frame (ROUND 5, see
-          globals.css .ai-avatar-frame): /avatar.jpg is a 3:4
-          full-body portrait, so a plain object-cover circle left
-          the face a ~8px speck at 32px. */}
+      {/* AI avatar through the face-zoom frame (ROUND 3C, see
+          globals.css .ai-avatar-frame): /avatar.jpg is the square
+          founder portrait, zoomed 1.8× to the face. TypingDots
+          only mounts while an answer is being generated, so the
+          answering video (/avatar-video.mp4, muted loop) plays
+          here in place of the photo; if it fails, the photo
+          shows instead. */}
       <span className="ai-avatar-frame mt-1 h-8 w-8 ring-1 ring-black/5 dark:ring-[var(--card-border)]">
-        <img src="/avatar.jpg" alt="" className="ai-avatar-img" />
+        {!videoFailed ? (
+          <video
+            src="/avatar-video.mp4"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="auto"
+            aria-hidden="true"
+            onError={() => setVideoFailed(true)}
+            className="ai-avatar-video"
+          />
+        ) : (
+          <img src="/avatar.jpg" alt="" className="ai-avatar-img" />
+        )}
       </span>
       <div className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5 px-1 py-2">
@@ -175,10 +195,20 @@ export default function HomePage() {
   /** Chosen avatar gradient (Settings → Avatar colour, "" = auto). */
   const [userGradient, setUserGradient] = useState<string>("");
   const [chats, setChats] = useState<LocalChat[]>([]);
+  /** R3-G: true while the first chat-history load is in flight, so
+   * the Chats section shows "loading" instead of the "no chats"
+   * empty state before Supabase has answered (on a slow phone
+   * that gap is seconds, and it used to look like the section
+   * was missing). Starts true; loadGuest() clears it for guests. */
+  const [chatsLoading, setChatsLoading] = useState(true);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  /** R3-E: which drawer section was just tapped (Images / Library /
+   * Explore) — it flashes a highlight so the tap is visibly
+   * answered even when the target is already in view. */
+  const [flashTarget, setFlashTarget] = useState<"library" | "studios" | null>(null);
   const [moreOpen, setMoreOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -249,6 +279,12 @@ export default function HomePage() {
   // localStorage. Their ids live only in this ref for this session.
   const tempIdsRef = useRef<Set<string>>(new Set());
   const abortRef = useRef<AbortController | null>(null);
+  /** R3-G: the user id whose history is already loaded (or loading)
+   * — stops the INITIAL_SESSION echo from onAuthStateChange
+   * re-fetching right after getSession() loaded the same user. */
+  const historyLoadedForRef = useRef<string | null>(null);
+  /** R3-E: clears the section flash (see flashSection). */
+  const flashTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -515,10 +551,50 @@ export default function HomePage() {
     };
   }, []);
 
+  /** R3-G — load a logged-in user's chat history from Supabase
+   * ai_chats (via src/lib/chats.ts listChats). Guarded per user
+   * id, so the INITIAL_SESSION echo from onAuthStateChange right
+   * after getSession() is a no-op instead of a second fetch. */
+  const loadHistory = useCallback(async (ownerId: string) => {
+    if (historyLoadedForRef.current === ownerId) return;
+    historyLoadedForRef.current = ownerId;
+    setChatsLoading(true);
+    try {
+      const rows: ChatRow[] = await listChats(ownerId);
+      const loaded: LocalChat[] = rows.map((r) => ({
+        id: r.id,
+        dbId: r.id,
+        title: r.title,
+        messages: [],
+      }));
+      setChats(loaded);
+      if (loaded.length > 0) setActiveId((prev) => prev ?? loaded[0].id);
+    } finally {
+      setChatsLoading(false);
+    }
+  }, []);
+
+  /** R3-E — scroll a drawer section into view AND flash it, so a
+   * tap is visibly answered even when the section is already in
+   * view (before this, tapping Images / Library / Explore when
+   * the target was already visible did nothing on screen, so the
+   * buttons looked dead). */
+  const flashSection = useCallback(
+    (target: "library" | "studios", ref: { current: HTMLDivElement | null }) => {
+      ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      setFlashTarget(target);
+      if (flashTimerRef.current) clearTimeout(flashTimerRef.current);
+      flashTimerRef.current = setTimeout(() => setFlashTarget(null), 1400);
+    },
+    []
+  );
+
   // Auth session + load history.
   useEffect(() => {
     // Guests start EMPTY every time — in-memory only, nothing to load.
     const loadGuest = () => {
+      historyLoadedForRef.current = null;
+      setChatsLoading(false);
       setChats([]);
       setActiveId(null);
       store.setMemoryOnly(true);
@@ -541,15 +617,7 @@ export default function HomePage() {
       setUserName(s.displayName || displayNameOf(session.user));
       setUserPhoto(s.avatarDataUrl || null);
       setUserGradient(s.avatarGradient || "");
-      const rows: ChatRow[] = await listChats(session.user.id);
-      const loaded: LocalChat[] = rows.map((r) => ({
-        id: r.id,
-        dbId: r.id,
-        title: r.title,
-        messages: [],
-      }));
-      setChats(loaded);
-      if (loaded.length > 0) setActiveId(loaded[0].id);
+      await loadHistory(session.user.id);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_e, session) => {
       if (session?.user) {
@@ -560,6 +628,16 @@ export default function HomePage() {
         setUserName(s.displayName || displayNameOf(session.user));
         setUserPhoto(s.avatarDataUrl || null);
         setUserGradient(s.avatarGradient || "");
+        // R3-G ROOT-CAUSE FIX (load path): this signed-in branch
+        // used to set identity ONLY — it never loaded chats. A
+        // session established by an auth event AFTER the one-shot
+        // getSession() above (INITIAL_SESSION echo, sign-in from
+        // another tab, a late session restore) therefore left the
+        // drawer showing the user logged in with an empty chat
+        // list and no retry. Load history here too; loadHistory
+        // is guarded per user, so the echo after getSession()
+        // is a no-op.
+        void loadHistory(session.user.id);
       } else {
         // Signed out — the guest session starts empty. Nothing from
         // the signed-in session (or any earlier guest session) is kept.
@@ -573,10 +651,12 @@ export default function HomePage() {
         setPins([]);
         setChatMeta({});
         tempIdsRef.current.clear();
+        historyLoadedForRef.current = null;
+        setChatsLoading(false);
       }
     });
     return () => listener.subscription.unsubscribe();
-  }, []);
+  }, [loadHistory]);
 
   const lastMessageContent = messages[messages.length - 1]?.content ?? "";
   useEffect(() => {
@@ -1620,10 +1700,9 @@ export default function HomePage() {
       : `${t(lang, "appShort")} ${modelMode === "fast" ? t(lang, "modelFast") : t(lang, "modelSmart")}`;
 
   /** The real model/mode string, shown in each message's ••• menu.
-   * One model only: AfghanGPT Auto (server Gemini). No provider
-   * list, no key is ever asked. */
-  const currentProviderName = "Google Gemini";
-  const modelUsedText = `${modelLabel} • ${currentProviderName}`;
+   * One model only: AfghanGPT Auto. No provider list, no key is
+   * ever asked. */
+  const modelUsedText = modelLabel;
 
   /* FINDING A: takes the sidebar copy, so each copy's ••• button
    * registers in — and opens the menu from — its own ref map (see
@@ -1813,7 +1892,11 @@ export default function HomePage() {
             )}
             {/* Nav — ONLY features that really exist. Images + Library
                 scroll to the saved-images gallery below; Explore
-                scrolls to the AI Studios list. Customize is omitted
+                scrolls to the AI Studios list. R3-E: the three
+                scroll rows also FLASH their target (see
+                flashSection) — before this, tapping one when its
+                target was already in view did nothing visible, so
+                the buttons looked dead. Customize is omitted
                 (no custom-instructions setting exists), Projects is
                 omitted (no central projects page exists). The three
                 scroll rows deliberately KEEP the drawer open: their
@@ -1826,21 +1909,21 @@ export default function HomePage() {
             <div className="flex flex-col gap-0.5 px-3 pt-2">
               <button
                 type="button"
-                onClick={() => libraryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                onClick={() => flashSection("library", libraryRef)}
                 className="flex items-center gap-3.5 rounded-lg px-2 py-2.5 text-start text-base transition hover:bg-[var(--sidebar-hover)] active:scale-[0.98]"
               >
                 <Icon name="image" size={20} /> {t(lang, "images")}
               </button>
               <button
                 type="button"
-                onClick={() => libraryRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                onClick={() => flashSection("library", libraryRef)}
                 className="flex items-center gap-3.5 rounded-lg px-2 py-2.5 text-start text-base transition hover:bg-[var(--sidebar-hover)] active:scale-[0.98]"
               >
                 <Icon name="book" size={20} /> {t(lang, "library")}
               </button>
               <button
                 type="button"
-                onClick={() => studiosRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })}
+                onClick={() => flashSection("studios", studiosRef)}
                 className="flex items-center gap-3.5 rounded-lg px-2 py-2.5 text-start text-base transition hover:bg-[var(--sidebar-hover)] active:scale-[0.98]"
               >
                 <Icon name="compass" size={20} /> {t(lang, "explore")}
@@ -1853,24 +1936,11 @@ export default function HomePage() {
                 <Icon name="settings" size={20} /> {t(lang, "settings")}
               </Link>
             </div>
-            {/* Studios (merged from the AfghanGPT studios) */}
-            <div ref={studiosRef} className="px-3 pb-1 pt-2">
-              <p className="px-1 pb-1 text-xs font-bold text-[var(--muted)]">
-                <Icon name="grid" size={16} className="me-1 inline-block align-middle" /> {t(lang, "studios")}
-              </p>
-              <div className="flex flex-col gap-0.5">
-                {visibleStudios.map((s) => (
-                  <Link
-                    key={s.href}
-                    href={s.href}
-                    onClick={() => setSidebarOpen(false)}
-                    className="rounded-lg px-2 py-1.5 text-sm hover:bg-[var(--sidebar-hover)]"
-                  >
-                    <Icon name={s.icon} size={16} className="me-1.5 inline-block align-middle" /> {t(lang, s.key)}
-                  </Link>
-                ))}
-              </div>
-            </div>
+            {/* R3-G: the Studios list moved INTO the scroll strip
+                below (after Chats) — it used to sit here, above the
+                strip, and its 8 rows pushed the chat list below
+                the fold of the strip on a phone, so the chats
+                looked missing. */}
             {!userEmail && (
               <p className="mx-3 mb-1 rounded-xl bg-amber-500/15 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
                 {t(lang, "guestNotice")}{" "}
@@ -1880,38 +1950,19 @@ export default function HomePage() {
               </p>
             )}
             <div className="drawer-scroll chat-scroll mt-2 min-h-0 flex-1 overflow-y-auto px-2 pb-2">
-              {/* Images gallery — ALWAYS rendered (with an empty-state
-                  line) so the Images/Library nav buttons always have
-                  somewhere to scroll to; before ROUND 5 the section
-                  only existed when an image was saved, so both
-                  buttons did nothing visible on an empty library. */}
-              <div ref={libraryRef} className="mb-2">
-                <p className="px-2 pb-1 pt-1 text-xs font-bold text-[var(--muted)]">
-                  {t(lang, "images")}
-                </p>
-                {savedImages.length > 0 ? (
-                  <div className="grid grid-cols-3 gap-1 px-1">
-                    {savedImages.slice(0, 9).map((src, i) => (
-                      <button
-                        key={i}
-                        type="button"
-                        onClick={() => {
-                          setPendingImage({ dataUrl: src });
-                          setSidebarOpen(false);
-                        }}
-                        className="overflow-hidden rounded-lg"
-                        aria-label={t(lang, "images")}
-                      >
-                        <img src={src} alt="" className="h-16 w-full object-cover" />
-                      </button>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="px-2 pb-1 text-xs text-[var(--muted)]">{t(lang, "noSavedImages")}</p>
-                )}
-              </div>
+              {/* R3-G divider (ChatGPT-style): a horizontal line above
+                  the chat list, so the list reads as its own section
+                  below the nav / studios — the user asked for exactly
+                  this line, and it was missing. */}
+              <div aria-hidden="true" className="mx-2 mb-1 mt-1 border-t border-[var(--border-subtle)]" />
               {/* Pinned — the heading is ALWAYS visible (ChatGPT-style);
-                  an empty-state line shows when nothing is pinned. */}
+                  an empty-state line shows when nothing is pinned.
+                  R3-G: Pinned + Chats sit at the TOP of this scroll
+                  strip, ahead of the Studios list and the Images
+                  gallery (both moved below them, inside the strip)
+                  — on a phone the studios + gallery used to push
+                  the chat list below the fold of the strip, so the
+                  section looked missing even though it was in the DOM. */}
               <div className="mb-1">
                 <p className="px-2 pb-1.5 pt-2 text-[15px] font-bold text-[var(--foreground)]">
                   {t(lang, "pinned")}
@@ -1923,12 +1974,18 @@ export default function HomePage() {
                 )}
               </div>
               {/* Chats — heading ALWAYS visible; folders + unfiled
-                  chats below it, or the empty state when there are none. */}
+                  chats below it, or the empty state when there are none.
+                  While the first history load is in flight it shows
+                  the loading line, never the "no chats" line (R3-G). */}
               <div className="mb-1">
                 <p className="px-2 pb-1.5 pt-2 text-[15px] font-bold text-[var(--foreground)]">
                   {t(lang, "chats")}
                 </p>
-                {filtered.length === 0 ? (
+                {chatsLoading ? (
+                  <p className="px-2 py-4 text-center text-sm text-[var(--muted)]">
+                    {t(lang, "loadingChats")}
+                  </p>
+                ) : filtered.length === 0 ? (
                   <p className="px-2 py-4 text-center text-sm text-[var(--muted)]">
                     {t(lang, "noChats")}
                   </p>
@@ -1967,6 +2024,62 @@ export default function HomePage() {
                   </div>
                 )}
               </div>
+              {/* Studios (merged from the AfghanGPT studios) — R3-G:
+                  lives INSIDE the scroll strip, BELOW the chat list,
+                  so the strip starts with divider + Pinned + Chats
+                  instead of the 8 studio rows pushing the chats
+                  below the fold on a phone. Explore still scrolls
+                  to it (studiosRef) and flashes it (R3-E). */}
+              <div ref={studiosRef} className={`px-1 pb-1 pt-2 transition-colors duration-500 ${flashTarget === "studios" ? "rounded-xl bg-[#2457FF]/10" : ""}`}>
+                <p className="px-1 pb-1 text-xs font-bold text-[var(--muted)]">
+                  <Icon name="grid" size={16} className="me-1 inline-block align-middle" /> {t(lang, "studios")}
+                </p>
+                <div className="flex flex-col gap-0.5">
+                  {visibleStudios.map((s) => (
+                    <Link
+                      key={s.href}
+                      href={s.href}
+                      onClick={() => setSidebarOpen(false)}
+                      className="rounded-lg px-2 py-1.5 text-sm hover:bg-[var(--sidebar-hover)]"
+                    >
+                      <Icon name={s.icon} size={16} className="me-1.5 inline-block align-middle" /> {t(lang, s.key)}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+              {/* Images gallery — ALWAYS rendered (with an empty-state
+                  line) so the Images/Library nav buttons always have
+                  somewhere to scroll to; before ROUND 5 the section
+                  only existed when an image was saved, so both
+                  buttons did nothing visible on an empty library.
+                  R3-G: moved BELOW the chat list, so the list is
+                  the first thing in the scroll strip on a phone.
+                  R3-E: flashes when Images / Library is tapped. */}
+              <div ref={libraryRef} className={`mb-2 transition-colors duration-500 ${flashTarget === "library" ? "rounded-xl bg-[#2457FF]/10" : ""}`}>
+                <p className="px-2 pb-1 pt-1 text-xs font-bold text-[var(--muted)]">
+                  {t(lang, "images")}
+                </p>
+                {savedImages.length > 0 ? (
+                  <div className="grid grid-cols-3 gap-1 px-1">
+                    {savedImages.slice(0, 9).map((src, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onClick={() => {
+                          setPendingImage({ dataUrl: src });
+                          setSidebarOpen(false);
+                        }}
+                        className="overflow-hidden rounded-lg"
+                        aria-label={t(lang, "images")}
+                      >
+                        <img src={src} alt="" className="h-16 w-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="px-2 pb-1 text-xs text-[var(--muted)]">{t(lang, "noSavedImages")}</p>
+                )}
+              </div>
             </div>
             <div className="border-t border-[var(--border-subtle)] p-3">
               <div className="flex flex-wrap gap-3 text-xs">
@@ -1975,6 +2088,10 @@ export default function HomePage() {
                 </Link>
                 <Link href="/about" onClick={() => setSidebarOpen(false)} className="text-[var(--muted)] hover:underline">
                   <Icon name="info" size={14} className="me-1 inline-block align-middle" /> {t(lang, "about")}
+                </Link>
+                {/* Round 3 item N: Privacy Policy link in the drawer footer. */}
+                <Link href="/privacy" onClick={() => setSidebarOpen(false)} className="text-[var(--muted)] hover:underline">
+                  <Icon name="lock" size={14} className="me-1 inline-block align-middle" /> {t(lang, "privacyPolicy")}
                 </Link>
                 {isAdmin && (
                   <Link href="/admin" onClick={() => setSidebarOpen(false)} className="font-bold text-amber-600 hover:underline dark:text-amber-400">
@@ -2629,30 +2746,41 @@ export default function HomePage() {
                 The avatar is a plain <a> so the tap always works.
                 ROUND 5: the photo is a full-body portrait — the
                 .ai-avatar-frame/.ai-avatar-img zoom to the face
-                (see globals.css); the <a> itself is the frame. */}
-            <a
-              href="/about"
-              aria-label={t(lang, "about")}
-              className="ai-avatar-frame pointer-events-auto relative z-10 mx-auto block h-16 w-16 cursor-pointer ring-2 ring-white/80 transition-transform active:scale-95 dark:ring-[var(--card-border)]"
-            >
-              <Image
-                src="/avatar.jpg"
-                alt="AfghanGPT"
-                width={64}
-                height={64}
-                priority
-                className="ai-avatar-img"
-              />
-            </a>
-            <div className="mt-3 inline-block max-w-full rounded-2xl bg-[var(--card)] px-3.5 py-1.5 shadow-sm ring-1 ring-black/5 dark:ring-[var(--card-border)]">
-              <span className="block truncate text-base text-[var(--foreground)]">
-                {userName ?? t(lang, "appShort")}
-                {isAdmin && (
-                  <span className="ms-1 rounded-full bg-amber-400 px-2 py-0.5 text-[11px] font-bold text-black">
-                    {t(lang, "admin")}
-                  </span>
-                )}
-              </span>
+                (see globals.css); the <a> itself is the frame.
+                R3-J: avatar ABOVE the name pill, never beside it.
+                The old row looked stacked in the JSX but rendered
+                side-by-side: the unlayered .ai-avatar-frame rule
+                (display:inline-block) beats Tailwind's `block`
+                utility, so the <a> stayed inline-level, and the
+                name pill is inline-block too — in this text-centred
+                container both sat on one line (avatar right, pill
+                left in RTL). This flex-col wrapper blockifies both
+                children and forces the vertical stack. */}
+            <div className="flex flex-col items-center">
+              <a
+                href="/about"
+                aria-label={t(lang, "about")}
+                className="ai-avatar-frame pointer-events-auto relative z-10 h-16 w-16 cursor-pointer ring-2 ring-white/80 transition-transform active:scale-95 dark:ring-[var(--card-border)]"
+              >
+                <Image
+                  src="/avatar.jpg"
+                  alt="AfghanGPT"
+                  width={64}
+                  height={64}
+                  priority
+                  className="ai-avatar-img"
+                />
+              </a>
+              <div className="mt-3 max-w-full rounded-2xl bg-[var(--card)] px-3.5 py-1.5 shadow-sm ring-1 ring-black/5 dark:ring-[var(--card-border)]">
+                <span className="block truncate text-base text-[var(--foreground)]">
+                  {userName ?? t(lang, "appShort")}
+                  {isAdmin && (
+                    <span className="ms-1 rounded-full bg-amber-400 px-2 py-0.5 text-[11px] font-bold text-black">
+                      {t(lang, "admin")}
+                    </span>
+                  )}
+                </span>
+              </div>
             </div>
             <h1 className="mt-4 text-xl font-bold">
               {userName
@@ -2761,6 +2889,9 @@ export default function HomePage() {
                 userAvatar={{ name: userName, email: userEmail, photoUrl: userPhoto, fallbackPhoto: userEmail ? "/avatar.jpg" : undefined, gradientId: userGradient }}
                 isLastAssistant={
                   m.role === "assistant" && i === messages.length - 1 && !streaming
+                }
+                isStreaming={
+                  streaming && m.role === "assistant" && i === messages.length - 1
                 }
                 onRegenerate={
                   m.role === "assistant" && i === messages.length - 1

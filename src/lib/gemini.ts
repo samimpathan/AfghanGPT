@@ -67,8 +67,22 @@ function modelUrl(model: string, action: "generateContent"): string {
   return `https://generativelanguage.googleapis.com/v1beta/models/${model}:${action}`;
 }
 
+/** R3-F (2026-11-24): image model. gemini-nano-banana-2.1 is Google's
+ * current GA image model ("primary high-efficiency workhorse"); the old
+ * gemini-2.5-flash-image is deprecated (shutdown 2027-03-15). Same
+ * :generateContent request shape (TEXT+IMAGE modalities) for both.
+ * NOTE — tested 2026-11-24 against the real free-tier key via the
+ * Muse Gemini connector: gemini-2.5-flash-image, gemini-3.1-flash-image,
+ * gemini-3.1-flash-lite-image and gemini-nano-banana-2.1 ALL return
+ * HTTP 429 "quota exceeded ... limit: 0" on the free tier, and
+ * gemini-2.0-flash-preview-image-generation is 404 (retired). Google's
+ * Gemini API pricing page lists the free tier as "Not available" for
+ * every image model — image generation needs a billed key. So live
+ * image generation stays honestly unavailable (route returns 502)
+ * until billing is enabled; this switch only keeps the wiring on the
+ * current model for that day. Do NOT present this as a live fix. */
 const IMAGE_MODEL_URL =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent";
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-nano-banana-2.1:generateContent";
 
 const SYSTEM_PROMPT = `You are AfghanGPT ("د افغانانو مرستیال"), the free AI assistant built by Abdul Samim Niazai (Samim Pathan).
 
@@ -99,7 +113,11 @@ function toGeminiContents(messages: ChatMsg[]) {
 
 /** Best-effort image generation with Gemini's image model.
  * Returns the image as a data URL, or null when the model is unavailable
- * for this key — callers must then say so honestly, never fake an image. */
+ * for this key — callers must then say so honestly, never fake an image.
+ * R3-F (2026-11-24): on the free-tier key every image model returns
+ * 429 quota-exceeded (limit 0), so this currently returns null and the
+ * /api/image route answers 502 model-unavailable. That is the honest
+ * outcome until a billed key is configured. */
 export async function generateImage(
   prompt: string,
   apiKey: string

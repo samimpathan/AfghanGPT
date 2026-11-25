@@ -17,6 +17,25 @@ import { Btn, Card, Field, Input, Select, Spinner, Textarea } from "@/components
 
 const STORAGE_KEY = "samim-slides";
 
+// R3-D: the 4 app languages, with the script + direction each deck is
+// generated and rendered in. The Select below offers all four; the
+// generation prompt (handleGenerate) names the script explicitly so a
+// Pashto/Dari/Arabic deck does not come back in English.
+const LANG_META: Record<string, { label: string; rtl: boolean; scriptNote: string }> = {
+  Pashto: { label: "Pashto (پښتو)", rtl: true, scriptNote: "Pashto, written in the Arabic script" },
+  Dari: { label: "Dari (دری)", rtl: true, scriptNote: "Dari, written in the Arabic script" },
+  English: { label: "English", rtl: false, scriptNote: "English" },
+  Arabic: { label: "Arabic (العربية)", rtl: true, scriptNote: "Arabic, written in the Arabic script" },
+};
+
+// R3-D: Arabic-script detection, so a saved Pashto/Dari/Arabic deck
+// still previews RTL even if the language selector was left on English
+// (e.g. after loading a saved deck).
+const RTL_RE = /[\u0600-\u06FF\u0750-\u077F\uFB50-\uFDFF\uFE70-\uFEFF]/;
+function isRtlText(s: string): boolean {
+  return RTL_RE.test(s);
+}
+
 type DeckSlide = { title: string; bullets: string[]; notes: string };
 type Deck = { title: string; slides: DeckSlide[] };
 
@@ -135,18 +154,27 @@ export default function SlidesPage() {
     setError("");
     setGenerating(true);
     try {
+      // R3-D: the language instruction is explicit and strong, in BOTH
+      // the system prompt and the user prompt — language name + script
+      // + "ALL content, no other language" — because the old single
+      // "Language: X / write in the requested language" line was weak
+      // enough that decks could come back in English.
+      const langMeta = LANG_META[language] ?? LANG_META.English;
       const system =
         "You are a presentation outline writer. Reply with ONLY a strict JSON object, no markdown fences, no extra text. " +
         'Schema: {"title":"...","slides":[{"title":"...","bullets":["..."],"notes":"..."}]}. ' +
-        "Every slide needs a short title and 2-5 short bullets. Notes are one sentence of speaker notes.";
+        "Every slide needs a short title and 2-5 short bullets. Notes are one sentence of speaker notes. " +
+        `Write the deck title, every slide title, every bullet and every speaker note ENTIRELY in ${langMeta.scriptNote}. ` +
+        "Do not write any slide content in any other language.";
       const deckOut = await chatJson<Deck>(
         [
           {
             role: "user",
             content:
               `Create a presentation outline about: ${topic.trim()}\n` +
-              `Number of slides: ${n}\nAudience / purpose: ${audience}\nLanguage: ${language}\n` +
-              "Write all titles, bullets and notes in the requested language.",
+              `Number of slides: ${n}\nAudience / purpose: ${audience}\n` +
+              `Language: ${langMeta.label} — write ALL titles, bullets and notes in ${langMeta.scriptNote}. ` +
+              "Do not use English for any slide content, except a proper noun or technical term that has no translation in that language.",
           },
         ],
         system,
@@ -242,6 +270,15 @@ export default function SlidesPage() {
 
   const slide = deck.slides[Math.min(current, deck.slides.length - 1)];
 
+  // R3-D: the preview + editor render in the deck language's direction.
+  // The selector wins; Arabic-script content wins as a fallback (a
+  // saved Pashto deck loaded while the selector still says English).
+  const langMeta = LANG_META[language] ?? LANG_META.English;
+  const deckRtl =
+    langMeta.rtl ||
+    isRtlText(slide?.title ?? "") ||
+    isRtlText(slide?.bullets?.find(Boolean) ?? "");
+
   return (
     <AppShell title={t("slides")} subtitle={t("slidesSubtitle")} icon="presentation">
       <div className="space-y-4">
@@ -311,18 +348,25 @@ export default function SlidesPage() {
           </span>
         </div>
         {slide && (
+          // R3-D: explicit deck direction (was dir="auto" on the whole
+          // card, which left RTL alignment to chance). Each text node
+          // is still dir="auto" so a mixed-language line follows its
+          // own first strong character. On phones the card grows to fit
+          // the slide instead of aspect-video + overflow-hidden, which
+          // silently clipped long slides; on sm+ it keeps 16:9 but
+          // scrolls internally rather than clipping.
           <div
-            className="aspect-video w-full overflow-hidden rounded-xl p-5 sm:p-8"
+            className="min-h-[220px] w-full overflow-y-auto rounded-xl p-4 sm:aspect-video sm:p-8"
             style={{ background: theme.bg, color: theme.text }}
-            dir="auto"
+            dir={deckRtl ? "rtl" : "ltr"}
           >
             <div className="h-1.5 w-16 rounded-full" style={{ background: theme.accent }} />
-            <h3 className="mt-4 text-lg font-bold leading-snug sm:text-2xl">{slide.title}</h3>
+            <h3 dir="auto" className="mt-4 break-words text-lg font-bold leading-snug sm:text-2xl">{slide.title}</h3>
             <ul className="mt-3 space-y-1.5 text-sm sm:text-base" style={{ color: theme.sub }}>
               {slide.bullets.filter(Boolean).map((b, i) => (
                 <li key={i} className="flex gap-2">
-                  <span style={{ color: theme.accent }}>•</span>
-                  <span>{b}</span>
+                  <span aria-hidden className="shrink-0" style={{ color: theme.accent }}>•</span>
+                  <span dir="auto" className="min-w-0 break-words">{b}</span>
                 </li>
               ))}
               {slide.bullets.filter(Boolean).length === 0 && (
@@ -330,28 +374,37 @@ export default function SlidesPage() {
               )}
             </ul>
             {slide.notes.trim() && (
-              <p className="mt-4 text-xs italic opacity-70">Notes: {slide.notes}</p>
+              <p dir="auto" className="mt-4 break-words text-xs italic opacity-70">Notes: {slide.notes}</p>
             )}
           </div>
         )}
-        <div className="mt-3 flex items-center justify-between gap-2">
-          <Btn variant="outline" size="sm" onClick={() => setCurrent((c) => Math.max(0, c - 1))} disabled={current === 0}>
-            <Icon name="arrowLeft" size={16} className="inline-block align-middle rtl:rotate-180" /> Previous
+        {/* R3-D: the nav row is FORCED dir="ltr" (same trick as the
+            AppShell header): Previous is physically LEFT and Next is
+            physically RIGHT in every language. The old flex row flipped
+            with the page direction, so in the user's RTL screenshot
+            Next sat on the left and Previous on the right. The arrows
+            no longer rotate — in this LTR row left-arrow = Previous
+            (left) and right-arrow = Next (right), always. The dots row
+            can wrap and never squeezes the buttons, so 15 slides fit
+            at 390px. */}
+        <div dir="ltr" className="mt-3 flex items-center justify-between gap-2">
+          <Btn variant="outline" size="sm" className="shrink-0 whitespace-nowrap" onClick={() => setCurrent((c) => Math.max(0, c - 1))} disabled={current === 0}>
+            <Icon name="arrowLeft" size={16} className="inline-block align-middle" /> Previous
           </Btn>
-          <div className="flex gap-1.5">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center justify-center gap-1.5 px-1">
             {deck.slides.map((_, i) => (
               <button
                 key={i}
                 type="button"
                 onClick={() => setCurrent(i)}
                 aria-label={`Go to slide ${i + 1}`}
-                className="h-2.5 w-2.5 rounded-full"
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
                 style={{ background: i === current ? theme.accent : "var(--card-border)" }}
               />
             ))}
           </div>
-          <Btn variant="outline" size="sm" onClick={() => setCurrent((c) => Math.min(deck.slides.length - 1, c + 1))} disabled={current >= deck.slides.length - 1}>
-            Next <Icon name="arrowRight" size={16} className="ms-1 inline-block align-middle rtl:rotate-180" />
+          <Btn variant="outline" size="sm" className="shrink-0 whitespace-nowrap" onClick={() => setCurrent((c) => Math.min(deck.slides.length - 1, c + 1))} disabled={current >= deck.slides.length - 1}>
+            Next <Icon name="arrowRight" size={16} className="ms-1 inline-block align-middle" />
           </Btn>
         </div>
       </Card>
@@ -365,13 +418,20 @@ export default function SlidesPage() {
         {deck.slides.map((s, i) => (
           <Card key={i} className={i === current ? "ring-2 ring-[var(--brand2)]" : ""}>
             <div className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Slide {i + 1}</span>
-                <div className="flex gap-1">
-                  <Btn variant="ghost" size="sm" onClick={() => moveSlide(i, -1)} disabled={i === 0} aria-label="Move slide up"><Icon name="arrowUp" size={16} /></Btn>
-                  <Btn variant="ghost" size="sm" onClick={() => moveSlide(i, 1)} disabled={i === deck.slides.length - 1} aria-label="Move slide down"><Icon name="arrowDown" size={16} /></Btn>
-                  <Btn variant="ghost" size="sm" onClick={() => setCurrent(i)}>Preview</Btn>
-                  <Btn variant="danger" size="sm" onClick={() => deleteSlide(i)} disabled={deck.slides.length <= 1}>{t("delete")}</Btn>
+              {/* R3-D: this row used to be a single no-wrap flex row with
+                  4 buttons + the label in ~330px, so the red Delete
+                  button («رنګ کړه») wrapped to two lines and rendered
+                  as a tall red block (user's screenshot). The buttons
+                  are now nowrap + shrink-0 and the row may wrap, so
+                  nothing wraps inside a button and overflow drops to a
+                  second line gracefully instead. */}
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Slide {i + 1}</span>
+                <div className="flex flex-wrap gap-1">
+                  <Btn variant="ghost" size="sm" className="shrink-0 whitespace-nowrap" onClick={() => moveSlide(i, -1)} disabled={i === 0} aria-label="Move slide up"><Icon name="arrowUp" size={16} /></Btn>
+                  <Btn variant="ghost" size="sm" className="shrink-0 whitespace-nowrap" onClick={() => moveSlide(i, 1)} disabled={i === deck.slides.length - 1} aria-label="Move slide down"><Icon name="arrowDown" size={16} /></Btn>
+                  <Btn variant="ghost" size="sm" className="shrink-0 whitespace-nowrap" onClick={() => setCurrent(i)}>Preview</Btn>
+                  <Btn variant="danger" size="sm" className="shrink-0 whitespace-nowrap" onClick={() => deleteSlide(i)} disabled={deck.slides.length <= 1}>{t("delete")}</Btn>
                 </div>
               </div>
               <Field label="Title">
