@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { listChats, deleteChat } from "@/lib/chats";
 import { store, type Settings } from "@/lib/store";
 import { CURATED_VOICES, defaultVoiceForLang } from "@/lib/voices";
+import { LIVE_CALL_COLORS, resolveLiveCallColor, liveCallTextColor, applyLiveCallColor } from "@/lib/liveCallColor";
 import { playGeminiSpeech, detectTextLang, type GeminiAudio } from "@/lib/voice";
 import UserAvatar, { AVATAR_GRADIENTS, AUTO_GRADIENT_BACKGROUND, initialsOf } from "@/components/UserAvatar";
 
@@ -80,7 +81,7 @@ export default function SettingsPage() {
     const sample = t(lang, "voicePreviewText");
     let played: GeminiAudio | null = null;
     try {
-      played = await playGeminiSpeech(sample, detectTextLang(sample), () => {
+      played = await playGeminiSpeech(sample, detectTextLang(sample, lang), () => {
         previewAudioRef.current = null;
         setPreviewVoice(null);
       }, voiceId);
@@ -137,6 +138,9 @@ export default function SettingsPage() {
       const next = { ...store.settings(), ...patch };
       store.saveSettings(next);
       setSettings(next);
+      // Re-apply the live-call colour vars immediately, so the
+      // buttons + orb follow a new choice without a reload.
+      applyLiveCallColor();
     } catch {
       // ignore
     }
@@ -483,6 +487,33 @@ export default function SettingsPage() {
             })}
           </div>
           <p className="mt-2 text-xs leading-relaxed text-[var(--muted)]">{t(lang, "voiceAutoHint")}</p>
+          {/* Live-call colour (founder 2026-11-25): whatever colour
+              is picked here, the home live-call button AND the
+              voice-screen orb take it. Blue is the default. */}
+          <p className="mt-4 text-sm font-bold">{t(lang, "liveCallColor")}</p>
+          <div className="mt-2 flex flex-wrap gap-2" role="radiogroup" aria-label={t(lang, "liveCallColor")}>
+            {LIVE_CALL_COLORS.map((c) => {
+              const selected = resolveLiveCallColor(settings.liveCallColor) === c.hex;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  aria-label={c.name}
+                  onClick={() => updateSettings({ liveCallColor: c.hex })}
+                  className="flex h-10 w-10 items-center justify-center rounded-full transition active:scale-95"
+                  style={{ backgroundColor: c.hex }}
+                >
+                  {selected && (
+                    <span style={{ color: liveCallTextColor(c.hex) }}>
+                      <Icon name="check" size={16} />
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
         </>
       ) : (
         <p className="text-sm text-[var(--muted)]">{t(lang, "loading")}</p>

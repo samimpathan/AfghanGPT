@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "@/components/icons";
-import Image from "next/image";
+import Markdown from "@/components/Markdown";
+import { LiveCallAvatar } from "@/components/LiveCallAvatar";
 import { t, type Lang } from "@/lib/i18n";
 import { store } from "@/lib/store";
 import { authHeaders } from "@/lib/client";
@@ -73,7 +74,7 @@ const LIVE_MODELS = [
   "gemini-2.5-flash-native-audio-preview-12-2025",
 ] as const;
 
-const LIVE_SYSTEM = `You are AfghanGPT ("د افغانانو مرستیال"), the free voice AI assistant built by Abdul Samim Niazai (Samim Pathan), founder of DevConnect and creator of AfghanGPT. You are the AI he built — never confuse the founder with yourself, and never claim to be him. His name in Pashto is "عبدالصمیم نیازی" — always say it and spell it exactly like this, never "عبدالسمیع". Always spell his Latin name exactly "Abdul Samim Niazai". Your name is "AfghanGPT" — always write it exactly like this in Latin letters, never transliterate it into Pashto, Dari or Arabic script. You are talking to the user by voice, live. Answer in the user's language — Pashto by default, otherwise the language they speak in. Keep spoken answers short and simple, like a natural conversation. You are an expert in all technology — programming, websites, mobile apps, AI, databases, networking, cybersecurity, hardware and cloud — as well as teaching English and general knowledge. If the user shows you their screen or camera, describe and help with what you see. Never claim to be Muse, ChatGPT, or Google. If the user asks for porn, adult or sexy content, do not generate it — reply only in Pashto: "دا محتوا نه لرو. نور هر رقم پوښتنه کولای شې — پروګرامینګ، ویبسایټ، انګلیسی او نور — په خوښۍ به دې مرسته وکړم."`;
+const LIVE_SYSTEM = `You are AfghanGPT ("د افغانانو مرستیال"), the free voice AI assistant built by Abdul Samim Niazai (Samim Pathan), founder of DevConnect and creator of AfghanGPT. You are the AI he built — never confuse the founder with yourself, and never claim to be him. His name in Pashto is "عبدالصمیم نیازی" — always say it and spell it exactly like this, never "عبدالسمیع". Always spell his Latin name exactly "Abdul Samim Niazai". Your name is "AfghanGPT" — always write it exactly like this in Latin letters, never transliterate it into Pashto, Dari or Arabic script. You are talking to the user by voice, live. Answer in the user's language — Pashto by default, otherwise the language they speak in. Keep spoken answers short and simple, like a natural conversation. Speak standard Pashto with correct pronunciation: pronounce every word clearly and at a natural, unhurried pace, with the true Pashto sounds (like ړ, ږ, ښ and څ), never with Persian or Dari pronunciation, and use Pashto words, not Persian ones. You are an expert in all technology — programming, websites, mobile apps, AI, databases, networking, cybersecurity, hardware and cloud — as well as teaching English and general knowledge. If the user shows you their screen or camera, describe and help with what you see. Never claim to be Muse, ChatGPT, or Google. If the user asks for porn, adult or sexy content, do not generate it — reply only in Pashto: "دا محتوا نه لرو. نور هر رقم پوښتنه کولای شې — پروګرامینګ، ویبسایټ، انګلیسی او نور — په خوښۍ به دې مرسته وکړم."`;
 
 type Phase = "connecting" | "live" | "fallback" | "error";
 type TranscriptLine = { role: "user" | "assistant"; text: string };
@@ -83,15 +84,33 @@ type TranscriptLine = { role: "user" | "assistant"; text: string };
  * generative-ai/docs/live-api/configure-language-voice).
  * The Live models switch languages naturally and follow the
  * system instruction; languageCode only steers the TTS voice.
- * Only codes Google lists for Live are sent (en-US, ar-EG are in
- * the published list). Pashto/Dari omit it - sending an unlisted
- * code could fail setup - and the system instruction + automatic
- * input detection (languageCodes: [] below) carry the language
- * instead. */
+ * The base list (every Live model) is en-US, ar-EG and the rest —
+ * it has NEITHER Pashto nor Persian. Pashto ("ps") and Persian
+ * ("fa") are listed ONLY under "Additional languages supported
+ * by Gemini 3.8 Live", so they are sent only for gemini-3.8-live
+ * (see liveVoiceLang below) — sending an unlisted code to the
+ * 2.5 fallback model could fail its setup. Before 2026-11-25 the
+ * code omitted ps/fa for every model, so the voice had no Pashto
+ * hint at all and could read Pashto with the wrong (Persian)
+ * pronunciation — the founder's "املا غلطه وایی" complaint.
+ * Input detection (languageCodes: [] below) carries the language
+ * for listening; this code steers the spoken reply. */
 const LIVE_VOICE_LANG: Partial<Record<Lang, string>> = {
   en: "en-US",
   ar: "ar-EG",
+  ps: "ps",
+  fa: "fa",
 };
+
+/** languageCode for the Live setup: the base codes (en-US, ar-EG)
+ * go to every model; ps/fa go only to gemini-3.8-live, the only
+ * model Google lists them for. */
+function liveVoiceLang(lang: Lang, model: string): string | undefined {
+  if (lang === "ps" || lang === "fa") {
+    return model === "gemini-3.8-live" ? LIVE_VOICE_LANG[lang] : undefined;
+  }
+  return LIVE_VOICE_LANG[lang];
+}
 
 function b64FromInt16(samples: Int16Array): string {
   const bytes = new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength);
@@ -202,6 +221,10 @@ export default function LiveCall({
   const frameTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const micOnRef = useRef(false);
   const transcriptRef = useRef<TranscriptLine[]>([]);
+  /** True once the current spoken turn is finished (turnComplete /
+   * interrupted, or a discrete addLine) — the next transcription
+   * chunk starts a new line instead of appending to the last one. */
+  const turnClosedRef = useRef(false);
   const stoppedRef = useRef(false);
   const fallbackRecRef = useRef<MediaRecorder | null>(null);
   const fallbackChunksRef = useRef<Blob[]>([]);
@@ -211,6 +234,36 @@ export default function LiveCall({
   const addLine = useCallback((role: "user" | "assistant", text: string) => {
     const line = { role, text };
     transcriptRef.current = [...transcriptRef.current, line];
+    // A discrete line is a complete turn: a later transcription
+    // chunk must never append to it (e.g. to a typed or fallback
+    // reply).
+    turnClosedRef.current = true;
+    setTranscript(transcriptRef.current);
+  }, []);
+
+  /** Join one live-transcription chunk onto the current line.
+   * The Live server sends output/inputTranscription events a few
+   * words at a time as speech is produced — each event used to
+   * become its own transcript line, so one spoken reply joined
+   * the chat as ~7 bubbles (founder's 2026-11-25 screenshot).
+   * Chunks of the same turn now accumulate into the one open
+   * line; a new line starts only when the speaker changes or the
+   * turn closed (turnComplete / interrupted / addLine). A chunk
+   * that already contains the whole line (cumulative re-send)
+   * replaces it instead of duplicating it. */
+  const appendTranscription = useCallback((role: "user" | "assistant", text: string) => {
+    if (!text) return;
+    const lines = transcriptRef.current;
+    const last = lines[lines.length - 1];
+    if (last && last.role === role && !turnClosedRef.current) {
+      const merged = text.startsWith(last.text)
+        ? text
+        : last.text + (/\s$/.test(last.text) || /^\s/.test(text) ? "" : " ") + text;
+      transcriptRef.current = [...lines.slice(0, -1), { role, text: merged }];
+    } else {
+      transcriptRef.current = [...lines, { role, text }];
+      turnClosedRef.current = false;
+    }
     setTranscript(transcriptRef.current);
   }, []);
 
@@ -582,6 +635,7 @@ export default function LiveCall({
           // call "timed out" before setup could finish. 30s from
           // open.
           setupTimer = setTimeout(() => settle(false), 30000);
+          const voiceLang = liveVoiceLang(lang, model);
           const setupPayload = JSON.stringify({
             setup: {
               model: `models/${model}`,
@@ -596,13 +650,10 @@ export default function LiveCall({
                       voiceName: resolveVoice(store.settings().voice, lang),
                     },
                   },
-                  // Voice language, only for codes Google lists for
-                  // the Live models (see LIVE_VOICE_LANG above).
-                  // Pashto/Dari omit it — the system instruction
-                  // + automatic detection carry the language.
-                  ...(LIVE_VOICE_LANG[lang]
-                    ? { languageCode: LIVE_VOICE_LANG[lang] }
-                    : {}),
+                  // Voice language: base codes go to every model,
+                  // ps/fa only to gemini-3.8-live (see
+                  // LIVE_VOICE_LANG above).
+                  ...(voiceLang ? { languageCode: voiceLang } : {}),
                 },
               },
               systemInstruction: { parts: [{ text: LIVE_SYSTEM }] },
@@ -664,11 +715,14 @@ export default function LiveCall({
           }
           const sc = msg.serverContent;
           if (!sc) return;
-          if (sc.inputTranscription?.text) addLine("user", sc.inputTranscription.text);
-          if (sc.outputTranscription?.text) addLine("assistant", sc.outputTranscription.text);
+          if (sc.inputTranscription?.text) appendTranscription("user", sc.inputTranscription.text);
+          if (sc.outputTranscription?.text) appendTranscription("assistant", sc.outputTranscription.text);
           for (const part of sc.modelTurn?.parts ?? []) {
             if (part.inlineData?.data) playPcmChunk(part.inlineData.data);
           }
+          // The turn is over: the next transcription chunk belongs
+          // to a new line, not to this reply.
+          if (sc.turnComplete || sc.interrupted) turnClosedRef.current = true;
           if (sc.interrupted) setSpeaking(false);
         };
         ws.onerror = () => {
@@ -706,7 +760,7 @@ export default function LiveCall({
         };
       });
     },
-    [addLine, playPcmChunk, lang, setNote]
+    [addLine, appendTranscription, playPcmChunk, lang, setNote]
   );
 
   /** Try the Live API; on any failure switch to push-to-talk. */
@@ -914,7 +968,7 @@ export default function LiveCall({
       }
       if (!full.trim()) return;
       addLine("assistant", full);
-      const replyLang = detectTextLang(full);
+      const replyLang = detectTextLang(full, lang);
       setSpeaking(true);
       if (hasSpeechVoice(replyLang)) {
         const ok = speakText(full, replyLang, () => setSpeaking(false));
@@ -1173,31 +1227,6 @@ export default function LiveCall({
     </p>
   );
 
-  /** The orb: big centre ball, or the small bottom ball while a
-   * reply is on screen (reference voice screen). Same blue/cyan
-   * gradient and breathing animation at both sizes; the founder
-   * photo sits inside it, shown FULL (no zoom) at every size. */
-  const orb = (small: boolean) => (
-    <div
-      className={`voice-orb flex items-center justify-center rounded-full ${
-        small ? "h-20 w-20" : "h-72 w-72 sm:h-80 sm:w-80"
-      } ${speaking ? "voice-orb-speaking" : ""}`}
-    >
-      <span
-        className={`ai-avatar-frame ring-4 ring-white/60 ${small ? "h-9 w-9" : "h-32 w-32"}`}
-      >
-        <Image
-          src="/avatar.jpg"
-          alt="AfghanGPT"
-          width={128}
-          height={128}
-          className="ai-avatar-img"
-          priority
-        />
-      </span>
-    </div>
-  );
-
   /** Friendly fallback note (unchanged text, shared by both
    * layouts). */
   const errorBlock = errorNote ? (
@@ -1367,19 +1396,19 @@ export default function LiveCall({
                     </p>
                   </div>
                 ) : (
-                  <p
-                    key={idx}
-                    dir="auto"
-                    className="bidi-plaintext mb-3 text-sm leading-relaxed"
-                  >
-                    {l.text}
-                  </p>
+                  // Assistant lines render Markdown like the main
+                  // chat — a reply such as "**عبدالصمیم نیازی**"
+                  // used to show its literal asterisks here
+                  // (preview re-test 2026-11-25).
+                  <div key={idx} className="mb-3">
+                    <Markdown text={l.text} lang={lang} />
+                  </div>
                 )
               )}
             </div>
           </div>
           <div className="flex flex-col items-center pb-1 pt-2">
-            {orb(true)}
+            <LiveCallAvatar speaking={speaking} small />
             <p className="mt-2 text-xs font-medium text-slate-600 dark:text-slate-300">
               {statusText}
             </p>
@@ -1391,7 +1420,7 @@ export default function LiveCall({
       ) : (
         /* Big-orb layout: the orb fills the centre while listening. */
         <div className="flex flex-1 flex-col items-center justify-center px-6">
-          {orb(false)}
+          <LiveCallAvatar speaking={speaking} />
           <p className="mt-5 text-lg font-bold">{t(lang, "appShort")}</p>
           <p className="mt-1 text-sm text-slate-600 dark:text-slate-300">
             {statusText}
@@ -1489,7 +1518,7 @@ export default function LiveCall({
               }}
               placeholder={tx("askSamim", "Ask AfghanGPT")}
               disabled={voiceSending}
-              className="min-w-0 flex-1 bg-transparent text-sm text-[var(--foreground)] outline-none placeholder:text-slate-500 disabled:opacity-50 dark:text-white"
+              className="voice-composer-input min-w-0 flex-1 bg-transparent text-sm text-[var(--foreground)] outline-none placeholder:text-slate-500 disabled:opacity-50 dark:text-white"
               aria-label={tx("askSamim", "Ask AfghanGPT")}
             />
             {voiceText.trim() !== "" && (

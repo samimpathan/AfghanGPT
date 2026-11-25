@@ -41,6 +41,11 @@ export type Settings = {
    * "" = automatic — Kore for Pashto/Dari, Puck for English
    * (the behaviour before the picker existed). */
   voice: string;
+  /** Chosen live-call colour (hex, e.g. "#2457FF").
+   * "" = default blue. The home live-call button AND the
+   * voice-screen orb take this colour (founder 2026-11-25);
+   * nothing else in the app is recoloured. */
+  liveCallColor: string;
   displayName: string;
   /** Conversation memory: facts the AI remembers about the user.
    * Only included in the system prompt when memoryEnabled is true;
@@ -83,6 +88,7 @@ export const DEFAULT_SETTINGS: Settings = {
   avatarDataUrl: "",
   avatarGradient: "",
   voice: "",
+  liveCallColor: "",
   displayName: "",
 };
 

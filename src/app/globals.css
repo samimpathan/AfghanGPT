@@ -313,25 +313,53 @@ body {
    /avatar-video.mp4 is Samim typing/coding at a laptop with
    headphones (720×720, 5s loop). His face sits left of centre
    (≈ 40% / 21%) and BOTH hands stay on the keyboard (≈ y 68–78%)
-   through the whole clip (checked at 1s, 3s and 5s). The OLD crop
-   (1.9× zoom at 40% / 22%) showed the face only and cut the hands
-   out entirely — the user asked 2026-11-25 that the hands MUST be
-   visible coding. New crop: 1.15× at 50% / 42% keeps the face,
-   shoulders, both hands on the keyboard and the laptop in the
-   circle, so it is fully clear he is coding. Same sizing as
-   .ai-avatar-img so it swaps in place with no layout shift. The
-   video plays ONLY while an answer streams (TypingDots, and the
-   streaming reply in ChatMessage) — completed replies and the home
-   hero show the static photo (founder order 2026-11-25). The clip
-   is preloaded in the root layout so slow connections have it
-   cached before the first reply. */
+   through the whole clip (checked at 1s, 3s and 5s). NO ZOOM
+   (founder order 2026-11-25, seated framing): the old 1.15×
+   scale is removed — the video now shows the WHOLE 720×720
+   frame in the circular thumbnail, face + shoulders + both hands
+   on the keyboard + laptop, nothing cropped away by a transform.
+   The video plays ONLY while an answer streams (TypingDots, and
+   the streaming reply in ChatMessage) — completed replies and
+   the home hero show the static photo (founder order
+   2026-11-25). The clip is preloaded in the root layout so slow
+   connections have it cached before the first reply.
+   HONEST LIMIT (2026-11-25): this clip does NOT match the
+   seated photo's framing — it is a different pose (headphones,
+   laptop, side view, typing) while the photo is front-facing
+   with clasped hands. A matching "speaking to camera" clip
+   needs a new recording from the founder; no code can re-shoot
+   it. */
 .ai-avatar-video {
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transform: scale(1.15);
-  transform-origin: 50% 42%;
+}
+
+/* Seated avatar stage (voice screen, founder order 2026-11-25)
+   — /avatar.jpg is Samim SEATED (1600×1600, head to knees,
+   blue shirt + black checkered vest, both arms, hands clasped,
+   plain light background). The stage shows the WHOLE seated
+   figure: object-fit contain in a square frame, NO transform,
+   NO zoom, NO crop — head, hands and knees are all inside the
+   frame, exactly as in the photo. The "head to toe" wording in
+   the original request was a mistake (founder correction
+   2026-11-25): feet are NOT shown, the avatar is seated.
+   The stage sits inside the glowing voice orb; the orb's
+   breathing/speaking pulse scales the whole orb (a speaking
+   indicator), never the photo's framing. */
+.ai-avatar-stage {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 1.5rem;
+  background: #e8edf5;
+}
+.ai-avatar-stage-img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 /* Voice orb bars (live call + voice mode). */
@@ -356,20 +384,26 @@ body {
 /* Voice-mode orb (AfghanGPT's OWN blue/cyan — NOT ChatGPT's
    gold): a big cool radial glow in the brand colours (#2457FF /
    #00D4FF). It breathes slowly while listening and pulses harder
-   while the AI speaks. Pure CSS design element. */
+   while the AI speaks. Pure CSS design element. The gradient and
+   glow are driven by CSS variables (--orb-a/b/c/main/deep/rgb)
+   set on <html> by applyLiveCallColor() (Providers mount +
+   Settings save); the fallbacks below ARE the default blue, so
+   with no choice stored the orb looks exactly as before.
+   Picking another colour in Settings re-tints the whole orb +
+   glow to that colour. */
 @keyframes voice-orb-breathe {
   0%,
   100% {
     transform: scale(1);
     box-shadow:
-      0 0 60px 10px rgba(36, 87, 255, 0.55),
-      0 0 120px 30px rgba(0, 212, 255, 0.25);
+      0 0 60px 10px rgba(var(--orb-rgb, 36, 87, 255), 0.55),
+      0 0 120px 30px rgba(var(--orb-c-rgb, 0, 212, 255), 0.25);
   }
   50% {
     transform: scale(1.05);
     box-shadow:
-      0 0 80px 18px rgba(36, 87, 255, 0.65),
-      0 0 150px 45px rgba(0, 212, 255, 0.3);
+      0 0 80px 18px rgba(var(--orb-rgb, 36, 87, 255), 0.65),
+      0 0 150px 45px rgba(var(--orb-c-rgb, 0, 212, 255), 0.3);
   }
 }
 @keyframes voice-orb-speaking {
@@ -377,24 +411,24 @@ body {
   100% {
     transform: scale(1);
     box-shadow:
-      0 0 70px 14px rgba(36, 87, 255, 0.7),
-      0 0 140px 40px rgba(0, 212, 255, 0.35);
+      0 0 70px 14px rgba(var(--orb-rgb, 36, 87, 255), 0.7),
+      0 0 140px 40px rgba(var(--orb-c-rgb, 0, 212, 255), 0.35);
   }
   50% {
     transform: scale(1.12);
     box-shadow:
-      0 0 110px 30px rgba(36, 87, 255, 0.85),
-      0 0 190px 60px rgba(0, 212, 255, 0.4);
+      0 0 110px 30px rgba(var(--orb-rgb, 36, 87, 255), 0.85),
+      0 0 190px 60px rgba(var(--orb-c-rgb, 0, 212, 255), 0.4);
   }
 }
 .voice-orb {
   background: radial-gradient(
     circle at 50% 38%,
-    #e0f2fe 0%,
-    #67e8f9 25%,
-    #00d4ff 50%,
-    #2457ff 78%,
-    #1d4ed8 100%
+    var(--orb-a, #e0f2fe) 0%,
+    var(--orb-b, #67e8f9) 25%,
+    var(--orb-c, #00d4ff) 50%,
+    var(--orb-main, #2457ff) 78%,
+    var(--orb-deep, #1d4ed8) 100%
   );
   animation: voice-orb-breathe 3.2s ease-in-out infinite;
 }
@@ -501,6 +535,18 @@ body {
  * comes later in the file, so it wins at equal specificity. */
 .composer-textarea:focus,
 .composer-textarea:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Voice-mode composer input: never show an outline or ring on
+ * focus (founder 2026-11-25 — the blue outline around the pill
+ * must be gone). Same pattern as .composer-textarea above: this
+ * rule is more specific than the global :focus-visible rule, so
+ * it wins. The pill itself keeps its background + shadow; only
+ * the outline goes. */
+.voice-composer-input:focus,
+.voice-composer-input:focus-visible {
   outline: none;
   box-shadow: none;
 }

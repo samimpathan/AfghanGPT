@@ -135,10 +135,19 @@ const PASHTO_ONLY = /[ځڅډړږښګڼېۍ]/;
 
 /** Detect a message's language: "ps" | "fa" | "en".
  * Arabic-script text with Pashto-only letters is Pashto; other
- * Arabic-script text is Dari; anything else is English. */
-export function detectTextLang(text: string): "ps" | "fa" | "en" {
+ * Arabic-script text is Dari; anything else is English.
+ * AMBIGUOUS CASE (2026-11-25, the founder's "املا غلطه وایی"
+ * complaint): short Pashto with NO Pashto-only letter — e.g. the
+ * app's own voice-preview sample "سلام! زه AfghanGPT یم، ستا
+ * مرستیال." — has no ځ څ ډ ړ ږ ښ ګ ڼ ې ۍ, so it used to read as
+ * "fa" and the TTS read Pashto with Persian pronunciation. The
+ * `fallback` (the UI language, passed by callers) now decides
+ * those lines: Pashto UI → "ps", Dari UI → "fa". */
+export function detectTextLang(text: string, fallback: Lang = "fa"): "ps" | "fa" | "en" {
   if (PASHTO_ONLY.test(text)) return "ps";
-  if (/[\u0600-\u06FF\u0750-\u077F]/.test(text)) return "fa";
+  if (/[\u0600-\u06FF\u0750-\u077F]/.test(text)) {
+    return fallback === "ps" || fallback === "fa" ? fallback : "fa";
+  }
   return "en";
 }
 

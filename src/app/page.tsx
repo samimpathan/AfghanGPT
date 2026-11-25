@@ -10,11 +10,12 @@ import UserAvatar from "@/components/UserAvatar";
 import { Icon } from "@/components/icons";
 import { useUi } from "@/components/Providers";
 import { useEdgeSwipeDrawer } from "@/lib/useEdgeSwipe";
-import { t, dirOf } from "@/lib/i18n";
+import { t, dirOf, type Lang } from "@/lib/i18n";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { isAdminEmail } from "@/lib/admin";
 import { store } from "@/lib/store";
 import { STUDIOS } from "@/lib/studios";
+import { LIVE_CALL_BUTTON_VAR_STYLE } from "@/lib/liveCallColor";
 import { downloadFileSpec, authHeaders } from "@/lib/client";
 import type { FileSpec } from "@/lib/filegen";
 import {
@@ -130,47 +131,60 @@ function downscaleImage(file: File): Promise<string> {
 }
 
 /** Three animated dots + the AI avatar + shimmer lines while generating. */
-function TypingDots() {
-  /** The answering video failed to load — fall back to the photo. */
+/** Raised avatar state (founder order 2026-11-25): while the AI is
+    genuinely writing (streaming === true) the avatar stands RAISED
+    like the hero in the founder's screenshot — the WHOLE seated
+    photo, prominent, with the real answering VIDEO playing in the
+    circle on top and the real "thinking" status. It mounts and
+    unmounts from the real streaming state only — never a timer.
+    When streaming ends it unmounts and the chat is back to the
+    normal standing state (static photo in the empty-state hero and
+    in the completed message). The big photo uses .ai-avatar-stage
+    (object-fit contain, no transform, no zoom, no crop — head,
+    hands and knees all inside the frame). The video circle is
+    circular by design, exactly as in the screenshot; the subject
+    (face + hands + laptop) stays fully inside it and the old
+    1.15× zoom is removed. If the video fails, the photo shows in
+    the circle instead. No fake movement is added: the only motion
+    is the real video footage and the three thinking dots (a UI
+    indicator, not body movement). */
+function WritingHero({ name, lang }: { name: string; lang: Lang }) {
   const [videoFailed, setVideoFailed] = useState(false);
   return (
-    // dir="ltr" — same fix as the assistant message rows (commit
-    // 5d736e2): the AI avatar + dots sit on the LEFT in both RTL
-    // and LTR. Without it the avatar lands on the right in Pashto/
-    // Dari while the answer it precedes has its avatar on the left.
-    <div dir="ltr" className="msg-in flex min-w-0 items-start gap-3">
-      {/* AI avatar frame (see globals.css .ai-avatar-frame):
-          /avatar.jpg is the square founder portrait, shown whole
-          (no zoom — founder order 2026-11-25). TypingDots
-          only mounts while an answer is being generated, so the
-          answering video (/avatar-video.mp4, muted loop) plays
-          here in place of the photo; if it fails, the photo
-          shows instead. */}
-      <span className="ai-avatar-frame mt-1 h-8 w-8 ring-1 ring-black/5 dark:ring-[var(--card-border)]">
-        {!videoFailed ? (
-          <video
-            src="/avatar-video.mp4"
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="auto"
-            aria-hidden="true"
-            onError={() => setVideoFailed(true)}
-            className="ai-avatar-video"
-          />
-        ) : (
-          <img src="/avatar.jpg" alt="" className="ai-avatar-img" />
-        )}
-      </span>
-      <div className="min-w-0 flex-1">
-        <span className="flex items-center gap-1.5 px-1 py-2">
-          <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[var(--muted)]" />
-          <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[var(--muted)]" />
-          <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[var(--muted)]" />
+    <div
+      data-testid="writing-hero"
+      className="msg-in mx-auto w-full max-w-sm text-center"
+    >
+      <div className="relative pt-10">
+        <span className="ai-avatar-stage mx-auto block aspect-square w-full max-w-[260px]">
+          <img src="/avatar.jpg" alt="" className="ai-avatar-stage-img" />
         </span>
-        <div className="skeleton-shimmer mt-1 h-3 w-3/4 rounded-full" />
-        <div className="skeleton-shimmer mt-2 h-3 w-1/2 rounded-full" />
+        <span className="ai-avatar-frame absolute left-1/2 top-0 h-20 w-20 -translate-x-1/2 ring-4 ring-white/80 dark:ring-[var(--card-border)]">
+          {!videoFailed ? (
+            <video
+              src="/avatar-video.mp4"
+              autoPlay
+              muted
+              loop
+              playsInline
+              preload="auto"
+              aria-hidden="true"
+              onError={() => setVideoFailed(true)}
+              className="ai-avatar-video"
+            />
+          ) : (
+            <img src="/avatar.jpg" alt="" className="ai-avatar-img" />
+          )}
+        </span>
+      </div>
+      <div className="mt-3 inline-block rounded-2xl bg-[var(--card)] px-3.5 py-1.5 shadow-sm ring-1 ring-black/5 dark:ring-[var(--card-border)]">
+        <span className="block text-base text-[var(--foreground)]">{name}</span>
+        <span className="mt-0.5 flex items-center justify-center gap-1.5 text-xs text-[var(--muted)]">
+          <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[var(--muted)]" />
+          <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[var(--muted)]" />
+          <span className="typing-dot inline-block h-2 w-2 rounded-full bg-[var(--muted)]" />
+          {t(lang, "thinking")}
+        </span>
       </div>
     </div>
   );
@@ -1631,7 +1645,7 @@ export default function HomePage() {
       try {
         const { speakText, playGeminiSpeech, hasSpeechVoice, detectTextLang } =
           await import("@/lib/voice");
-        const replyLang = detectTextLang(last.content);
+        const replyLang = detectTextLang(last.content, lang);
         if (hasSpeechVoice(replyLang)) {
           if (speakText(last.content, replyLang, () => {})) return;
         }
@@ -2145,7 +2159,8 @@ export default function HomePage() {
                     setSidebarOpen(false);
                     setLiveCallOpen(true);
                   }}
-                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-[#FACC15] text-black transition hover:bg-[#EAB308] active:scale-95"
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full shadow-sm transition hover:brightness-95 active:scale-95"
+                  style={LIVE_CALL_BUTTON_VAR_STYLE}
                   aria-label={t(lang, "liveCall")}
                 >
                   <Icon name="waveform" size={20} />
@@ -2746,10 +2761,10 @@ export default function HomePage() {
                 works. The avatar is the STATIC founder photo
                 (/avatar.jpg) — the typing video (/avatar-video.mp4)
                 plays ONLY while the AI is actually answering (in the
-                in-progress reply, TypingDots), never on the idle home
-                screen (owner, 2026-11-25). The .ai-avatar-frame zoom
-                still applies to the photo (see globals.css); the <a>
-                itself is the frame.
+                WritingHero and the in-progress reply), never on the
+                idle home screen (owner, 2026-11-25). The
+                .ai-avatar-frame zoom still applies to the photo (see
+                globals.css); the <a> itself is the frame.
                 R3-J: avatar ABOVE the name pill, never beside it.
                 The old row looked stacked in the JSX but rendered
                 side-by-side: the unlayered .ai-avatar-frame rule
@@ -2915,8 +2930,8 @@ export default function HomePage() {
                 actionsDisabled={streaming}
               />
             ))}
-            {streaming && messages[messages.length - 1]?.content === "" && (
-              <TypingDots />
+            {streaming && (
+              <WritingHero name={userName ?? t(lang, "appShort")} lang={lang} />
             )}
             <div ref={bottomRef} />
           </div>
@@ -3048,17 +3063,20 @@ export default function HomePage() {
               placeholder={t(lang, "askSamim")}
               className="composer-textarea bidi-plaintext max-h-[112px] min-w-0 flex-1 resize-none overflow-y-auto bg-transparent px-2 py-2 text-base leading-6 text-[var(--foreground)] outline-none placeholder:text-[var(--muted)] sm:text-[17px]"
             />
-            {/* Order inside the pill: + … mic … gold wave … ↑ send.
+            {/* Order inside the pill: + … mic … live-call wave … ↑ send.
                 ROUND 5 (ChatGPT behaviour): as soon as there is text
-                (or a photo) the mic AND the gold live-call wave
+                (or a photo) the mic AND the live-call wave
                 disappear and ONLY ↑ shows — while streaming, the
                 black square stops the reply instead. With an empty
                 pill the mic + wave show and there is no send arrow.
-                One exception: while listening/recording the mic
-                STAYS (it is the only way to stop it — tapping it
-                calls startListening, which toggles off), even if
-                dictated text has already landed in the box; the
-                wave still hides while recording/listening. */}
+                The wave takes the colour picked in Settings
+                (CSS variable --live-call; default blue) — it is no
+                longer hard-coded gold. One exception: while
+                listening/recording the mic STAYS (it is the only
+                way to stop it — tapping it calls startListening,
+                which toggles off), even if dictated text has
+                already landed in the box; the wave still hides
+                while recording/listening. */}
             {(!input.trim() && !pendingImage) || listening || recording ? (
               <button
                 type="button"
@@ -3075,7 +3093,8 @@ export default function HomePage() {
               <button
                 type="button"
                 onClick={() => setLiveCallOpen(true)}
-                className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#FACC15] text-black shadow-sm transition hover:bg-[#EAB308] active:scale-95"
+                className="mb-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full shadow-sm transition hover:brightness-95 active:scale-95"
+                style={LIVE_CALL_BUTTON_VAR_STYLE}
                 aria-label={t(lang, "liveCall")}
               >
                 <Icon name="waveform" size={20} />
@@ -3196,7 +3215,7 @@ export default function HomePage() {
                     }}
                     className="flex w-full items-center gap-3 rounded-2xl px-2 py-2.5 text-[15px] hover:bg-[var(--surface-hover)]"
                   >
-                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[#FACC15] text-black"><Icon name="waveform" size={22} /></span>
+                    <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full shadow-sm" style={LIVE_CALL_BUTTON_VAR_STYLE}><Icon name="waveform" size={22} /></span>
                     {t(lang, "liveCall")}
                   </button>
                 </div>

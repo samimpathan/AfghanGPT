@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 import { dirOf, type Lang, type Theme } from "@/lib/i18n";
+import { applyLiveCallColor } from "@/lib/liveCallColor";
 
 type UiCtx = {
   lang: Lang;
@@ -41,6 +42,8 @@ export default function Providers({ children }: { children: ReactNode }) {
     } catch {
       // ignore
     }
+    // Live-call colour (Settings choice) as CSS variables on <html>.
+    applyLiveCallColor();
     setReady(true);
   }, []);
 

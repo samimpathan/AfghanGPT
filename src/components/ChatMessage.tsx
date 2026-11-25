@@ -168,7 +168,7 @@ function SpeakButton({
       setSpeaking(false);
       return;
     }
-    const replyLang = detectTextLang(text);
+    const replyLang = detectTextLang(text, lang);
     // Fast path: the device really has a voice for this language.
     if (hasSpeechVoice(replyLang)) {
       const ok = speakText(text, replyLang, () => setSpeaking(false));

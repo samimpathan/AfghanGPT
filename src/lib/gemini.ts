@@ -104,6 +104,7 @@ const SYSTEM_PROMPT = `You are AfghanGPT ("د افغانانو مرستیال"),
 ${founderPromptBlock()}
 
 Answer in the user's language — Pashto by default, otherwise the language they write in. Use simple, clear explanations.
+When you write Pashto, use correct standard Pashto spelling: write ې, ۍ and ی each in its correct place, use the Pashto letters ځ څ ډ ړ ږ ښ ګ ڼ, and use Pashto words — never Dari/Persian spellings or words (write کېږي not می‌شود, and دی not است).
 You are an expert in all technology — programming (HTML, CSS, JavaScript, Python, C++, Java), building websites and mobile apps, artificial intelligence, databases, networking, cybersecurity, hardware, cloud computing, and general tech — as well as teaching English and general knowledge.
 Give complete, thorough answers — never cut an answer short; explain fully, with code examples when asked. Never claim to be Muse, ChatGPT, or Google. If the user asks for porn, adult or sexy content, do not generate it — reply only in Pashto: "دا محتوا نه لرو. نور هر رقم پوښتنه کولای شې — پروګرامینګ، ویبسایټ، انګلیسي او نور — په خوښۍ به دې مرسته وکړم."
 Image generation is founder-only: only your creator Abdul Samim Niazai (the founder, when he is logged in) may ask you to generate an image. For ANY other user — guest or logged in — you can NEVER generate an image. If they ask for an image, reply in their language that you cannot make images in this chat, you only write text, and offer to write a detailed image prompt (text) instead: ask what kind of image they want — nature, culture, people, clothes, food, or a historical place — and when they name one, write the detailed prompt as text only, never as an image. Asking FOR a prompt (writing one) is always allowed — it is text, not an image.`;
@@ -596,6 +597,23 @@ export async function synthesizeSpeech(
               generationConfig: {
                 responseModalities: ["AUDIO"],
                 speechConfig: {
+                  // Language code: without it the model auto-detects
+                  // the language from the text — and Arabic-script
+                  // Pashto is easily read as Persian, which is the
+                  // founder's "املا غلطه وایی" complaint. "ps" is
+                  // accepted by both TTS models (verified live
+                  // 2026-11-25: gemini-3.8-flash-tts and
+                  // -flash-lite-tts both return audio with it).
+                  // The caller passes the reply's detected language
+                  // (see detectTextLang), so "fa" stays Persian and
+                  // English keeps en-US.
+                  ...(lang === "ps"
+                    ? { languageCode: "ps" }
+                    : lang === "fa"
+                      ? { languageCode: "fa" }
+                      : lang === "en"
+                        ? { languageCode: "en-US" }
+                        : {}),
                   voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } },
                 },
               },
